@@ -17,9 +17,9 @@ import { toast } from "@/components/ui/use-toast";
 const MOCK_STUDENTS: UserProfile[] = [
   {
     id: "student-1",
-    email: "alice@example.com",
+    email: "manka.c@example.com",
     role: "student",
-    full_name: "Alice Johnson",
+    full_name: "Manka'a Che",
     school: "Springfield Elementary",
     created_at: "2024-01-15T10:30:00Z",
     teacher_id: "mock-user-id",
@@ -28,9 +28,9 @@ const MOCK_STUDENTS: UserProfile[] = [
   },
   {
     id: "student-2",
-    email: "bob@example.com",
+    email: "nfor.j@example.com",
     role: "student",
-    full_name: "Bob Smith",
+    full_name: "Nfor Junior",
     school: "Springfield Elementary",
     created_at: "2024-02-10T14:45:00Z",
     teacher_id: "mock-user-id",

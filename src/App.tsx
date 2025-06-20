@@ -82,11 +82,9 @@ const AppContent = () => {
           <Route path="/student" element={<StudentDashboardLayout />}>
             <Route index element={<StudentDashboard />} />
             <Route path="assignments" element={<StudentAssignments />} />
-            {/* Assuming 'My Analysis' would show student's uploaded work analysis, maybe FeedbackView tailored for student */}
-            <Route path="analysis" element={<FeedbackView />} /> {/* Needs implementation to show student's specific analysis */}
+            <Route path="upload" element={<Upload />} />
             <Route path="progress" element={<StudentProgress />} />
-            <Route path="settings" element={<Settings />} /> {/* Re-using settings for now */}
-            {/* Redirect students from teacher paths is handled at the top level */}
+            <Route path="settings" element={<Settings />} />
           </Route>
         )}
 

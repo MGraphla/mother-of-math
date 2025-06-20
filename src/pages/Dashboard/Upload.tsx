@@ -98,12 +98,12 @@ const Upload = () => {
 
       const base64 = await fileToBase64(fileObj.file);
       const response = await sendMessage(
-        `Please analyze this student's math work and provide feedback on any errors and remediation advice.
-         If you find any errors, please categorize them and provide specific remediation steps.
-         Format your response as follows:
-         - Analysis: [Your detailed analysis]
-         - Error Type: [If any errors found, categorize them]
-         - Remediation: [Specific steps to address the errors]`,
+        `Analyze the student's math work. Your response must be direct and concise. Follow this format exactly:
+Analysis: [Provide a brief analysis, maximum 4 lines.]
+- Error Type: [Categorize the error. If none, write 'None Found'. Maximum 4 lines.]
+- Grade of student's work in percentage. maximum 4 lines.
+- Remediation: [Suggest a specific remediation step. Maximum 4 lines.]
+Do not add any extra text, introductions, or explanations.`,
         base64
       );
 

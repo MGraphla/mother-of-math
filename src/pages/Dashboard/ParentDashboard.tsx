@@ -15,12 +15,12 @@ import { toast } from "@/components/ui/use-toast";
 import { PRIMARY_GRADE_LEVELS } from "@/types";
 
 // Mock student data
-const MOCK_STUDENTS: UserProfile[] = [
+const mockChildren: UserProfile[] = [
   {
     id: "student-1",
-    email: "alice@student.example.com",
+    email: "manka.c@example.com",
     role: "student",
-    full_name: "Alice Johnson",
+    full_name: "Manka'a Che",
     school: "Springfield Elementary",
     created_at: "2024-01-15T10:30:00Z",
     teacher_id: "teacher-1",
@@ -30,9 +30,9 @@ const MOCK_STUDENTS: UserProfile[] = [
   },
   {
     id: "student-2",
-    email: "bobby@student.example.com",
+    email: "nfor.j@example.com",
     role: "student",
-    full_name: "Bobby Johnson",
+    full_name: "Nfor Junior",
     school: "Springfield Elementary",
     created_at: "2024-02-10T14:45:00Z",
     teacher_id: "teacher-1",

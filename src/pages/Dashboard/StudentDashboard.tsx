@@ -19,9 +19,9 @@ import { Progress } from "@/components/ui/progress";
 // Mock student data
 const MOCK_STUDENT: UserProfile = {
   id: "student-1",
-  email: "alice@student.example.com",
+  email: "manka.c@example.com",
   role: "student",
-  full_name: "Alice Johnson",
+  full_name: "Manka'a Che",
   school: "Springfield Elementary",
   created_at: "2024-01-15T10:30:00Z",
   teacher_id: "teacher-1",
@@ -93,7 +93,7 @@ const MOCK_FEEDBACK = [
     submission_id: "submission-1",
     created_at: "2025-06-02T10:30:00Z",
     teacher_id: "teacher-1",
-    content: "Good work, Alice! I noticed you had some trouble with regrouping in problems 3 and 5. Let's review this together in class."
+    content: "Good work, Manka'a! I noticed you had some trouble with regrouping in problems 3 and 5. Let's review this together in class."
   }
 ];
 

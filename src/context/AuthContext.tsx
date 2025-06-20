@@ -41,7 +41,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Mock user data
 const mockUser: User = {
   id: 'mock-user-id',
-  email: 'mock@example.com',
+  email: 'contact@ebaseafrica.org',
   created_at: new Date().toISOString(),
   aud: 'authenticated',
   role: 'authenticated',
@@ -51,9 +51,9 @@ const mockUser: User = {
 
 const mockProfile: UserProfile = {
   id: 'mock-user-id',
-  email: 'mock@example.com',
+  email: 'contact@ebaseafrica.org',
   role: 'teacher',
-  full_name: 'Mock User',
+  full_name: 'eBASE africa',
   created_at: new Date().toISOString(),
 };
 

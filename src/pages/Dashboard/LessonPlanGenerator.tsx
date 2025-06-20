@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { useNavigate } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -8,13 +10,15 @@ import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { PlusCircle, Trash2, Download, FileText, FileType, Send, Edit, Save, Plus, X, Loader2, Lightbulb } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { sendMessage } from '@/services/api'; // Import sendMessage
-import { exportToPDF, exportToPowerPoint } from '@/services/lessonPlan'; // Import export functions
+import { generateLessonPlan as generateLessonPlanService, exportToPDF, exportToPowerPoint, formatAIResponseAsMarkdown } from '@/services/lessonPlan';
 
 // Type definitions
 interface LessonSection {
   id: string;
-  heading: string;
+  title: string;
   keyPoints: string;
   isEditing: boolean;
   time: string; // New field for time allocation
@@ -25,6 +29,7 @@ interface LessonSection {
 interface LessonPlan {
   id?: string; // Add optional ID for saved plans
   topic: string;
+  level: string;
   sections: LessonSection[];
   generatedContent?: string; // Add generated content to the saved plan structure
 }
@@ -32,8 +37,8 @@ interface LessonPlan {
 const defaultSections: LessonSection[] = [
   { 
     id: '1', 
-    heading: 'INTRODUCTION', 
-    keyPoints: 'Lesson objectives, brief hook to engage students, link to prior knowledge.',
+    title: 'INTRODUCTION', 
+    keyPoints: 'Lesson objectives, write a brief hook to engage students, link to prior knowledge.',
     isEditing: false,
     time: '', // Initialize new fields
     teacherActivities: '',
@@ -41,8 +46,8 @@ const defaultSections: LessonSection[] = [
   },
   { 
     id: '2', 
-    heading: 'PRESENTATION', 
-    keyPoints: 'Step-by-step explanation of the new concept, examples to use, materials needed.',
+    title: 'PRESENTATION', 
+    keyPoints: 'generate a detailed lesson plan for this topic. Step-by-step explanation of the new concept, examples to use, materials needed.',
     isEditing: false,
     time: '',
     teacherActivities: '',
@@ -50,8 +55,8 @@ const defaultSections: LessonSection[] = [
   },
   { 
     id: '3', 
-    heading: 'EVALUATION', 
-    keyPoints: 'Classroom exercises, questions to ask, worksheet activities.',
+    title: 'EVALUATION', 
+    keyPoints: 'generate a detailed lesson plan for this topic. Classroom exercises, questions to ask, worksheet activities.',
     isEditing: false,
     time: '',
     teacherActivities: '',
@@ -59,8 +64,8 @@ const defaultSections: LessonSection[] = [
   },
   { 
     id: '4', 
-    heading: 'STUDENT EXERCISES', 
-    keyPoints: 'Practice problems, application exercises, differentiated tasks for various skill levels.',
+    title: 'STUDENT EXERCISES', 
+    keyPoints: 'generate a detailed lesson plan for this topic. Practice problems, application exercises, differentiated tasks for various skill levels.',
     isEditing: false,
     time: '',
     teacherActivities: '',
@@ -68,8 +73,8 @@ const defaultSections: LessonSection[] = [
   },
   { 
     id: '5', 
-    heading: 'CONCLUSION', 
-    keyPoints: 'Summary of key takeaways, assignment for homework.',
+    title: 'CONCLUSION', 
+    keyPoints: 'generate a detailed lesson plan for this topic. Summary of key takeaways, assignment for homework.',
     isEditing: false,
     time: '',
     teacherActivities: '',
@@ -80,23 +85,37 @@ const defaultSections: LessonSection[] = [
 // Remove or adapt the mock getAIGeneratedContent function as we'll use sendMessage directly
 // const getAIGeneratedContent = async (lessonPlan: LessonPlan): Promise<string> => { ... };
 
+// Helper function to check for math-related topics
+const isMathTopic = (topic: string): boolean => {
+  const mathKeywords = [
+    'math', 'mathematics', 'algebra', 'geometry', 'trigonometry', 'calculus',
+    'statistics', 'probability', 'number', 'count', 'addition', 'subtraction',
+    'multiplication', 'division', 'fraction', 'decimal', 'percent', 'equation',
+    'graph', 'shape', 'measure', 'angle', 'volume', 'area', 'perimeter'
+  ];
+  const topicLower = topic.toLowerCase();
+  return mathKeywords.some(keyword => topicLower.includes(keyword));
+};
+
 const LessonPlanGenerator: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast(); // Use the toast from the hook
   const [phase, setPhase] = useState<1 | 2 | 3 | 4>(1);
   const [topic, setTopic] = useState<string>('');
+  const [level, setLevel] = useState<string>('');
   const [lessonPlan, setLessonPlan] = useState<LessonPlan>({
     topic: '',
+    level: '',
     sections: [...defaultSections],
     generatedContent: ''
   });
   const [sections, setSections] = useState<LessonSection[]>([...defaultSections]);
   const [generatedContent, setGeneratedContent] = useState<string>('');
   const [editedContent, setEditedContent] = useState<string>('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generationStep, setGenerationStep] = useState<'idle' | 'generating_part1' | 'waiting_to_continue' | 'generating_part2' | 'ready_to_merge' | 'complete'>('idle');
-  const [generatedContentPart1, setGeneratedContentPart1] = useState<string>('');
-  const [generatedContentPart2, setGeneratedContentPart2] = useState<string>('');
+  const [rawJsonContent, setRawJsonContent] = useState<string>('');
+  const [isEditingContent, setIsEditingContent] = useState<boolean>(false);
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [generationStep, setGenerationStep] = useState<'idle' | 'generating' | 'complete'>('idle');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [savedLessonPlans, setSavedLessonPlans] = useState<LessonPlan[]>([]);
 
@@ -112,116 +131,74 @@ const LessonPlanGenerator: React.FC = () => {
   useEffect(() => {
     setLessonPlan({
       topic,
+      level,
       sections,
       generatedContent: generatedContent // Use generatedContent for the final save
     });
-  }, [topic, sections, generatedContent]); // Depend on generatedContent
+  }, [topic, level, sections, generatedContent]); // Depend on generatedContent
 
   // Generate initial lesson structure using AI based on topic
   const handleTopicSubmit = async () => {
-    if (!topic.trim()) {
+    if (!topic || !level) {
       toast({
-        title: 'Error',
-        description: 'Please enter a topic for your lesson plan.',
-        variant: 'destructive',
+        title: "Missing Information",
+        description: "Please enter a topic and select a level.",
+        variant: "destructive",
       });
       return;
     }
-    
+
+    // NEW: Check if the topic is math-related
+    if (!isMathTopic(topic)) {
+      toast({
+        title: "Invalid Topic",
+        description: "Please enter a mathematics-related topic. This generator specializes in math lesson plans.",
+        variant: "destructive",
+        duration: 5000,
+      });
+      return; // Stop execution
+    }
+
     setIsGenerating(true);
-    
+    setPhase(2); // Move to the structure generation/display phase
+
     try {
-      toast({
-        title: 'Generating Lesson Structure',
-        description: 'AI is creating a suggested structure based on your topic...',
-      });
+      // New prompt asking for a JSON object
+      const prompt = `Based on the topic "${topic}" for ${level} students in Cameroon, generate a structured lesson plan outline. You must provide between 5 and 7 sections. Respond with ONLY a valid JSON object in the following format: { "sections": [{"title": "SECTION_TITLE", "keyPoints": "KEY_POINTS_HERE"}] }`;
       
-      const structurePrompt = `Create a structured outline for a math lesson on "${topic}" for primary school students in Cameroon. 
-      
-Provide 5-6 sections with headings and brief key points for each section. 
-      
-Return ONLY the JSON structure, with absolutely no other text, explanation, or markdown formatting before or after. 
-      
-Format your response in this exact JSON structure:
-      {"sections": [
-        {"heading": "INTRODUCTION", "keyPoints": "key points for introduction..."},
-        {"heading": "SECOND SECTION TITLE", "keyPoints": "key points for second section..."},
-        ... and so on
-      ]}
-      `;
-      
-      const response = await sendMessage(structurePrompt);
-      
-      try {
-        const jsonMatch = response.text.match(/\{\s*"sections"\s*:\s*\[.*?\]\s*\}/s);
-        if (jsonMatch) {
-          const jsonData = JSON.parse(jsonMatch[0]);
-          
-          const aiSections: LessonSection[] = jsonData.sections.map((section: any, index: number) => ({
-            id: `ai-${Date.now()}-${index}`,
-            heading: section.heading,
-            keyPoints: section.keyPoints,
-            isEditing: false,
-            time: '',
-            teacherActivities: '',
-            learnerActivities: '',
-          }));
-          
-          setSections(aiSections);
-          
-          toast({
-            title: 'AI Structure Generated',
-            description: 'Review and customize the AI-suggested lesson structure below.',
-          });
-        } else {
-          // If JSON structure wasn't found, create default sections with topic-relevant headings
-          const defaultSectionsWithTopic: LessonSection[] = [
-            { id: `default-${Date.now()}-1`, heading: `Introduction to ${topic}`, keyPoints: `Lesson objectives and engagement for ${topic}`, isEditing: false, time: '', teacherActivities: '', learnerActivities: '' },
-            { id: `default-${Date.now()}-2`, heading: `Core Concepts of ${topic}`, keyPoints: `Main principles and definitions for ${topic}`, isEditing: false, time: '', teacherActivities: '', learnerActivities: '' },
-            { id: `default-${Date.now()}-3`, heading: `Guided Practice for ${topic}`, keyPoints: `Examples and interactive demonstrations for ${topic}`, isEditing: false, time: '', teacherActivities: '', learnerActivities: '' },
-            { id: `default-${Date.now()}-4`, heading: `Independent Practice with ${topic}`, keyPoints: `Student exercises and applications for ${topic}`, isEditing: false, time: '', teacherActivities: '', learnerActivities: '' },
-            { id: `default-${Date.now()}-5`, heading: `Assessment and Conclusion for ${topic}`, keyPoints: `Checking understanding and summarizing ${topic}`, isEditing: false, time: '', teacherActivities: '', learnerActivities: '' },
-          ];
-          
-          setSections(defaultSectionsWithTopic);
-          
-          toast({
-            title: 'Default Structure Created',
-            description: 'AI response format was unexpected. Default structure created based on your topic.',
-            variant: 'default'
-          });
-        }
-      } catch (parseError) {
-        console.error('Error parsing AI response:', parseError);
-        // Fallback to default sections with topic
-        const defaultSectionsWithTopic: LessonSection[] = [
-          { id: `default-${Date.now()}-1`, heading: `Introduction to ${topic}`, keyPoints: `Lesson objectives and engagement for ${topic}`, isEditing: false, time: '', teacherActivities: '', learnerActivities: '' },
-          { id: `default-${Date.now()}-2`, heading: `Core Concepts of ${topic}`, keyPoints: `Main principles and definitions for ${topic}`, isEditing: false, time: '', teacherActivities: '', learnerActivities: '' },
-          { id: `default-${Date.now()}-3`, heading: `Guided Practice for ${topic}`, keyPoints: `Examples and interactive demonstrations for ${topic}`, isEditing: false, time: '', teacherActivities: '', learnerActivities: '' },
-          { id: `default-${Date.now()}-4`, heading: `Independent Practice with ${topic}`, keyPoints: `Student exercises and applications for ${topic}`, isEditing: false, time: '', teacherActivities: '', learnerActivities: '' },
-          { id: `default-${Date.now()}-5`, heading: `Assessment and Conclusion for ${topic}`, keyPoints: `Checking understanding and summarizing ${topic}`, isEditing: false, time: '', teacherActivities: '', learnerActivities: '' },
-        ];
-        
-        setSections(defaultSectionsWithTopic);
-        
+      const response = await sendMessage(prompt, undefined, 'json');
+
+      if (response && response.sections && Array.isArray(response.sections)) {
+        // The API now directly returns the parsed JSON object
+        const newSections = response.sections.map((s: any, index: number) => ({
+          id: `section-${Date.now()}-${index}`,
+          title: s.title || 'Untitled Section',
+          keyPoints: s.keyPoints || '',
+          isEditing: false,
+          // Initialize new fields
+          time: '',
+          teacherActivities: '',
+          learnerActivities: '',
+        }));
+        setSections(newSections);
+      } else {
+        // This case handles if the response is not in the expected format
+        console.error("AI response was not in the expected format:", response);
         toast({
-          title: 'Default Structure Created',
-          description: 'Could not parse AI response. Default structure created based on your topic.',
-          variant: 'default'
+          title: "Generation Error",
+          description: "The AI returned an unexpected data structure. Please try again.",
+          variant: "destructive",
         });
+        setPhase(1); // Go back to the input phase on error
       }
-    
-    setPhase(2);
-      
     } catch (error) {
-      console.error('Error generating lesson structure:', error);
+      console.error("Failed to generate lesson plan structure:", error);
       toast({
-        title: 'Error',
-        description: 'Failed to generate lesson structure. Please try again or check your API key.',
-        variant: 'destructive',
+        title: "Generation Failed",
+        description: `Could not generate the lesson plan structure. ${error instanceof Error ? error.message : 'Please check your connection or API key and try again.'}`,
+        variant: "destructive",
       });
-      
-      setSections(defaultSections);
+      setPhase(1); // Go back to the input phase on error
     } finally {
       setIsGenerating(false);
     }
@@ -231,7 +208,7 @@ Format your response in this exact JSON structure:
   const addSection = () => {
     const newSection: LessonSection = {
       id: Date.now().toString(),
-      heading: 'NEW SECTION',
+      title: 'NEW SECTION',
       keyPoints: 'Add key points here...',
       isEditing: false,
       time: '',
@@ -256,11 +233,11 @@ Format your response in this exact JSON structure:
     ));
   };
 
-  // Update section heading
-  const updateSectionHeading = (id: string, heading: string) => {
+  // Update section title
+  const updateSectionTitle = (id: string, title: string) => {
     setSections(sections.map(section => 
         section.id === id 
-          ? { ...section, heading } 
+          ? { ...section, title } 
           : section
     ));
   };
@@ -283,132 +260,68 @@ Format your response in this exact JSON structure:
     ));
   };
 
-  // --- Primary function to generate the *final* detailed lesson plan (Now triggered in Phase 3 -> 4) ---
-  const generateLessonPlan = async (step: 'part1' | 'part2') => {
-    if (!topic.trim()) {
-      toast({
-        title: "Topic Required",
-        description: "Please enter a topic before generating the lesson plan.",
-        variant: "destructive",
-      });
+  // --- Primary function to generate the *final* detailed lesson plan ---
+  const generateLessonPlan = async () => {
+    if (!topic.trim() || !level.trim()) {
+      toast({ title: "Missing Information", description: "Please provide both a topic and a class level.", variant: "destructive" });
       return;
     }
-    
-    setIsGenerating(true); 
-    setGenerationStep(step === 'part1' ? 'generating_part1' : 'generating_part2');
-    
-    let prompt = `Create a comprehensive and highly detailed mathematics lesson plan for the topic: "${topic}" for primary school students in Cameroon.\n\n`;
-    prompt += `Use the following information from the teacher's structured outline to generate the detailed plan:\n\n`;
-    
-    // Include each section with its heading and key points from Phase 2 as context
-    sections.forEach(section => {
-      prompt += `Section: ${section.heading}\n`; 
-      prompt += `Key Points: ${section.keyPoints}\n\n`;
-    });
 
-    // Define the fixed headings
-    const fixedHeadings = [
-      "INTRODUCTION",
-      "CONTENT",
-      "TEACHER'S ACTIVITIES",
-      "PUPIL'S ACTIVITIES",
-      "PRESENTATION",
-      "EXAMPLES",
-      "EVALUATION OR CONCLUSION",
-      "Exercise",
-      "Assignment"
-    ];
-
-    // Adjust prompt based on the generation step
-    if (step === 'part1') {
-        prompt += `\n\nBased on the topic and the sections provided above, generate the FIRST PART of a complete and highly detailed lesson plan. Structure the content using only the following fixed headings for this part, providing extensive and practical content suitable for direct classroom use, synthesizing information from the provided sections and elaborating significantly:\n\n`;
-        
-        // Include only the first half of the headings for part 1 (adjust split point as needed)
-        const part1Headings = fixedHeadings.slice(0, Math.ceil(fixedHeadings.length / 2));
-
-        part1Headings.forEach(heading => {
-            prompt += `${heading}:\n\n`; // Use plain text heading with colon
-            prompt += `[Generate highly detailed and practical content for the ${heading} section, incorporating information from the Phase 2 outline sections and elaborating significantly. Ensure the content is suitable for primary school students in Cameroon.]\n\n`;
-        });
-
-        prompt += `\n\nAfter completing the content for these sections, end your response. Do NOT include any other sections or concluding remarks.`;
-
-    } else if (step === 'part2') {
-        // Provide previously generated content as context for continuation
-        prompt += `\n\nHere is the first part of the lesson plan that was previously generated:\n\n---\n${generatedContentPart1}\n---\n\n`;
-        prompt += `Based on the original topic, the provided outline sections, and the first part above, generate the SECOND PART of the lesson plan. Continue the lesson plan from where the first part ended and structure the content using only the following remaining fixed headings, providing extensive and practical content suitable for direct classroom use, synthesizing information from the provided sections and elaborating significantly:\n\n`;
-        
-        // Include the second half of the headings for part 2
-        const part2Headings = fixedHeadings.slice(Math.ceil(fixedHeadings.length / 2));
-
-        part2Headings.forEach(heading => {
-            prompt += `${heading}:\n\n`; // Use plain text heading with colon
-            prompt += `[Generate highly detailed and practical content for the ${heading} section, incorporating information from the Phase 2 outline sections and elaborating significantly. Ensure the content is suitable for primary school students in Cameroon.]\n\n`;
-        });
-
-        prompt += `\n\nAfter completing the content for these remaining sections, provide a brief concluding sentence for the overall lesson plan if appropriate, and then end your response.`;
-    }
-
-    prompt += `Ensure the overall content is highly relevant for primary school students in Cameroon, incorporating local examples and cultural context wherever possible. Make the language exceptionally clear, practical, and immediately usable by a teacher in a classroom setting. Aim for a level of detail that provides a complete script or guide for teaching each section.\n\n`;
-    prompt += `Start the overall lesson plan with 3-5 specific Learning Objectives (include these before the first fixed heading).\n\n`;
-    prompt += `Format the entire response using plain text only. Use line breaks and capitalization for structure, and the specified fixed headings followed by a colon. Do NOT use markdown syntax like #, ##, *, -, or ** anywhere in the generated lesson plan content.`;
+    setIsGenerating(true);
+    setGenerationStep('generating');
+    toast({ title: "Generating Lesson Plan", description: "The AI is working its magic..." });
 
     try {
-      toast({
-        title: step === 'part1' ? "Generating Part 1..." : "Generating Part 2...",
-        description: `AI is crafting ${step === 'part1' ? 'the first part' : 'the second part'} of your detailed lesson for "${topic}". This may take a moment.`,
-      });
+      // Map the sections to match the service's expected type, removing UI-specific fields.
+      const sectionsForService = sections.map(s => ({
+        id: s.id,
+        title: s.title,
+        keyPoints: s.keyPoints,
+      }));
 
-      const response = await sendMessage(prompt);
-
-      // Update states with the generated content based on the step
-      if (step === 'part1') {
-        setGeneratedContentPart1(response.text);
-        setGenerationStep('waiting_to_continue');
-      } else if (step === 'part2') {
-        setGeneratedContentPart2(response.text);
-        // Move to ready to merge state instead of combining automatically
-        setGenerationStep('ready_to_merge');
-      }
+      // Call the robust service function with the correctly typed data
+      const rawJsonResponse = await generateLessonPlanService(topic, level, sectionsForService);
       
-      toast({
-        title: step === 'part1' ? "Part 1 Generated!" : "Part 2 Generated!",
-        description: step === 'part1' ? "Review the first part and continue generation." : "Part 2 of the lesson plan is ready. Click 'Merge' to combine.",
-        variant: "default", 
-      });
+      if (rawJsonResponse) {
+        setRawJsonContent(rawJsonResponse);
+        const formattedMarkdown = formatAIResponseAsMarkdown(rawJsonResponse);
+        setGeneratedContent(formattedMarkdown);
+        setEditedContent(formattedMarkdown);
+        setGenerationStep('complete');
+        toast({ title: "Lesson Plan Generated!", description: "Your detailed lesson plan is ready for review." });
+      } else {
+        throw new Error("The AI returned an empty response.");
+      }
     } catch (error) {
-      console.error("Error generating lesson plan:", error);
-      toast({
-        title: "Generation Failed",
-        description: "Could not generate the lesson plan. Please check your API key or try again later.",
-        variant: "destructive",
-      });
-      setGenerationStep('idle'); // Reset on error
+      console.error("Error generating detailed lesson plan:", error);
+      toast({ title: "Generation Failed", description: `Could not generate the lesson plan. ${error instanceof Error ? error.message : 'Please try again.'}`, variant: "destructive" });
+      setGenerationStep('idle');
     } finally {
-      setIsGenerating(false); 
+      setIsGenerating(false);
     }
   };
 
   // Function to save the current lesson plan
   const saveLessonPlan = () => {
-    if (!editedContent.trim()) {
+    if (!editedContent) {
       toast({
-        title: "Cannot Save",
-        description: "The lesson plan content is empty.",
-        variant: "destructive"
+        title: 'Content is empty',
+        description: 'There is no content to save.',
+        variant: 'destructive',
       });
       return;
     }
 
-    const newLessonPlan: LessonPlan = {
-      id: Date.now().toString(),
+    const planToSave: LessonPlan = {
+      id: lessonPlan.id || `lesson-${Date.now()}`,
       topic,
+      level, // Fix: Add level to saved plan
       sections,
       generatedContent: editedContent,
     };
 
     // Add the new plan to the array and save to localStorage
-    const updatedPlans = [...savedLessonPlans, newLessonPlan];
+    const updatedPlans = [...savedLessonPlans, planToSave];
     setSavedLessonPlans(updatedPlans);
     localStorage.setItem('lessonPlans', JSON.stringify(updatedPlans));
 
@@ -423,27 +336,35 @@ Format your response in this exact JSON structure:
 
   // Handle exporting as PDF
   const handleExportPDF = async () => {
-    try {
-      // Show loading toast
-    toast({
-      title: "Exporting as PDF",
-        description: "Your lesson plan is being prepared for download...",
-      });
-      
-      // Use the actual export function
-      await exportToPDF(editedContent, topic);
-      
-      // Show success toast
+    if (!editedContent) {
       toast({
-        title: "Success!",
-        description: "Your lesson plan has been downloaded as PDF.",
+        title: 'Content is empty',
+        description: 'There is no content to export.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      if (!rawJsonContent) {
+      toast({
+        title: 'Missing Lesson Data',
+        description: 'Cannot export PDF without the generated lesson plan data.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    await exportToPDF(rawJsonContent, topic, level);
+      toast({
+        title: 'Export Successful',
+        description: 'Your lesson plan has been exported as a PDF.',
       });
     } catch (error) {
-      console.error('Error exporting to PDF:', error);
+      console.error('PDF Export Error:', error);
       toast({
-        title: "Export Failed",
-        description: "There was a problem exporting your lesson plan to PDF.",
-        variant: "destructive",
+        title: 'Export Failed',
+        description: 'Could not export the lesson plan as a PDF.',
+        variant: 'destructive',
       });
     }
   };
@@ -452,8 +373,8 @@ Format your response in this exact JSON structure:
   const handleExportPowerPoint = async () => {
     try {
       // Show loading toast
-    toast({
-      title: "Exporting as PowerPoint",
+      toast({
+        title: "Exporting as PowerPoint",
         description: "Your lesson plan is being prepared for download...",
       });
       
@@ -477,21 +398,17 @@ Format your response in this exact JSON structure:
 
   // Function to move to the next phase
   const moveToNextPhase = () => {
-    setPhase(prevPhase => {
-      if (prevPhase === 2) {
-        return 3; // Move from Structure (Phase 2) to Review (Phase 3)
-      } else if (prevPhase === 3) {
-        // When moving from Review (Phase 3) to Generation (Phase 4)
-        // We now start the first part of generation here
-        generateLessonPlan('part1'); 
-        return 4; // Move to Generation/Display (Phase 4)
-      }
-       else if (prevPhase === 4) {
-         // Currently no further phase after 4, could loop back to 1 or reset
-         return 1; // Example: loop back to start
-       }
-      return prevPhase; // Stay on current phase if no transition defined
-    });
+    if (phase === 2) {
+      setPhase(3);
+    } else if (phase === 3) {
+      // First, trigger the generation (side effect), then update the phase.
+      // This avoids calling a state-updating function from within another state update.
+      generateLessonPlan();
+      setPhase(4);
+    } else if (phase === 4) {
+      // Loop back to the start
+      setPhase(1);
+    }
   };
 
   // Function to go back to the previous phase
@@ -501,8 +418,6 @@ Format your response in this exact JSON structure:
       if (prevPhase === 4) {
         setGeneratedContent('');
         setEditedContent('');
-        setGeneratedContentPart1('');
-        setGeneratedContentPart2('');
         setGenerationStep('idle');
       }
       return Math.max(1, prevPhase - 1) as 1 | 2 | 3 | 4;
@@ -510,22 +425,22 @@ Format your response in this exact JSON structure:
   };
 
   // Handler for the "Continue Generation" button
-  const handleContinueGeneration = () => {
-     generateLessonPlan('part2');
-  };
+  // const handleContinueGeneration = () => {
+  //   generateLessonPlan('part2');
+  // };
 
   // Handler for the "Merge Generations" button
-  const handleMergeGenerations = () => {
-     const combinedContent = generatedContentPart1 + '\n\n' + generatedContentPart2;
-     setGeneratedContent(combinedContent); // Set final generated content state
-     setEditedContent(combinedContent); // Set initial editable content
-     setGenerationStep('complete');
-      toast({
-        title: "Lesson Plan Merged!",
-        description: "The two parts have been combined. Review and edit below.",
-        variant: "default", 
-      });
-  };
+  // const handleMergeGenerations = () => {
+  //   const combinedContent = generatedContentPart1 + '\n\n' + generatedContentPart2;
+  //   setGeneratedContent(combinedContent); // Set final generated content state
+  //   setEditedContent(combinedContent); // Set initial editable content
+  //   setGenerationStep('complete');
+  //   toast({
+  //     title: "Lesson Plan Merged!",
+  //     description: "The two parts have been combined. Review and edit below.",
+  //     variant: "default", 
+  //   });
+  // };
 
   return (
     <div className="container mx-auto p-4 max-w-7xl">
@@ -546,30 +461,55 @@ Format your response in this exact JSON structure:
                <CardTitle className="text-lg font-semibold text-foreground m-0">Examples:</CardTitle>
             </CardHeader>
             <CardContent className="py-3 px-4">
-              <ul className="list-disc pl-5 space-y-2 text-muted-foreground text-sm">
-                <li>"Introduction to adding and subtracting fractions for Primary 4"</li>
-                <li>"Teaching multiplication tables for Primary 2 using games"</li>
-                <li>"Exploring geometric shapes and their properties for Primary 5"</li>
-                <li>"Solving word problems involving percentages for Primary 6"</li>
-                <li>"Understanding place value up to thousands for Primary 3"</li>
+              <ul className="list-disc pl-10 text-muted-foreground space-y-2">
+                <li>"understanding shapes for primary 2"</li>
+                <li>"Counting from one to 20 in primary 1"</li>
+                <li>"Long Division for Primary 5"</li>
+                <li>"BODMAS with local examples for primary 6"</li>
+                <li>"Introduction Algebra for primary 6"</li>
+                <li>"Adition,substraction and division of numbers"</li>
               </ul>
             </CardContent>
           </Card>
 
           <CardContent>
             <div className="flex flex-col items-center space-y-4">
-              <div className="w-full max-w-xl">
-                <Input
-                  placeholder="What do you want to teach today? (e.g., 'Introduction to fractions for Primary 3')"
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                  className="text-lg p-6"
-                  onKeyDown={(e) => e.key === 'Enter' && handleTopicSubmit()}
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="topic">Topic</Label>
+                  <div className="relative">
+                    <Input
+                      id="topic"
+                      type="text"
+                      value={topic}
+                      onChange={(e) => setTopic(e.target.value)}
+                      placeholder="e.g., Introduction to Addition"
+                      className="pr-10"
+                    />
+                    <Lightbulb className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="level">Class Level</Label>
+                  <Select value={level} onValueChange={setLevel}>
+                    <SelectTrigger id="level">
+                      <SelectValue placeholder="Select a class level" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Primary 1">Primary 1</SelectItem>
+                      <SelectItem value="Primary 2">Primary 2</SelectItem>
+                      <SelectItem value="Primary 3">Primary 3</SelectItem>
+                      <SelectItem value="Primary 4">Primary 4</SelectItem>
+                      <SelectItem value="Primary 5">Primary 5</SelectItem>
+                      <SelectItem value="Primary 6">Primary 6</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <Button 
                 size="lg" 
                 onClick={handleTopicSubmit}
+                disabled={!topic.trim() || !level || isGenerating}
                 className="mt-4 px-8"
               >
                 Start <Send className="ml-2 h-4 w-4" />
@@ -587,7 +527,7 @@ Format your response in this exact JSON structure:
           <div className="md:col-span-2 space-y-4">
             <h2 className="text-2xl font-bold mb-4">Lesson Plan Structure</h2>
             <p className="text-muted-foreground mb-4">
-              Customize the sections below to structure your lesson plan. Edit headings and key points, add or remove sections as needed.
+              Customize the sections below to structure your lesson plan. Edit titles and key points, add or remove sections as needed.
             </p>
 
             <div className="space-y-4">
@@ -597,14 +537,34 @@ Format your response in this exact JSON structure:
                     {section.isEditing ? (
                       <div className="space-y-4">
                         <Input
-                          value={section.heading}
-                          onChange={(e) => updateSectionHeading(section.id, e.target.value)}
+                          value={section.title}
+                          onChange={(e) => updateSectionTitle(section.id, e.target.value)}
                           className="font-bold"
                         />
                         <Textarea
                           value={section.keyPoints}
                           onChange={(e) => updateSectionKeyPoints(section.id, e.target.value)}
                           rows={3}
+                        />
+                        <Input
+                          value={section.time}
+                          onChange={(e) => updateSectionDetail(section.id, 'time', e.target.value)}
+                          placeholder="Time Allocation"
+                          className="mt-2"
+                        />
+                        <Textarea
+                          value={section.teacherActivities}
+                          onChange={(e) => updateSectionDetail(section.id, 'teacherActivities', e.target.value)}
+                          placeholder="Teacher's Activities"
+                          rows={3}
+                          className="mt-2"
+                        />
+                        <Textarea
+                          value={section.learnerActivities}
+                          onChange={(e) => updateSectionDetail(section.id, 'learnerActivities', e.target.value)}
+                          placeholder="Learner's Activities"
+                          rows={3}
+                          className="mt-2"
                         />
 
                         <Button onClick={() => toggleEditSection(section.id)}>
@@ -614,7 +574,7 @@ Format your response in this exact JSON structure:
                     ) : (
                       <div>
                         <div className="flex justify-between items-center mb-2">
-                          <h3 className="text-xl font-semibold">{section.heading}</h3>
+                          <h3 className="text-xl font-semibold">{section.title}</h3>
                           <div className="flex space-x-2">
                             <Button variant="ghost" size="sm" onClick={() => toggleEditSection(section.id)}>
                               <Edit className="h-4 w-4" />
@@ -625,6 +585,9 @@ Format your response in this exact JSON structure:
                           </div>
                         </div>
                         <p className="text-muted-foreground">{section.keyPoints}</p>
+                        {section.time && <p className="text-muted-foreground">Time: {section.time}</p>}
+                        {section.teacherActivities && <p className="text-muted-foreground">Teacher's Activities: {section.teacherActivities}</p>}
+                        {section.learnerActivities && <p className="text-muted-foreground">Learner's Activities: {section.learnerActivities}</p>}
                       </div>
                     )}
                   </CardContent>
@@ -682,6 +645,9 @@ Format your response in this exact JSON structure:
                   <div key={section.id} className="border-b pb-4 last:border-b-0">
                     <h3 className="text-xl font-semibold">{section.heading}</h3>
                     <p className="text-muted-foreground">{section.keyPoints}</p>
+                    {section.time && <p className="text-muted-foreground">Time: {section.time}</p>}
+                    {section.teacherActivities && <p className="text-muted-foreground">Teacher's Activities: {section.teacherActivities}</p>}
+                    {section.learnerActivities && <p className="text-muted-foreground">Learner's Activities: {section.learnerActivities}</p>}
                   </div>
                 ))}
               </div>
@@ -726,82 +692,38 @@ Format your response in this exact JSON structure:
           </div>
           
           {/* Display content or loading based on generation step */}
-          {generationStep === 'generating_part1' && (
+          {generationStep === 'generating' && (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-primary">
               <Loader2 className="h-12 w-12 animate-spin mb-4" />
-              <p className="text-xl">Generating the first part of your detailed lesson plan...</p>
-            </div>
-          )}
-
-          {generationStep === 'waiting_to_continue' && (
-            <div className="space-y-6">
-          <Card className="mb-6">
-                 <CardHeader>
-                   <CardTitle>First Part Generated</CardTitle>
-                 </CardHeader>
-            <CardContent className="pt-6">
-                   {/* Display the first generated part */} 
-                   <div style={{ whiteSpace: 'pre-wrap', minHeight: '30vh' }}>
-                     {generatedContentPart1}
-              </div>
-            </CardContent>
-          </Card>
-               <div className="flex justify-center">
-                 <Button onClick={handleContinueGeneration} disabled={isGenerating}>
-                   {isGenerating ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                   ) : (
-                      <Send className="h-4 w-4 mr-2" />
-                   )}
-                   Continue Generation
-                 </Button>
-               </div>
-            </div>
-          )}
-
-          {generationStep === 'generating_part2' && (
-             <div className="flex flex-col items-center justify-center min-h-[60vh] text-primary">
-               <Loader2 className="h-12 w-12 animate-spin mb-4" />
-               <p className="text-xl">Generating the second part of your detailed lesson plan...</p>
-             </div>
-          )}
-
-          {/* New state to prompt user to merge */}
-          {generationStep === 'ready_to_merge' && (
-             <div className="space-y-6">
-                <Card className="mb-6">
-                  <CardHeader>
-                    <CardTitle>Generation Complete</CardTitle>
-                  </CardHeader>
-                  <CardContent className="pt-6">
-                    <p className="text-xl mb-4">Both parts of the lesson plan have been generated.</p>
-                    <p className="text-muted-foreground">Click the button below to merge them into a single document for review and editing.</p>
-                  </CardContent>
-                </Card>
-               <div className="flex justify-center">
-                 <Button onClick={handleMergeGenerations}>
-                   Merge Lesson Plan
-                 </Button>
-               </div>
+               <p className="text-xl">Generating your detailed lesson plan...</p>
             </div>
           )}
 
           {generationStep === 'complete' && (
-             <Card className="mb-6">
-               <CardHeader>
-                 <CardTitle>Complete Lesson Plan</CardTitle>
-               </CardHeader>
-               <CardContent className="pt-6">
-                 {/* Display and allow editing of the combined final content */} 
-                 <Textarea
-                   ref={textareaRef}
-                   value={editedContent} // Use editedContent for display/editing
-                   onChange={(e) => setEditedContent(e.target.value)}
-                   className="min-h-[60vh] font-mono"
-                   rows={20}
-                 />
-               </CardContent>
-             </Card>
+            <Card className="mb-6">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Complete Lesson Plan</CardTitle>
+                <Button onClick={() => setIsEditingContent(!isEditingContent)} variant="outline">
+                  <Edit className="h-4 w-4 mr-2" />
+                  {isEditingContent ? 'Preview Plan' : 'Edit Plan'}
+                </Button>
+              </CardHeader>
+              <CardContent className="pt-6">
+                {isEditingContent ? (
+                  <Textarea
+                    ref={textareaRef}
+                    value={editedContent}
+                    onChange={(e) => setEditedContent(e.target.value)}
+                    className="min-h-[60vh] font-sans text-base bg-white dark:bg-gray-900 p-4 border rounded-md"
+                    rows={20}
+                  />
+                ) : (
+                  <div className="p-6 bg-gray-50 rounded-lg border min-h-[60vh] overflow-y-auto prose prose-indigo max-w-none whitespace-pre-wrap break-words">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{editedContent}</ReactMarkdown>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           )}
           
           {/* Back button in Phase 4 - visible unless generating */}

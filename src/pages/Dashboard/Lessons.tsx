@@ -24,17 +24,17 @@ const defaultSections: LessonSection[] = [
   {
     id: "2",
     title: "PRESENTATION",
-    keyPoints: "Step-by-step explanation of the new concept, examples to use, materials needed."
+    keyPoints: "Step-by-step explanation of the new concept, create examples to use, materials needed."
   },
   {
     id: "3",
     title: "EVALUATION",
-    keyPoints: "Classroom exercises, questions to ask, worksheet activities."
+    keyPoints: "write and generate a detailed lesson plan for this topic. Classroom exercises, questions to ask, worksheet activities."
   },
   {
     id: "4",
     title: "CONCLUSION",
-    keyPoints: "Summary of key takeaways, assignment for homework."
+    keyPoints: "write and generate a detailed lesson plan for this topic. Summary of key takeaways, assignment for homework."
   }
 ];
 
@@ -42,12 +42,14 @@ const defaultSections: LessonSection[] = [
 interface SavedLessonPlan {
   id: string;
   topic: string;
+  level: string; // Added level
   generatedContent: string;
   // Add other fields if saved, like sections or creation date
 }
 
 const Lessons = () => {
   const [topic, setTopic] = useState("");
+  const [level, setLevel] = useState(""); // Add state for level
   const [sections, setSections] = useState<LessonSection[]>(defaultSections);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedPlan, setGeneratedPlan] = useState("");
@@ -57,11 +59,17 @@ const Lessons = () => {
   const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null);
 
   // Load saved lesson plans from localStorage on component mount
-  useEffect(() => {
+    useEffect(() => {
     const storedPlans = localStorage.getItem('lessonPlans');
     if (storedPlans) {
       try {
-        setSavedLessonPlans(JSON.parse(storedPlans));
+        const parsedPlans = JSON.parse(storedPlans);
+        // Add level property for backward compatibility
+        const plansWithLevel = parsedPlans.map((plan: any) => ({
+          ...plan,
+          level: plan.level || 'N/A', 
+        }));
+        setSavedLessonPlans(plansWithLevel);
       } catch (error) {
         console.error("Failed to parse lesson plans from localStorage:", error);
         toast.error("Could not load saved lesson plans.");
@@ -118,14 +126,14 @@ const Lessons = () => {
     setIsExporting(true);
     try {
       if (format === "pdf") {
-        await exportToPDF(generatedPlan, topic);
+        await exportToPDF(generatedPlan, topic, level);
         toast.success("PDF exported successfully!");
       } else {
         await exportToPowerPoint(generatedPlan, topic);
         toast.success("PowerPoint exported successfully!");
       }
     } catch (error) {
-      toast.error(`Failed to export as ${format.toUpperCase()}. Please try again.`);
+      toast.error(`Failed to export to ${format}. Please try again.`);
     } finally {
       setIsExporting(false);
     }
@@ -147,8 +155,8 @@ const Lessons = () => {
   const handleExportPDF = async (lessonPlan: SavedLessonPlan) => {
     try {
       setIsExporting(true);
-      await exportToPDF(lessonPlan.generatedContent, lessonPlan.topic);
-      toast.success("Lesson plan successfully exported as PDF!");
+      await exportToPDF(lessonPlan.generatedContent, lessonPlan.topic, lessonPlan.level);
+      toast.success("PDF exported successfully!");
     } catch (error) {
       console.error("Error exporting to PDF:", error);
       toast.error("Failed to export as PDF. Please try again.");
@@ -162,7 +170,7 @@ const Lessons = () => {
     try {
       setIsExporting(true);
       await exportToPowerPoint(lessonPlan.generatedContent, lessonPlan.topic);
-      toast.success("Lesson plan successfully exported as PowerPoint!");
+      toast.success("PowerPoint exported successfully!");
     } catch (error) {
       console.error("Error exporting to PowerPoint:", error);
       toast.error("Failed to export as PowerPoint. Please try again.");
@@ -190,11 +198,16 @@ const Lessons = () => {
           </div>
           <div className="flex gap-4">
             <Input
-              placeholder="What do you want to teach today? (e.g., 'Introduction to fractions for Primary 3')"
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleStart()}
-              className="flex-1"
+              placeholder="e.g., Adition and Subtraction"
+              className="w-full"
+            />
+            <Input
+              value={level}
+              onChange={(e) => setLevel(e.target.value)}
+              placeholder="e.g., primary 5, primary 6"
+              className="w-full mt-4"
             />
             <Button onClick={handleStart}>Start</Button>
           </div>

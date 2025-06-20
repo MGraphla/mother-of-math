@@ -20,9 +20,9 @@ import { UserProfile } from "@/context/AuthContext";
 // Mock student
 const MOCK_STUDENT: UserProfile = {
   id: "student-1",
-  email: "alice@example.com",
+  email: "manka.c@example.com",
   role: "student",
-  full_name: "Alice Johnson",
+  full_name: "Manka'a Che",
   school: "Springfield Elementary",
   created_at: "2024-01-15T10:30:00Z",
   teacher_id: "mock-user-id",
