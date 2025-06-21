@@ -19,7 +19,7 @@ import { toast } from "@/components/ui/use-toast";
 const MOCK_STUDENTS: (UserProfile & { password?: string; parentEmail?: string })[] = [
   {
     id: "student-1",
-    email: "manka.c@example.com",
+    email: "manka.c@example.com", 
     password: "student123", // This would be encrypted in a real system
     role: "student",
     full_name: "Manka'a Che",

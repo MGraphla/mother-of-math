@@ -35,7 +35,7 @@ const FlippableImageCard = () => {
               <Globe className="w-8 h-8 mr-3 text-yellow-300" />
               <h3 className="text-2xl font-bold">Sample Lesson: Cocoa Farming Math</h3>
             </div>
-            <p className="text-lg mb-4 font-light">A practical lesson plan for Form 2 students, aligned with the Cameroonian curriculum.</p>
+            <p className="text-lg mb-4 font-light">A practical lesson plan for Class 1 students, aligned with the Cameroonian curriculum.</p>
             
             <div className="flex-grow space-y-4 text-left mt-4">
               <div className="flex items-start">
