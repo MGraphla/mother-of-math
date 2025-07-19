@@ -540,13 +540,17 @@ const Home = () => {
             <p className="text-xl sm:text-2xl md:text-3xl text-gray-700 mb-10 sm:mb-12 font-[Open_Sans,sans-serif] max-w-xl md:max-w-2xl lg:max-w-3xl mx-auto md:mx-0">
                 We are transforming mathematics in Cameroon with AI-assisted education, fully aligned with the national curriculum.
             </p>
-            <div className="flex flex-col sm:flex-row items-center gap-4 justify-center md:justify-start mb-10">
-              <Button size="lg" onClick={handleGetStarted} variant="default" className="w-full sm:w-auto px-8 py-4 rounded-full text-lg font-bold shadow-xl hover:bg-green-700 transition-all duration-300 transform hover:scale-105 flex items-center justify-center">
-                Get Started for Free <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
-              <Button size="lg" variant="outline" className="w-full sm:w-auto bg-transparent border-primary text-primary px-8 py-4 rounded-full text-lg font-bold shadow-lg hover:bg-primary/10 transition-all duration-300 transform hover:scale-105">
-                Watch Demo
-              </Button>
+            <div className="flex flex-row items-center gap-3 justify-center mb-8">
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <button onClick={handleGetStarted} className="bg-green-600 text-white px-5 py-3 rounded-full text-base font-bold shadow-lg hover:bg-green-700 transition-all duration-300 flex items-center justify-center">
+                  Get Started for Free <ArrowRight className="ml-2 h-4 w-4" />
+                </button>
+              </motion.div>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <button onClick={() => console.log('Watch Demo clicked')} className="bg-white text-gray-800 border border-gray-200 hover:bg-gray-50 px-5 py-3 rounded-full text-base font-bold shadow-lg transition-all duration-300">
+                  Watch Demo
+                </button>
+              </motion.div>
             </div>
           </div>
           <div className="relative w-full md:w-1/2 flex justify-center mt-16 md:mt-0">
@@ -709,21 +713,24 @@ const Home = () => {
             Join hundreds of teachers and parents across Cameroon making a difference.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Button 
-              size="lg" 
-              variant="secondary" 
-              onClick={handleGetStarted} 
-              className="bg-white text-primary hover:bg-gray-100 font-bold py-3 px-6 sm:py-4 sm:px-8 rounded-full shadow-lg transform hover:scale-105 transition-all duration-300"
-            >
-              Start Your Journey Today
-            </Button>
-            <Button 
-              size="lg" 
-              variant="outline" 
-              className="border-2 border-white/20 hover:border-white text-white font-bold py-3 px-6 sm:py-4 sm:px-8 rounded-full shadow-lg transform hover:scale-105 transition-all duration-300"
-            >
-              Schedule a Demo
-            </Button>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                size="lg"
+                onClick={handleGetStarted}
+                className="bg-green-500 text-white hover:bg-green-600 font-bold py-3 px-6 sm:py-4 sm:px-8 rounded-full shadow-lg transform transition-all duration-300 flex items-center gap-2"
+              >
+                Get Started for Free <ArrowRight className="w-5 h-5" />
+              </Button>
+            </motion.div>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                size="lg"
+                variant="outline"
+                className="bg-white text-gray-700 border-gray-200 hover:bg-gray-100 font-bold py-3 px-6 sm:py-4 sm:px-8 rounded-full shadow-lg transform transition-all duration-300"
+              >
+                Watch Demo
+              </Button>
+            </motion.div>
           </div>
         </motion.div>
       </div>

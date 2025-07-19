@@ -23,11 +23,11 @@ const chartData = [
 ];
 
 const recentSubmissions = [
-  { student: 'Fosso Yannick', assignment: 'Algebra Basics', status: 'Graded', score: '9/10' },
-  { student: 'Ngo Madeleine', assignment: 'Geometry Intro', status: 'Pending', score: '-' },
-  { student: 'Tchami Joel', assignment: 'Calculus I', status: 'Graded', score: '7/10' },
-  { student: 'Abena Therese', assignment: 'Trigonometry', status: 'Pending', score: '-' },
-  { student: 'Biyik Andre', assignment: 'Statistics 101', status: 'Graded', score: '10/10' },
+  { student: 'Fosso Yannick', assignment: 'Addition & Subtraction', status: 'Graded', score: '10/10' },
+  { student: 'Ngo Madeleine', assignment: 'Multiplication Tables', status: 'Pending', score: '-' },
+  { student: 'Tchami Joel', assignment: 'Basic Fractions', status: 'Graded', score: '8/10' },
+  { student: 'Abena Therese', assignment: 'Telling Time', status: 'Pending', score: '-' },
+  { student: 'Biyik Andre', assignment: 'Counting Coins', status: 'Graded', score: '9/10' },
 ];
 
 const Overview = () => {
