@@ -24,25 +24,25 @@ import SignIn from '@/pages/Auth/SignIn';
 import SignUp from '@/pages/Auth/SignUp';
 
 // Dashboard Pages
-import Overview from "./pages/dashboard/Overview";
-import Statistics from "./pages/dashboard/Statistics";
-import LessonPlanGenerator from "./pages/dashboard/LessonPlanGenerator";
-import StoryLessonPlan from "./pages/Dashboard/StoryLessonPlan";
-import Upload from "./pages/dashboard/Upload";
+import Overview from "@/pages/dashboard/Overview";
+import Statistics from "@/pages/dashboard/Statistics";
+import LessonPlanGenerator from "@/pages/dashboard/LessonPlanGenerator";
+import StoryLessonPlan from "@/pages/dashboard/StoryLessonPlan";
+import Upload from "@/pages/dashboard/Upload";
 import Settings from '@/pages/dashboard/Settings';
 import TeacherTraining from '@/pages/dashboard/TeacherTraining';
-import InterviewPage from './pages/dashboard/teacher-training/InterviewPage';
-import InterviewResultsPage from './pages/dashboard/teacher-training/InterviewResultsPage';
-import StudentManagement from "./pages/dashboard/StudentManagement";
-import AssignmentManagement from "./pages/dashboard/AssignmentManagement";
-import StudentAssignments from "./pages/dashboard/StudentAssignments";
-import StudentAccountCreation from "./pages/dashboard/StudentAccountCreation";
-import StudentDashboard from "./pages/dashboard/StudentDashboard";
-import StudentProgress from "./pages/dashboard/StudentProgress";
-import DetailedStudentAnalysis from "./pages/dashboard/DetailedStudentAnalysis";
-import ParentDashboard from "./pages/dashboard/ParentDashboard";
-import ParentAssignmentSubmission from "./pages/dashboard/ParentAssignmentSubmission";
-import FeedbackView from "./pages/dashboard/FeedbackView";
+import InterviewPage from '@/pages/dashboard/teacher-training/InterviewPage';
+import InterviewResultsPage from '@/pages/dashboard/teacher-training/InterviewResultsPage';
+import StudentManagement from "@/pages/dashboard/StudentManagement";
+import AssignmentManagement from "@/pages/dashboard/AssignmentManagement";
+import StudentAssignments from "@/pages/dashboard/StudentAssignments";
+import StudentAccountCreation from "@/pages/dashboard/StudentAccountCreation";
+import StudentDashboard from "@/pages/dashboard/StudentDashboard";
+import StudentProgress from "@/pages/dashboard/StudentProgress";
+import DetailedStudentAnalysis from "@/pages/dashboard/DetailedStudentAnalysis";
+import ParentDashboard from "@/pages/dashboard/ParentDashboard";
+import ParentAssignmentSubmission from "@/pages/dashboard/ParentAssignmentSubmission";
+import FeedbackView from "@/pages/dashboard/FeedbackView";
 
 const queryClient = new QueryClient();
 
