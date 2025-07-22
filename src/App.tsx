@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, lazy, Suspense } from 'react-router-dom';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useAuth } from '@/context/AuthContext';
 import { Toaster } from '@/components/ui/toaster';
@@ -7,100 +7,101 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // Layouts
-import DashboardLayout from '@/components/DashboardLayout';
-import StudentDashboardLayout from '@/components/StudentDashboardLayout';
-import ParentDashboardLayout from '@/components/ParentDashboardLayout';
+const DashboardLayout = lazy(() => import('@/components/DashboardLayout'));
+const StudentDashboardLayout = lazy(() => import('@/components/StudentDashboardLayout'));
+const ParentDashboardLayout = lazy(() => import('@/components/ParentDashboardLayout'));
 
 // General Pages
-import Home from '@/pages/Home';
-import Index from '@/pages/Index';
-import NotFound from '@/pages/NotFound';
-import StudentLogin from '@/pages/StudentLogin';
+const Home = lazy(() => import('@/pages/Home'));
+const NotFound = lazy(() => import('@/pages/NotFound'));
+const StudentLogin = lazy(() => import('@/pages/StudentLogin'));
 
 // Auth Pages
-import AuthCallback from '@/pages/Auth/AuthCallback';
-import AuthSuccess from '@/pages/Auth/AuthSuccess';
-import SignIn from '@/pages/Auth/SignIn';
-import SignUp from '@/pages/Auth/SignUp';
+const AuthCallback = lazy(() => import('@/pages/Auth/AuthCallback'));
+const AuthSuccess = lazy(() => import('@/pages/Auth/AuthSuccess'));
+const SignIn = lazy(() => import('@/pages/Auth/SignIn'));
+const SignUp = lazy(() => import('@/pages/Auth/SignUp'));
 
 // Dashboard Pages
-import Overview from "@/pages/Dashboard/Overview.tsx";
-import Statistics from "@/pages/Dashboard/Statistics";
-import LessonPlanGenerator from "@/pages/Dashboard/LessonPlanGenerator";
-import StoryLessonPlan from "@/pages/Dashboard/StoryLessonPlan";
-import Upload from "@/pages/Dashboard/Upload";
-import Settings from '@/pages/Dashboard/Settings';
-import TeacherTraining from '@/pages/Dashboard/TeacherTraining';
-import InterviewPage from '@/pages/Dashboard/teacher-training/InterviewPage';
-import InterviewResultsPage from '@/pages/Dashboard/teacher-training/InterviewResultsPage';
-import StudentManagement from "@/pages/Dashboard/StudentManagement";
-import AssignmentManagement from "@/pages/Dashboard/AssignmentManagement";
-import StudentAssignments from "@/pages/Dashboard/StudentAssignments";
-import StudentAccountCreation from "@/pages/Dashboard/StudentAccountCreation";
-import StudentDashboard from "@/pages/Dashboard/StudentDashboard";
-import StudentProgress from "@/pages/Dashboard/StudentProgress";
-import DetailedStudentAnalysis from "@/pages/Dashboard/DetailedStudentAnalysis";
-import ParentDashboard from "@/pages/Dashboard/ParentDashboard";
-import ParentAssignmentSubmission from "@/pages/Dashboard/ParentAssignmentSubmission";
-import FeedbackView from "@/pages/Dashboard/FeedbackView";
+const Overview = lazy(() => import("@/pages/Dashboard/Overview.tsx"));
+const Statistics = lazy(() => import("@/pages/Dashboard/Statistics"));
+const LessonPlanGenerator = lazy(() => import("@/pages/Dashboard/LessonPlanGenerator"));
+const StoryLessonPlan = lazy(() => import("@/pages/Dashboard/StoryLessonPlan"));
+const Upload = lazy(() => import("@/pages/Dashboard/Upload"));
+const Settings = lazy(() => import('@/pages/Dashboard/Settings'));
+const TeacherTraining = lazy(() => import('@/pages/Dashboard/TeacherTraining'));
+const InterviewPage = lazy(() => import('@/pages/Dashboard/teacher-training/InterviewPage'));
+const InterviewResultsPage = lazy(() => import('@/pages/Dashboard/teacher-training/InterviewResultsPage'));
+const StudentManagement = lazy(() => import("@/pages/Dashboard/StudentManagement"));
+const AssignmentManagement = lazy(() => import("@/pages/Dashboard/AssignmentManagement"));
+const StudentAssignments = lazy(() => import("@/pages/Dashboard/StudentAssignments"));
+const StudentAccountCreation = lazy(() => import("@/pages/Dashboard/StudentAccountCreation"));
+const StudentDashboard = lazy(() => import("@/pages/Dashboard/StudentDashboard"));
+const StudentProgress = lazy(() => import("@/pages/Dashboard/StudentProgress"));
+const DetailedStudentAnalysis = lazy(() => import("@/pages/Dashboard/DetailedStudentAnalysis"));
+const ParentDashboard = lazy(() => import("@/pages/Dashboard/ParentDashboard"));
+const ParentAssignmentSubmission = lazy(() => import("@/pages/Dashboard/ParentAssignmentSubmission"));
+const FeedbackView = lazy(() => import("@/pages/Dashboard/FeedbackView"));
 
 const queryClient = new QueryClient();
 
 const AppContent = () => {
-  const { profile, isLoading, isAuthenticated } = useAuth();
+  const { isLoading } = useAuth();
 
   if (isLoading) {
-    return <div>Loading...</div>;
+    return <div className="flex h-screen w-full items-center justify-center">Loading...</div>;
   }
 
   return (
-    <Routes>
-      {/* Public Routes */}
-      <Route path="/" element={<Home />} />
-      <Route path="/sign-in" element={<SignIn />} />
-      <Route path="/sign-up" element={<SignUp />} />
-      <Route path="/student-login" element={<StudentLogin />} />
-      <Route path="/auth-success" element={<AuthSuccess />} />
-      <Route path="/auth/callback" element={<AuthCallback />} />
+    <Suspense fallback={<div className="flex h-screen w-full items-center justify-center">Loading Page...</div>}>
+      <Routes>
+        {/* Public Routes */}
+        <Route path="/" element={<Home />} />
+        <Route path="/sign-in" element={<SignIn />} />
+        <Route path="/sign-up" element={<SignUp />} />
+        <Route path="/student-login" element={<StudentLogin />} />
+        <Route path="/auth-success" element={<AuthSuccess />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
 
-      {/* Protected Routes */}
-      <Route element={<ProtectedRoute />}>
-        <Route path="/dashboard/*" element={<DashboardLayout />}>
-          <Route index element={<Overview />} />
-          <Route path="statistics" element={<Statistics />} />
-          <Route path="lesson-plan" element={<LessonPlanGenerator />} />
-          <Route path="upload" element={<Upload />} />
-          <Route path="students" element={<StudentManagement />} />
-          <Route path="students/:studentId" element={<FeedbackView />} />
-          <Route path="student-accounts" element={<StudentAccountCreation />} />
-          <Route path="assignments" element={<AssignmentManagement />} />
-          <Route path="assignments/:assignmentId" element={<FeedbackView />} />
-          <Route path="detailed-analysis" element={<DetailedStudentAnalysis />} />
-          <Route path="lessons" element={<LessonPlanGenerator />} />
-          <Route path="story-lessons" element={<StoryLessonPlan />} />
-          <Route path="settings" element={<Settings />} />
-          <Route path="teacher-training" element={<TeacherTraining />} />
-          <Route path="teacher-training/:interviewId" element={<InterviewPage />} />
-          <Route path="teacher-training/results/:interviewId" element={<InterviewResultsPage />} />
+        {/* Protected Routes */}
+        <Route element={<ProtectedRoute />}>
+          <Route path="/dashboard/*" element={<DashboardLayout />}>
+            <Route index element={<Overview />} />
+            <Route path="statistics" element={<Statistics />} />
+            <Route path="lesson-plan" element={<LessonPlanGenerator />} />
+            <Route path="upload" element={<Upload />} />
+            <Route path="students" element={<StudentManagement />} />
+            <Route path="students/:studentId" element={<FeedbackView />} />
+            <Route path="student-accounts" element={<StudentAccountCreation />} />
+            <Route path="assignments" element={<AssignmentManagement />} />
+            <Route path="assignments/:assignmentId" element={<FeedbackView />} />
+            <Route path="detailed-analysis" element={<DetailedStudentAnalysis />} />
+            <Route path="lessons" element={<LessonPlanGenerator />} />
+            <Route path="story-lessons" element={<StoryLessonPlan />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="teacher-training" element={<TeacherTraining />} />
+            <Route path="teacher-training/:interviewId" element={<InterviewPage />} />
+            <Route path="teacher-training/results/:interviewId" element={<InterviewResultsPage />} />
+          </Route>
+
+          <Route path="/parent-dashboard/*" element={<ParentDashboardLayout />}>
+            <Route index element={<ParentDashboard />} />
+            <Route path="submissions" element={<ParentAssignmentSubmission />} />
+          </Route>
+
+          <Route path="/student/*" element={<StudentDashboardLayout />}>
+            <Route index element={<StudentDashboard />} />
+            <Route path="assignments" element={<StudentAssignments />} />
+            <Route path="upload" element={<Upload />} />
+            <Route path="progress" element={<StudentProgress />} />
+            <Route path="settings" element={<Settings />} />
+          </Route>
         </Route>
 
-        <Route path="/parent-dashboard/*" element={<ParentDashboardLayout />}>
-          <Route index element={<ParentDashboard />} />
-          <Route path="submissions" element={<ParentAssignmentSubmission />} />
-        </Route>
-
-        <Route path="/student/*" element={<StudentDashboardLayout />}>
-          <Route index element={<StudentDashboard />} />
-          <Route path="assignments" element={<StudentAssignments />} />
-          <Route path="upload" element={<Upload />} />
-          <Route path="progress" element={<StudentProgress />} />
-          <Route path="settings" element={<Settings />} />
-        </Route>
-      </Route>
-
-      {/* Fallback Route */}
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+        {/* Fallback Route */}
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </Suspense>
   );
 };
 
