@@ -1,9 +1,9 @@
+import { useAuth } from "@/context/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Users, ClipboardCheck, Star, BookOpen } from 'lucide-react';
-import { useAuth } from "@/context/AuthContext";
 
 // Mock Data
 const kpiData = [
@@ -30,13 +30,13 @@ const recentSubmissions = [
   { student: 'Biyik Andre', assignment: 'Counting Coins', status: 'Graded', score: '9/10' },
 ];
 
-const Overview = () => {
+export default function Overview() {
   const { profile } = useAuth();
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-4xl font-bold text-gray-800">Welcome back {profile?.full_name || 'Teacher'}!</h1>
+        <h1 className="text-4xl font-bold text-gray-800">Welcome back, {profile?.fullName || 'User'}!</h1>
         <p className="text-lg text-gray-500 mt-1">Here's a snapshot of your class's progress.</p>
       </div>
 
@@ -108,5 +108,3 @@ const Overview = () => {
     </div>
   );
 };
-
-export default Overview;

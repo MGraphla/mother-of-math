@@ -1,136 +1,137 @@
-import { createContext, useContext, useState } from 'react';
-import { User } from '@supabase/supabase-js';
-import { toast } from 'sonner';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
-type UserRole = 'teacher' | 'parent' | 'student';
+import { onAuthStateChanged, User, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { auth, db } from '@/lib/firebase';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
+// Define the shape of the user profile
 export interface UserProfile {
-  id: string;
-  email: string;
-  role: UserRole;
-  full_name?: string;
-  school?: string;
-  created_at: string;
-  // For teachers: IDs of students they manage
+  uid: string;
+  email: string | null;
+  fullName: string;
+  role: 'teacher' | 'parent' | 'student';
+  createdAt: any; // Using 'any' for serverTimestamp flexibility
   managed_student_ids?: string[];
-  // For students: ID of their assigned teacher
-  teacher_id?: string;
-  // For students: IDs of parent accounts linked to this student
-  parent_ids?: string[];
-  // For parents: IDs of children/students linked to this parent
-  children_ids?: string[];
-  // Additional academic info for students
-  grade_level?: string;
-  subjects?: string[];
 }
 
-type AuthContextType = {
+// Define the shape of the context
+interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
-  isAuthenticated: boolean;
   isLoading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  isAuthenticated: boolean;
   signUp: (email: string, password: string, role: 'teacher' | 'parent', fullName: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
-  setUserProfile: (profile: UserProfile) => void;
-};
+}
 
+// Create the context with a default undefined value
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Mock user data
-const mockUser: User = {
-  id: 'mock-user-id',
-  email: 'miyaka@ebaseafrica.org',
-  created_at: new Date().toISOString(),
-  aud: 'authenticated',
-  role: 'authenticated',
-  user_metadata: {},
-  app_metadata: {},
-};
+// Define the props for the provider
+interface AuthProviderProps {
+  children: ReactNode;
+}
 
-const mockProfile: UserProfile = {
-  id: 'mock-user-id',
-  email: 'miyaka@ebaseafrica.org',
-  role: 'teacher',
-  full_name: 'Miyaka',
-  created_at: new Date().toISOString(),
-};
+export const AuthProvider = ({ children }: AuthProviderProps) => {
+  
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | null>(mockUser);
-  const [profile, setProfile] = useState<UserProfile | null>(mockProfile);
-  const [isLoading] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(true); // Set to true for demo purposes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        const userDocRef = doc(db, 'users', firebaseUser.uid);
+        const userDocSnap = await getDoc(userDocRef);
+        if (userDocSnap.exists()) {
+          setProfile(userDocSnap.data() as UserProfile);
+        }
+        setUser(firebaseUser);
+      } else {
+        setUser(null);
+        setProfile(null);
+      }
+      setIsLoading(false);
+    });
 
-  const signIn = async (email: string, password: string) => {
-    // For student login, check if this matches any student accounts
-    if (email.includes('student')) {
-      // Create a mock student profile
-      const studentProfile: UserProfile = {
-        id: `student-${Date.now()}`,
-        email: email,
-        role: 'student',
-        full_name: email.split('@')[0],
-        created_at: new Date().toISOString(),
-        grade_level: 'Primary 5',
-        subjects: ['Mathematics'],
-        teacher_id: 'teacher-1'
-      };
-      
-      setUser({
-        ...mockUser,
-        id: studentProfile.id,
-        email: email
-      });
-      setProfile(studentProfile);
-    }
-    
-    setIsAuthenticated(true);
-    toast.success('Signed in successfully!');
-  };
+    return () => unsubscribe();
+  }, []);
 
   const signUp = async (email: string, password: string, role: 'teacher' | 'parent', fullName: string) => {
-    toast.success('Account created successfully!');
+    try {
+      const { user: firebaseUser } = await createUserWithEmailAndPassword(auth, email, password);
+      const userDocRef = doc(db, 'users', firebaseUser.uid);
+      await setDoc(userDocRef, {
+        uid: firebaseUser.uid,
+        email,
+        fullName,
+        role,
+        createdAt: serverTimestamp(),
+      });
+    } catch (error: any) {
+      console.error("Error signing up:", error);
+      throw new Error(error.message || 'Failed to sign up');
+    }
   };
 
-  const signInWithGoogle = async () => {
-    toast.success('Signed in with Google successfully!');
-  };
-
-  const signOut = async () => {
-    setUser(null);
-    setProfile(null);
-    setIsAuthenticated(false);
-    toast.success('Signed out successfully');
+  const signIn = async (email: string, password: string) => {
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error: any) {
+      console.error("Error signing in:", error);
+      throw error; // Re-throw the original Firebase error
+    }
   };
   
-  // Function to set user profile directly (useful for student accounts)
-  const setUserProfile = (newProfile: UserProfile) => {
-    setProfile(newProfile);
-    setUser({
-      ...mockUser,
-      id: newProfile.id,
-      email: newProfile.email
-    });
-    setIsAuthenticated(true);
+  const signInWithGoogle = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const firebaseUser = result.user;
+
+      const userDocRef = doc(db, 'users', firebaseUser.uid);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (!userDocSnap.exists()) {
+        // If the user is new, create a new document in Firestore
+        await setDoc(userDocRef, {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          fullName: firebaseUser.displayName,
+          role: 'teacher', // Default role for Google Sign-In
+          createdAt: serverTimestamp(),
+        });
+      }
+    } catch (error: any) {
+        console.error("Error with Google sign-in:", error);
+        throw new Error(error.message || 'Failed to sign in with Google');
+    }
   };
 
-  return (
-    <AuthContext.Provider value={{ 
-      user, 
-      profile, 
-      isAuthenticated,
-      isLoading, 
-      signIn, 
-      signUp, 
-      signInWithGoogle, 
-      signOut,
-      setUserProfile
-    }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  const logOut = async () => {
+    try {
+          await signOut(auth);
+      
+    } catch (error: any) {
+        console.error("Error signing out:", error);
+        throw new Error(error.message || 'Failed to sign out');
+    }
+  };
+
+  const value = {
+    user,
+    profile,
+    isLoading,
+    isAuthenticated: !isLoading && !!user,
+    signUp,
+    signIn,
+    signInWithGoogle,
+    signOut: logOut,
+  };
+
+  return <AuthContext.Provider value={value}>{!isLoading && children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => {

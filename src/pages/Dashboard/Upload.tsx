@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { fileToBase64, sendMessage } from "@/services/api";
 import ReactMarkdown from 'react-markdown';
+import AnimatedBorder from '@/components/ui/AnimatedBorder';
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -314,14 +315,12 @@ ${file.analysis.remediation ? `Remediation: ${file.analysis.remediation}` : ''}
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
+      <div className="flex flex-col md:flex-row justify-between md:items-start gap-4 mb-6">
+        <div className="flex-grow">
           <h1 className="text-3xl font-bold tracking-tight">Student Work Upload</h1>
-          <p className="text-muted-foreground">
-            Upload and analyze student work for detailed feedback and insights
-          </p>
+          <p className="text-muted-foreground mt-1">Upload and analyze student work for detailed feedback and insights</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <Button 
             variant="outline" 
             onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
@@ -347,7 +346,7 @@ ${file.analysis.remediation ? `Remediation: ${file.analysis.remediation}` : ''}
         className="space-y-4"
         onValueChange={setActiveTab}
       >
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="flex flex-wrap h-auto sm:grid sm:w-full sm:grid-cols-4">
           <TabsTrigger value="all">All Files</TabsTrigger>
           <TabsTrigger value="analyzed">Analyzed</TabsTrigger>
           <TabsTrigger value="pending">Pending</TabsTrigger>
@@ -355,23 +354,17 @@ ${file.analysis.remediation ? `Remediation: ${file.analysis.remediation}` : ''}
         </TabsList>
 
         <TabsContent value="all" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Upload Area</CardTitle>
-              <CardDescription>
-                Drag and drop files here or click to browse. Supports images, PDFs, and other document formats up to 10MB.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div
-                {...getRootProps()}
-                className={cn(
-                  "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors",
-                  isDragActive ? "border-mama-purple bg-mama-purple/5" : "border-border hover:border-mama-purple",
-                  isUploading && "opacity-50 cursor-not-allowed"
-                )}
-              >
-                <input {...getInputProps()} disabled={isUploading} />
+          <AnimatedBorder>
+            <div
+              {...getRootProps()}
+              className={cn(
+                "relative p-8 text-center cursor-pointer transition-colors",
+                isDragActive && "bg-green-50/50",
+                isUploading && "opacity-50 cursor-not-allowed"
+              )}
+            >
+              <input {...getInputProps()} disabled={isUploading} />
+              <div className="flex flex-col items-center justify-center">
                 <UploadIcon className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
                 <p className="text-lg font-medium mb-2">
                   {isDragActive ? "Drop files here" : "Drag & drop files here"}
@@ -379,28 +372,29 @@ ${file.analysis.remediation ? `Remediation: ${file.analysis.remediation}` : ''}
                 <p className="text-sm text-muted-foreground">
                   {isUploading ? "Uploading..." : "Click to select files"}
                 </p>
+                <p className="text-xs text-muted-foreground mt-2">Supports images, PDFs, and documents up to 10MB.</p>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </AnimatedBorder>
 
-          <div className="flex gap-4 items-center">
-            <div className="flex-1">
-              <Input
+          <div className="flex flex-col md:flex-row items-center gap-4 my-4">
+            <div className="relative w-full">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input 
                 placeholder="Search files by name, student, or subject..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="max-w-sm"
+                className="pl-10"
               />
             </div>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-full md:w-[180px]">
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="uploading">Uploading</SelectItem>
-                <SelectItem value="analyzing">Analyzing</SelectItem>
                 <SelectItem value="success">Success</SelectItem>
+                <SelectItem value="analyzing">Analyzing</SelectItem>
                 <SelectItem value="error">Error</SelectItem>
               </SelectContent>
             </Select>
@@ -426,97 +420,95 @@ ${file.analysis.remediation ? `Remediation: ${file.analysis.remediation}` : ''}
                   exit={{ opacity: 0, y: -20 }}
                   className="relative"
                 >
-                  <Card>
-                    <CardContent className="p-6">
-                      <div className="flex items-start gap-4">
-                        <div className="p-2 rounded-lg bg-mama-purple/10">
-                          {file.preview ? (
-                            <img
-                              src={file.preview}
-                              alt={file.file.name}
-                              className="w-12 h-12 object-cover rounded"
-                            />
-                          ) : (
-                            getFileIcon(file.file)
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-medium truncate">{file.file.name}</h3>
-                              <span className="text-sm text-muted-foreground">
-                                {new Date(file.uploadDate).toLocaleDateString()}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge 
-                                variant={
-                                  file.status === "success" ? "default" : 
-                                  file.status === "error" ? "destructive" : 
-                                  file.status === "analyzing" ? "secondary" : "outline"
-                                }
-                              >
-                                {file.status}
-                              </Badge>
-                              {file.status === "success" && file.analysis && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => downloadAnalysis(file)}
-                                  className="text-mama-purple hover:text-mama-purple/80"
-                                >
-                                  <Download className="h-4 w-4" />
-                                </Button>
-                              )}
+                  <div className="border rounded-lg p-6">
+                    <div className="flex items-start gap-4">
+                      <div className="p-2 rounded-lg bg-green-100/50">
+                        {file.preview ? (
+                          <img
+                            src={file.preview}
+                            alt={file.file.name}
+                            className="w-12 h-12 object-cover rounded"
+                          />
+                        ) : (
+                          getFileIcon(file.file)
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-medium truncate">{file.file.name}</h3>
+                            <span className="text-sm text-muted-foreground">
+                              {new Date(file.uploadDate).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge 
+                              variant={
+                                file.status === "success" ? "default" : 
+                                file.status === "error" ? "destructive" : 
+                                file.status === "analyzing" ? "secondary" : "outline"
+                              }
+                            >
+                              {file.status}
+                            </Badge>
+                            {file.status === "success" && file.analysis && (
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => removeFile(file.id)}
-                                className="text-destructive hover:text-destructive/80"
+                                onClick={() => downloadAnalysis(file)}
+                                className="text-green-600 hover:text-green-700"
                               >
-                                <X className="h-4 w-4" />
+                                <Download className="h-4 w-4" />
                               </Button>
-                            </div>
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <Progress value={file.progress} className="h-2" />
-                            
-                            {file.status === "success" && file.analysis && (
-                              <div className="mt-4 space-y-2">
-                                <div className="flex items-center gap-2">
-                                  <Brain className="h-4 w-4 text-mama-purple" />
-                                  <span className="font-medium">Analysis</span>
-                                </div>
-                                <div className="prose prose-sm max-w-none">
-                                  <ReactMarkdown>{file.analysis.text}</ReactMarkdown>
-                                </div>
-                                {file.analysis.errorType && (
-                                  <div className="flex items-center gap-2 text-destructive">
-                                    <Bug className="h-4 w-4" />
-                                    <span>{file.analysis.errorType}</span>
-                                  </div>
-                                )}
-                                {file.analysis.remediation && (
-                                  <div className="flex items-center gap-2 text-mama-purple">
-                                    <Lightbulb className="h-4 w-4" />
-                                    <span>{file.analysis.remediation}</span>
-                                  </div>
-                                )}
-                              </div>
                             )}
-                            
-                            {file.status === "error" && (
-                              <div className="flex items-center gap-2 text-destructive">
-                                <AlertCircle className="h-4 w-4" />
-                                <span>{file.error}</span>
-                              </div>
-                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeFile(file.id)}
+                              className="text-destructive hover:text-destructive/80"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
                           </div>
                         </div>
+                        
+                        <div className="space-y-2">
+                          <Progress value={file.progress} className="h-2" />
+                          
+                          {file.status === "success" && file.analysis && (
+                            <div className="mt-4 space-y-2">
+                              <div className="flex items-center gap-2">
+                                <Brain className="h-4 w-4 text-green-600" />
+                                <span className="font-medium">Analysis</span>
+                              </div>
+                              <div className="prose prose-sm max-w-none">
+                                <ReactMarkdown>{file.analysis.text}</ReactMarkdown>
+                              </div>
+                              {file.analysis.errorType && (
+                                <div className="flex items-center gap-2 text-destructive">
+                                  <Bug className="h-4 w-4" />
+                                  <span>{file.analysis.errorType}</span>
+                                </div>
+                              )}
+                              {file.analysis.remediation && (
+                                <div className="flex items-center gap-2 text-green-600">
+                                  <Lightbulb className="h-4 w-4" />
+                                  <span>{file.analysis.remediation}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
+                          {file.status === "error" && (
+                            <div className="flex items-center gap-2 text-destructive">
+                              <AlertCircle className="h-4 w-4" />
+                              <span>{file.error}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </div>
                 </motion.div>
               ))
             )}

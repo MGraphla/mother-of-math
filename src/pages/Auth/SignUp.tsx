@@ -13,20 +13,25 @@ const SignUp = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
-  const [role, setRole] = useState<"teacher" | "parent">("teacher");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const navigate = useNavigate();
   const { signUp, signInWithGoogle } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setErrorMessage(""); // Clear any previous errors
     
     try {
-      await signUp(email, password, role, fullName);
-      navigate("/dashboard"); // Redirect to dashboard after signup
-    } catch (error) {
+      await signUp(email, password, "teacher", fullName);
+      // Small delay to ensure state updates have propagated
+      setTimeout(() => {
+        navigate("/dashboard"); // Redirect to dashboard after signup
+      }, 100);
+    } catch (error: any) {
       console.error("Error signing up:", error);
+      setErrorMessage(error.message || "Failed to create account. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -34,10 +39,15 @@ const SignUp = () => {
 
   const handleGoogleSignIn = async () => {
     try {
+      setIsSubmitting(true);
+      setErrorMessage(""); // Clear any previous errors
       await signInWithGoogle();
       navigate("/dashboard"); // Redirect to dashboard after Google signup
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error signing in with Google:", error);
+      setErrorMessage(error.message || "Failed to sign in with Google. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -96,23 +106,11 @@ const SignUp = () => {
                 />
               </div>
               
-              <div className="space-y-3">
-                <Label>I am a:</Label>
-                <RadioGroup 
-                  value={role} 
-                  onValueChange={(value) => setRole(value as "teacher" | "parent")}
-                  className="flex flex-col space-y-1"
-                >
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="teacher" id="teacher" />
-                    <Label htmlFor="teacher" className="cursor-pointer">Teacher</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="parent" id="parent" />
-                    <Label htmlFor="parent" className="cursor-pointer">Parent</Label>
-                  </div>
-                </RadioGroup>
-              </div>
+              {errorMessage && (
+                <div className="text-red-500 text-sm mt-2">
+                  {errorMessage}
+                </div>
+              )}
               
               <Button 
                 type="submit" 

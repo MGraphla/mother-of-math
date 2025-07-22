@@ -1,4 +1,19 @@
 import { UserProfile } from "@/context/AuthContext";
+import { Timestamp } from 'firebase/firestore';
+
+export interface Interview {
+  id: string;
+  userId: string;
+  role: string;
+  level: string;
+  topic: string;
+  focus: string;
+  time: number;
+  questions: string[];
+  transcript?: { role: 'user' | 'assistant'; content: string }[];
+  createdAt?: Timestamp;
+  feedback?: string;
+}
 
 export interface Assignment {
   id: string;

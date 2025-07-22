@@ -1,7 +1,7 @@
 // src/services/api.ts
 
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
-const OPENROUTER_MODEL = "google/gemini-flash-1.5";
+const OPENROUTER_MODEL = "openai/gpt-3.5-turbo";
 
 // Function to get API key with validation
 export const getApiKey = (): string | undefined => {
@@ -36,11 +36,16 @@ export const sendMessage = async (
   let systemPrompt: string;
   let userMessageContent: any;
   const requestBody: any = {
-      model: OPENROUTER_MODEL,
-      temperature: 0.7,
-      max_tokens: 2048,
+      model: OPENROUTER_MODEL, // Default model
+      temperature: 0.8,
+      max_tokens: 4096,
       stream: false,
   };
+
+  // Switch to a vision-capable model if an image is provided
+  if (imageBase64) {
+    requestBody.model = "openai/gpt-4o"; // Or another vision model like 'openai/gpt-4-turbo'
+  }
 
   if (imageBase64) {
     systemPrompt = `You are an AI assistant for "Mothers for Mathematics", a project helping teachers and parents in Cameroon with mathematics education. You specialize in providing feedback on student work using Math Error Analysis principles. When analyzing student work, identify:

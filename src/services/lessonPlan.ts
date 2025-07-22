@@ -85,7 +85,7 @@ export const formatAIResponseAsMarkdown = (responseText: string): string => {
   }
 };
 
-export const generateLessonPlan = async (topic: string, level: string, sections: LessonSection[]) => {
+export const generateLessonPlan = async (topic: string, sections: LessonSection[]) => {
   const sectionTitles = sections.map(s => `"${s.title}"`).join(', ');
 
   const prompt = `
@@ -127,9 +127,9 @@ Ensure the entire output is a single, valid JSON object. Do not include any expl
   `;
 
   try {
-    const response = await sendMessage(prompt);
+    const response = await sendMessage(prompt, undefined, 'json');
     // Format the response to ensure it's clean markdown
-    return response.text;
+    return formatAIResponseAsMarkdown(JSON.stringify(response));
   } catch (error) {
     console.error("Error generating lesson plan:", error);
     throw new Error("Failed to generate lesson plan");

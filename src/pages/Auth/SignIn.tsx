@@ -12,18 +12,28 @@ const SignIn = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const navigate = useNavigate();
   const { signIn, signInWithGoogle } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setErrorMessage(""); // Clear any previous errors
     
     try {
       await signIn(email, password);
-      navigate("/dashboard");
-    } catch (error) {
+      // Small delay to ensure state updates have propagated
+      setTimeout(() => {
+        navigate("/dashboard");
+      }, 100);
+    } catch (error: any) {
       console.error("Error signing in:", error);
+      if (error.code === 'auth/invalid-credential') {
+        setErrorMessage("Invalid email or password. Please try again.");
+      } else {
+        setErrorMessage(error.message || "Failed to sign in. Please check your credentials and try again.");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -31,9 +41,15 @@ const SignIn = () => {
 
   const handleGoogleSignIn = async () => {
     try {
+      setIsSubmitting(true);
+      setErrorMessage(""); // Clear any previous errors
       await signInWithGoogle();
-    } catch (error) {
+      navigate("/dashboard");
+    } catch (error: any) {
       console.error("Error signing in with Google:", error);
+      setErrorMessage(error.message || "Failed to sign in with Google. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -86,6 +102,12 @@ const SignIn = () => {
                   className="border-mama-purple/20 focus:border-mama-purple"
                 />
               </div>
+              {errorMessage && (
+                <div className="text-red-500 text-sm mt-2">
+                  {errorMessage}
+                </div>
+              )}
+              
               <Button 
                 type="submit" 
                 disabled={isSubmitting}
