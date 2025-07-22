@@ -77,7 +77,7 @@ const InterviewResultsPage = () => {
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer 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`,
+          'Authorization': `Bearer ${import.meta.env.VITE_OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
