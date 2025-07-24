@@ -85,7 +85,7 @@ export const formatAIResponseAsMarkdown = (responseText: string): string => {
   }
 };
 
-export const generateLessonPlan = async (topic: string, sections: LessonSection[]) => {
+export const generateLessonPlan = async (topic: string, level: string, sections: LessonSection[]) => {
   const sectionTitles = sections.map(s => `"${s.title}"`).join(', ');
 
   const prompt = `
@@ -128,8 +128,12 @@ Ensure the entire output is a single, valid JSON object. Do not include any expl
 
   try {
     const response = await sendMessage(prompt, undefined, 'json');
-    // Format the response to ensure it's clean markdown
-    return formatAIResponseAsMarkdown(JSON.stringify(response));
+    console.log('Raw response from sendMessage:', response);
+    // Return both the raw JSON object and the JSON string
+    return {
+      rawObject: response,
+      jsonString: JSON.stringify(response)
+    };
   } catch (error) {
     console.error("Error generating lesson plan:", error);
     throw new Error("Failed to generate lesson plan");
@@ -204,9 +208,12 @@ export const exportToPDF = async (jsonContent: string, topic: string, level: str
       let cleaned = jsonContent.trim().replace(/^```[a-zA-Z]*\s*|```\s*$/gm, '');
       const parsedJson = JSON.parse(cleaned);
       lessonPlan = parsedJson.lessonPlan || parsedJson;
-      if (!lessonPlan || typeof lessonPlan !== 'object') throw new Error('Invalid data format.');
+      if (!lessonPlan || typeof lessonPlan !== 'object') {
+        throw new Error('Invalid data format.');
+      }
     } catch (e) {
       console.error("Failed to parse lesson plan JSON:", e);
+      console.error("Raw content that failed to parse:", jsonContent);
       throw new Error("Invalid lesson plan data provided.");
     }
 

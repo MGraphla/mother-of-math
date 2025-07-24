@@ -1,6 +1,6 @@
 // src/services/api.ts
 
-const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+
 const OPENROUTER_MODEL = "openai/gpt-3.5-turbo";
 
 // Function to get API key with validation
@@ -29,8 +29,13 @@ export const sendMessage = async (
   responseType: 'json' | 'text' = 'text'
 ): Promise<any> => {
   const apiKey = getApiKey();
+  const apiUrl = import.meta.env.VITE_OPENROUTER_API_URL;
+
   if (!apiKey) {
     throw new Error("API key not configured properly. Please check your .env file.");
+  }
+  if (!apiUrl) {
+    throw new Error("OpenRouter API URL is not configured. Please check VITE_OPENROUTER_API_URL in your .env file.");
   }
 
   let systemPrompt: string;
@@ -74,7 +79,7 @@ Always be encouraging, use simple language, and provide actionable advice. Use m
   ];
 
   try {
-    const response = await fetch(OPENROUTER_API_URL, {
+        const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

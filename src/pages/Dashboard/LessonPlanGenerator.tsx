@@ -8,12 +8,15 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
-import { PlusCircle, Trash2, Download, FileText, FileType, Send, Edit, Save, Plus, X, Loader2, Lightbulb } from 'lucide-react';
+import { PlusCircle, Trash2, Download, FileText, FileType, Send, Edit, Save, Plus, X, Loader2, Lightbulb, BookOpen } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { sendMessage } from '@/services/api'; // Import sendMessage
-import { generateLessonPlan as generateLessonPlanService, exportToPDF, exportToPowerPoint, formatAIResponseAsMarkdown } from '@/services/lessonPlan';
+import { generateLessonPlan as generateLessonPlanService, formatAIResponseAsMarkdown, exportToPDF, exportToPowerPoint } from '@/services/lessonPlan';
+import { useAuth } from '@/context/AuthContext';
+import { db } from '@/lib/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 // Type definitions
 interface LessonSection {
@@ -117,6 +120,7 @@ const LessonPlanGenerator: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generationStep, setGenerationStep] = useState<'idle' | 'generating' | 'complete'>('idle');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { user } = useAuth();
   const [savedLessonPlans, setSavedLessonPlans] = useState<LessonPlan[]>([]);
 
   // Load saved lesson plans from localStorage on mount
@@ -280,11 +284,15 @@ const LessonPlanGenerator: React.FC = () => {
       }));
 
       // Call the robust service function with the correctly typed data
-      const rawJsonResponse = await generateLessonPlanService(topic, level, sectionsForService);
+      const response = await generateLessonPlanService(topic, level, sectionsForService);
+      console.log('Response received in component:', response);
       
-      if (rawJsonResponse) {
-        setRawJsonContent(rawJsonResponse);
-        const formattedMarkdown = formatAIResponseAsMarkdown(rawJsonResponse);
+      if (response && response.jsonString) {
+        // Store the JSON string for PDF export
+        setRawJsonContent(response.jsonString);
+        // Format the markdown using the JSON string
+        const formattedMarkdown = formatAIResponseAsMarkdown(response.jsonString);
+        console.log('Formatted markdown:', formattedMarkdown);
         setGeneratedContent(formattedMarkdown);
         setEditedContent(formattedMarkdown);
         setGenerationStep('complete');
@@ -302,36 +310,56 @@ const LessonPlanGenerator: React.FC = () => {
   };
 
   // Function to save the current lesson plan
-  const saveLessonPlan = () => {
-    if (!editedContent) {
+  const saveLessonPlan = async () => {
+    if (!rawJsonContent) {
       toast({
-        title: 'Content is empty',
-        description: 'There is no content to save.',
-        variant: 'destructive',
+        title: "Error",
+        description: "No lesson plan content to save.",
+        variant: "destructive",
       });
       return;
     }
 
-    const planToSave: LessonPlan = {
-      id: lessonPlan.id || `lesson-${Date.now()}`,
-      topic,
-      level, // Fix: Add level to saved plan
-      sections,
-      generatedContent: editedContent,
-    };
+    if (!user) {
+      toast({
+        title: "Authentication Error",
+        description: "You must be logged in to save a lesson plan.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    // Add the new plan to the array and save to localStorage
-    const updatedPlans = [...savedLessonPlans, planToSave];
-    setSavedLessonPlans(updatedPlans);
-    localStorage.setItem('lessonPlans', JSON.stringify(updatedPlans));
+    try {
+      // Enhanced logging for debugging
+      console.log("Attempting to save lesson plan...");
+      console.log("User object:", user);
+      console.log("Raw JSON content:", rawJsonContent);
 
-    toast({
-      title: "Lesson Plan Saved",
-      description: `'${topic}' has been saved.`,
-    });
+      const lessonPlanData = {
+        title: topic || 'Untitled Lesson Plan',
+        level: level,
+        content: JSON.parse(rawJsonContent),
+        createdAt: serverTimestamp(),
+        userId: user.uid,
+      };
 
-    // Optionally navigate to the lessons page
-    navigate('/lessons');
+      console.log("Data to be saved:", lessonPlanData);
+      console.log(`Firestore path: users/${user.uid}/lesson_plans`);
+
+      const docRef = await addDoc(collection(db, `users/${user.uid}/lesson_plans`), lessonPlanData);
+
+      toast({
+        title: "Success",
+        description: `Lesson plan saved successfully with ID: ${docRef.id}`,
+      });
+    } catch (error) {
+      console.error("Error saving lesson plan to Firestore:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save lesson plan. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   // Handle exporting as PDF
@@ -444,6 +472,15 @@ const LessonPlanGenerator: React.FC = () => {
 
   return (
     <div className="container mx-auto p-4 max-w-7xl">
+      {/* View Lesson Plans Button */}
+      {phase === 1 && (
+        <div className="flex justify-center mb-4">
+          <Button onClick={() => navigate('/dashboard/view-lesson-plans')} className="shadow-lg">
+            <BookOpen className="h-4 w-4 mr-2" />
+            View Your Lesson Plans
+          </Button>
+        </div>
+      )}
       {/* Phase 1: Welcome Screen */}
       {phase === 1 && (
         <Card className="w-full max-w-3xl mx-auto mt-10">

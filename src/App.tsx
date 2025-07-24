@@ -1,4 +1,5 @@
-import { Routes, Route, lazy, Suspense } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
+import { Routes, Route } from 'react-router-dom';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useAuth } from '@/context/AuthContext';
 import { Toaster } from '@/components/ui/toaster';
@@ -21,11 +22,13 @@ const AuthCallback = lazy(() => import('@/pages/Auth/AuthCallback'));
 const AuthSuccess = lazy(() => import('@/pages/Auth/AuthSuccess'));
 const SignIn = lazy(() => import('@/pages/Auth/SignIn'));
 const SignUp = lazy(() => import('@/pages/Auth/SignUp'));
+const ForgotPassword = lazy(() => import('@/pages/Auth/ForgotPassword'));
 
 // Dashboard Pages
 const Overview = lazy(() => import("@/pages/Dashboard/Overview.tsx"));
 const Statistics = lazy(() => import("@/pages/Dashboard/Statistics"));
 const LessonPlanGenerator = lazy(() => import("@/pages/Dashboard/LessonPlanGenerator"));
+const ViewLessonPlans = lazy(() => import("@/pages/Dashboard/ViewLessonPlans"));
 const StoryLessonPlan = lazy(() => import("@/pages/Dashboard/StoryLessonPlan"));
 const Upload = lazy(() => import("@/pages/Dashboard/Upload"));
 const Settings = lazy(() => import('@/pages/Dashboard/Settings'));
@@ -53,12 +56,13 @@ const AppContent = () => {
   }
 
   return (
-    <Suspense fallback={<div className="flex h-screen w-full items-center justify-center">Loading Page...</div>}>
+    <Suspense fallback={<></>}>
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<Home />} />
         <Route path="/sign-in" element={<SignIn />} />
         <Route path="/sign-up" element={<SignUp />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/student-login" element={<StudentLogin />} />
         <Route path="/auth-success" element={<AuthSuccess />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
@@ -77,6 +81,7 @@ const AppContent = () => {
             <Route path="assignments/:assignmentId" element={<FeedbackView />} />
             <Route path="detailed-analysis" element={<DetailedStudentAnalysis />} />
             <Route path="lessons" element={<LessonPlanGenerator />} />
+            <Route path="view-lesson-plans" element={<ViewLessonPlans />} />
             <Route path="story-lessons" element={<StoryLessonPlan />} />
             <Route path="settings" element={<Settings />} />
             <Route path="teacher-training" element={<TeacherTraining />} />

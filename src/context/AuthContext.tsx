@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
-import { onAuthStateChanged, User, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { onAuthStateChanged, User, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
@@ -24,6 +24,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
+  sendPasswordReset: (email: string) => Promise<void>;
 }
 
 // Create the context with a default undefined value
@@ -110,6 +111,15 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
+  const sendPasswordReset = async (email: string) => {
+    try {
+      await sendPasswordResetEmail(auth, email);
+    } catch (error: any) {
+      console.error("Error sending password reset email:", error);
+      throw new Error(error.message || 'Failed to send password reset email');
+    }
+  };
+
   const logOut = async () => {
     try {
           await signOut(auth);
@@ -129,6 +139,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     signIn,
     signInWithGoogle,
     signOut: logOut,
+    sendPasswordReset,
   };
 
   return <AuthContext.Provider value={value}>{!isLoading && children}</AuthContext.Provider>;
