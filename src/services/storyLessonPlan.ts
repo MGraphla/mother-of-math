@@ -164,7 +164,11 @@ The "storyLessonPlan" object must contain:
 
 8. "setting": Describe the local Cameroonian setting (e.g., "Mile 3 Bamenda", "Ntarinkon Market", "village school", "family compound")
 
-9. "lessonObjectives": An array of 3-4 clear, measurable learning objectives specific to ${topic}
+9. "lessonObjectives": [
+      "Students will be able to add two or more numbers using appropriate strategies.",
+      "Students will be able to subtract numbers within 1000 with regrouping.",
+      "Students will be able to divide numbers within 100 using basic division strategies."
+    ],
 
 10. "materials": Array of materials needed (story props, local objects, manipulatives, etc.)
 

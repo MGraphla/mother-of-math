@@ -34,6 +34,7 @@ export const formatAIResponseAsMarkdown = (responseText: string): string => {
     // Handle specific sections first
     if (data.lessonObjectives && Array.isArray(data.lessonObjectives)) {
       markdown += `## Lesson Objectives\n`;
+      markdown += `Learners will be able to:\n`;
       data.lessonObjectives.forEach((obj: string) => markdown += `- ${obj}\n`);
       markdown += '\n';
     }
@@ -98,7 +99,7 @@ The "lessonPlan" object must contain:
 2.  "gradeLevel": The target grade level ("${level}").
 3.  "subject": "Mathematics".
 4.  "topic": The specific topic ("${topic}").
-5.  "lessonObjectives": An array of at least 3 clear, measurable, and detailed learning objectives.
+5.  "lessonObjectives": An array of at least 3 clear, measurable, and detailed learning objective descriptions (the part that comes after 'Learners will be able to...'). For example, for 'Learners will be able to identify shapes', you should only provide 'identify shapes'. You just list down the objectives. Do not use 'Students will be able to...'. 
 6.  "materials": A comprehensive array of all necessary materials, including digital resources if applicable.
 7.  "sections": An array of objects for the main lesson parts: ${sectionTitles}. Each section object MUST have the following keys:
     - "title": The section title (e.g., "INTRODUCTION").
