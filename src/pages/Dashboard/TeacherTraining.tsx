@@ -38,14 +38,14 @@ const TeacherTraining = () => {
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <header>
           <h1 className="text-3xl font-bold tracking-tight">Teacher Training</h1>
           <p className="text-muted-foreground">
             Practice and upgrade your teaching skills with AI-powered mock interviews.
           </p>
         </header>
-                <Button className="ml-auto" onClick={() => setIsModalOpen(true)}>
+        <Button className="w-full md:w-auto" onClick={() => setIsModalOpen(true)}>
           <PlusCircle className="mr-2 h-4 w-4" /> Create Interview
         </Button>
       </div>

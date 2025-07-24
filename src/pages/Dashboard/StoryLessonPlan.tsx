@@ -200,9 +200,24 @@ const StoryLessonPlan = () => {
   // Find the selected lesson plan
   const selectedLesson = savedStoryLessonPlans.find(plan => plan.id === selectedLessonId);
 
+
+
   if (currentPhase === "welcome") {
     return (
       <div className="max-w-2xl mx-auto py-12 px-4">
+        {savedStoryLessonPlans.length > 0 && (
+          <div className="flex justify-center mb-6">
+            <Button 
+              onClick={() => setCurrentPhase('editing')} 
+              size="lg"
+              className="shadow-lg bg-mama-green hover:bg-mama-green/90"
+            >
+              <BookOpen className="mr-2 h-5 w-5" />
+              View Your Saved Lessons ({savedStoryLessonPlans.length})
+              <Sparkles className="ml-2 h-5 w-5" />
+            </Button>
+          </div>
+        )}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
