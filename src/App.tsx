@@ -28,9 +28,9 @@ const ForgotPassword = lazy(() => import('@/pages/Auth/ForgotPassword'));
 const Overview = lazy(() => import("@/pages/Dashboard/Overview.tsx"));
 const Statistics = lazy(() => import("@/pages/Dashboard/Statistics"));
 const LessonPlanGenerator = lazy(() => import("@/pages/Dashboard/LessonPlanGenerator"));
-const LessonPlans = lazy(() => import('@/pages/Dashboard/LessonPlans'));
-const Chatbot = lazy(() => import('@/pages/Dashboard/Chatbot'));
+const ViewLessonPlans = lazy(() => import("@/pages/Dashboard/ViewLessonPlans"));
 const StoryLessonPlan = lazy(() => import("@/pages/Dashboard/StoryLessonPlan"));
+const Chatbot = lazy(() => import("@/pages/Dashboard/Chatbot"));
 const Upload = lazy(() => import("@/pages/Dashboard/Upload"));
 const Settings = lazy(() => import('@/pages/Dashboard/Settings'));
 const TeacherTraining = lazy(() => import('@/pages/Dashboard/TeacherTraining'));
@@ -73,9 +73,7 @@ const AppContent = () => {
           <Route path="/dashboard/*" element={<DashboardLayout />}>
             <Route index element={<Overview />} />
             <Route path="statistics" element={<Statistics />} />
-            <Route path="lesson-plans" element={<LessonPlans />} />
             <Route path="lesson-plan" element={<LessonPlanGenerator />} />
-            <Route path="chatbot" element={<Chatbot />} />
             <Route path="upload" element={<Upload />} />
             <Route path="students" element={<StudentManagement />} />
             <Route path="students/:studentId" element={<FeedbackView />} />
