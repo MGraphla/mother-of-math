@@ -2,7 +2,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
-  Home, BookOpen, Upload, Settings, LogOut, Users, ClipboardList, UserPlus, BookCheck, UserCircle, UsersRound, ChevronsLeft, ChevronsRight, BrainCircuit, Sparkles
+  Home, BookOpen, Upload, Settings, LogOut, Users, ClipboardList, UserPlus, BookCheck, UserCircle, UsersRound, ChevronsLeft, ChevronsRight, BrainCircuit, Sparkles, MessageCircle
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ const DashboardSidebar = ({ profile, isExpanded, setExpanded, onLinkClick }) => 
       { name: "Assignments", href: "/dashboard/assignments", icon: <ClipboardList className="h-5 w-5" /> },
       { name: "Lesson Plans", href: "/dashboard/lessons", icon: <BookOpen className="h-5 w-5" /> },
       { name: "Story Lesson Plans", href: "/dashboard/story-lessons", icon: <Sparkles className="h-5 w-5" /> },
+      { name: "Chat Bot", href: "/dashboard/chatbot", icon: <MessageCircle className="h-5 w-5" /> },
       { name: "Upload Work", href: "/dashboard/upload", icon: <Upload className="h-5 w-5" /> },
       { name: "Teacher Training", href: "/dashboard/teacher-training", icon: <BrainCircuit className="h-5 w-5" /> }
     ] : isParent ? [

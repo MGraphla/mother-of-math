@@ -30,6 +30,7 @@ const Statistics = lazy(() => import("@/pages/Dashboard/Statistics"));
 const LessonPlanGenerator = lazy(() => import("@/pages/Dashboard/LessonPlanGenerator"));
 const ViewLessonPlans = lazy(() => import("@/pages/Dashboard/ViewLessonPlans"));
 const StoryLessonPlan = lazy(() => import("@/pages/Dashboard/StoryLessonPlan"));
+const Chatbot = lazy(() => import("@/pages/Dashboard/Chatbot"));
 const Upload = lazy(() => import("@/pages/Dashboard/Upload"));
 const Settings = lazy(() => import('@/pages/Dashboard/Settings'));
 const TeacherTraining = lazy(() => import('@/pages/Dashboard/TeacherTraining'));
@@ -83,6 +84,7 @@ const AppContent = () => {
             <Route path="lessons" element={<LessonPlanGenerator />} />
             <Route path="view-lesson-plans" element={<ViewLessonPlans />} />
             <Route path="story-lessons" element={<StoryLessonPlan />} />
+            <Route path="chatbot" element={<Chatbot />} />
             <Route path="settings" element={<Settings />} />
             <Route path="teacher-training" element={<TeacherTraining />} />
             <Route path="teacher-training/:interviewId" element={<InterviewPage />} />
