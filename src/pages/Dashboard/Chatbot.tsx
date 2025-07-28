@@ -47,7 +47,7 @@ const Chatbot: React.FC = () => {
 
     if (!selectedGrade) {
       toast({
-        title: "Please select a grade level first",
+        title: "Please select a class level first",
         variant: "destructive",
       });
       return;
@@ -143,13 +143,13 @@ const Chatbot: React.FC = () => {
 
         <Card className="mb-6 overflow-hidden rounded-xl">
           <CardHeader className="bg-[#1E8449] text-white p-4">
-            <CardTitle>Select Your Grade Level</CardTitle>
+            <CardTitle>Select Your Class Level</CardTitle>
           </CardHeader>
           <CardContent className="p-4 bg-white">
-            <label htmlFor="grade-select" className="text-sm font-medium text-gray-700 mb-2 block">Choose the grade you're teaching...</label>
+            <label htmlFor="grade-select" className="text-sm font-medium text-gray-700 mb-2 block">Choose the class you're teaching...</label>
             <Select value={selectedGrade} onValueChange={setSelectedGrade}>
               <SelectTrigger id="grade-select" className="w-full">
-                <SelectValue placeholder="Select a grade..." />
+                <SelectValue placeholder="Select a class..." />
               </SelectTrigger>
               <SelectContent>
                 {[...Array(6)].map((_, i) => (
@@ -197,7 +197,7 @@ const Chatbot: React.FC = () => {
               <CardTitle className="flex items-center gap-2"><BookOpen /> Mathematics Curriculum Assistant</CardTitle>
             </CardHeader>
             <CardContent className="p-6 bg-white">
-              <p className="text-center text-gray-600 mb-6">Welcome! I'm specialized in Cameroon's primary mathematics curriculum. Select a grade level above, then choose a topic to get started.</p>
+              <p className="text-center text-gray-600 mb-6">Welcome! I'm specialized in Cameroon's primary mathematics curriculum. Select a class level above, then choose a topic to get started.</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 {curriculumTopics.map((topic) => (
                   <button key={topic.title} onClick={() => handleSendMessage(`Tell me about ${topic.title} for Primary ${selectedGrade}`)} disabled={!selectedGrade} className="text-left p-4 border bg-white rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
@@ -212,7 +212,7 @@ const Chatbot: React.FC = () => {
               {!selectedGrade && (
                 <div className="bg-green-50 border-l-4 border-green-400 text-green-800 p-4 rounded-md flex items-center gap-3">
                   <AlertTriangle className="h-5 w-5" />
-                  <p>Please select a grade level first to get curriculum-specific guidance.</p>
+                  <p>Please select a class level first to get curriculum-specific guidance.</p>
                 </div>
               )}
             </CardContent>
@@ -226,7 +226,7 @@ const Chatbot: React.FC = () => {
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder={selectedGrade ? "Select a topic above or ask your own question..." : "Select a grade level first, then ask your question..."}
+              placeholder={selectedGrade ? "Select a topic above or ask your own question..." : "Select a class level first, then ask your question..."}
               className="pr-12 h-12"
               disabled={!selectedGrade || isLoading}
             />
