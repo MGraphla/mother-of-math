@@ -22,6 +22,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import ChatbotService from "@/services/chatbot";
 import type { ChatMessage } from "@/services/chatbot";
+import { getTopicsForClassLevel } from "@/data/curriculumContent";
+import type { TopicItem } from "@/data/curriculumContent";
 import {
   supabase,
   createConversation,
@@ -395,16 +397,29 @@ const Chatbot: React.FC = () => {
   /*  Preferences (persisted in localStorage)  */
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("mama-dark") === "true");
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem("mama-lang") as Language) || "en");
+  const [selectedCountry, setSelectedCountry] = useState<'cameroon' | 'nigeria'>(() => (localStorage.getItem("mama-country") as 'cameroon' | 'nigeria') || "cameroon");
 
   useEffect(() => { localStorage.setItem("mama-dark", String(darkMode)); }, [darkMode]);
   useEffect(() => { localStorage.setItem("mama-lang", language); }, [language]);
+  useEffect(() => { localStorage.setItem("mama-country", selectedCountry); }, [selectedCountry]);
 
   /*  Conversation state  */
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
   const [messages, setMessages] = useState<(ChatMessage & { rating?: number | null; bookmarked?: boolean | null; dbId?: string })[]>([]);
   const [selectedGrade, setSelectedGrade] = useState<string>("");
+  const [curriculumTopics, setCurriculumTopics] = useState<TopicItem[]>([]);
   const [inputMessage, setInputMessage] = useState("");
+
+  // Reload curriculum topics whenever country or grade changes
+  useEffect(() => {
+    if (selectedGrade) {
+      const topics = getTopicsForClassLevel(selectedCountry, `Primary ${selectedGrade}`);
+      setCurriculumTopics(topics);
+    } else {
+      setCurriculumTopics([]);
+    }
+  }, [selectedCountry, selectedGrade]);
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [isStreamingActive, setIsStreamingActive] = useState(false);
@@ -564,7 +579,7 @@ const Chatbot: React.FC = () => {
         const response = await chatbotService.sendMessageStreaming(
           content, messages, selectedGrade,
           (chunk: string) => { fullResponseText += chunk; setStreamingText(fullResponseText); },
-          imageForMsg || undefined, language
+          imageForMsg || undefined, language, selectedCountry, curriculumTopics
         );
 
         setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: response.message || fullResponseText } : m));
@@ -587,7 +602,7 @@ const Chatbot: React.FC = () => {
         textareaRef.current?.focus();
       }
     },
-    [inputMessage, isLoading, selectedGrade, messages, chatbotService, toast, activeConvoId, user?.id, pendingImage, language]
+    [inputMessage, isLoading, selectedGrade, messages, chatbotService, toast, activeConvoId, user?.id, pendingImage, language, selectedCountry, curriculumTopics]
   );
 
   /*  Regenerate  */
@@ -610,7 +625,7 @@ const Chatbot: React.FC = () => {
       const response = await chatbotService.sendMessageStreaming(
         lastUserMsg.content, history, selectedGrade,
         (chunk) => { fullText += chunk; setStreamingText(fullText); },
-        undefined, language
+        undefined, language, selectedCountry, curriculumTopics
       );
       setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: response.message || fullText } : m));
       if (activeConvoId) {
@@ -624,7 +639,7 @@ const Chatbot: React.FC = () => {
       setIsStreamingActive(false);
       setStreamingText("");
     }
-  }, [isLoading, messages, chatbotService, selectedGrade, toast, activeConvoId, language]);
+  }, [isLoading, messages, chatbotService, selectedGrade, toast, activeConvoId, language, selectedCountry, curriculumTopics]);
 
   /*  PDF export  */
   const handleExportPdf = () => {
@@ -977,6 +992,7 @@ const Chatbot: React.FC = () => {
               <div className="min-w-0">
                 <h1 className={cn("text-base sm:text-lg font-bold truncate leading-tight", darkMode ? "text-gray-100" : "text-gray-900")}>{t(language, "app.title")}</h1>
                 <div className="flex items-center gap-1.5">
+                  <span className="text-sm leading-none">{selectedCountry === 'cameroon' ? '🇨🇲' : '🇳🇬'}</span>
                   {selectedGrade ? (
                     <Badge variant="secondary" className={cn("text-[10px] px-1.5 py-0", darkMode ? "bg-green-900/40 text-green-400 border-green-800" : "bg-green-50 text-green-700 border-green-200")}>{t(language, "app.primary")} {selectedGrade}</Badge>
                   ) : (
@@ -989,13 +1005,31 @@ const Chatbot: React.FC = () => {
 
             {/* Controls cluster */}
             <div className="flex items-center gap-1.5 shrink-0">
+              {/* Country select */}
+              <Select value={selectedCountry} onValueChange={(v) => { setSelectedCountry(v as 'cameroon' | 'nigeria'); setSelectedGrade(""); }}>
+                <SelectTrigger className={cn("h-9 w-[52px] sm:w-[145px] text-sm rounded-xl focus:ring-green-500/30", darkMode ? "bg-gray-800 border-gray-700 text-gray-200" : "border-gray-200")}>
+                  <span className="flex items-center gap-2">
+                    <span className="text-base leading-none">{selectedCountry === 'cameroon' ? '🇨🇲' : '🇳🇬'}</span>
+                    <span className="hidden sm:inline truncate">{selectedCountry === 'cameroon' ? 'Cameroon' : 'Nigeria'}</span>
+                  </span>
+                </SelectTrigger>
+                <SelectContent className={darkMode ? "bg-gray-800 border-gray-700" : ""}>
+                  <SelectItem value="cameroon" className={darkMode ? "text-gray-200 focus:bg-gray-700" : ""}>
+                    <span className="flex items-center gap-2">🇨🇲 Cameroon</span>
+                  </SelectItem>
+                  <SelectItem value="nigeria" className={darkMode ? "text-gray-200 focus:bg-gray-700" : ""}>
+                    <span className="flex items-center gap-2">🇳🇬 Nigeria</span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
               {/* Grade select */}
               <Select value={selectedGrade} onValueChange={setSelectedGrade}>
                 <SelectTrigger className={cn("h-9 w-[110px] sm:w-[130px] text-sm rounded-xl focus:ring-green-500/30", darkMode ? "bg-gray-800 border-gray-700 text-gray-200" : "border-gray-200")}>
                   <SelectValue placeholder={t(language, "app.class")} />
                 </SelectTrigger>
                 <SelectContent className={darkMode ? "bg-gray-800 border-gray-700" : ""}>
-                  {GRADES.map((g) => (
+                  {(selectedCountry === 'nigeria' ? [1, 2, 3] : GRADES).map((g) => (
                     <SelectItem key={g} value={`${g}`} className={darkMode ? "text-gray-200 focus:bg-gray-700" : ""}>
                       <span className="flex items-center gap-2"><GraduationCap className="w-3.5 h-3.5 text-green-600" />{t(language, "app.primary")} {g}</span>
                     </SelectItem>

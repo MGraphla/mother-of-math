@@ -262,7 +262,7 @@ const formatDate = (dateStr: string) => {
 // ============================================================
 
 const TeacherSupport: React.FC = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1076,7 +1076,7 @@ const TeacherSupport: React.FC = () => {
                       <div className="relative">
                         <Avatar className="h-10 w-10 ring-2 ring-blue-400 ring-offset-2 ring-offset-background">
                           <AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-600 text-white font-semibold text-sm">
-                            {user?.name?.slice(0, 2).toUpperCase() || 'ME'}
+                            {profile?.full_name?.slice(0, 2).toUpperCase() || 'ME'}
                           </AvatarFallback>
                         </Avatar>
                         <span className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full bg-green-500 border-2 border-background"></span>
@@ -1085,7 +1085,7 @@ const TeacherSupport: React.FC = () => {
                     {/* Message Content */}
                     <div className="flex-1 max-w-[75%]">
                       <div className="flex items-center gap-2 mb-1.5">
-                        <span className="font-semibold text-sm text-foreground">{user?.name || 'You'}</span>
+                        <span className="font-semibold text-sm text-foreground">{profile?.full_name || 'You'}</span>
                         <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 text-[10px] px-1.5 py-0 h-4 border-0">
                           You
                         </Badge>

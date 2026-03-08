@@ -2,6 +2,28 @@
 // Supports: streaming, vision, bilingual (EN/FR), context-window management
 
 import type { Language } from '@/lib/i18n';
+import { getTopicsForClassLevel } from '@/data/curriculumContent';
+import type { TopicItem } from '@/data/curriculumContent';
+
+/** Formats the real curriculum topic list into a concise prompt block. */
+function buildCurriculumBlock(topics: TopicItem[]): string {
+  if (!topics.length) return '';
+  const lines: string[] = ['\n\n=== OFFICIAL CURRICULUM TOPICS FOR THIS CLASS ==='];
+  const byStrand = topics.reduce<Record<string, TopicItem[]>>((acc, t) => {
+    (acc[t.strand] = acc[t.strand] || []).push(t);
+    return acc;
+  }, {});
+  for (const [strand, items] of Object.entries(byStrand)) {
+    lines.push(`\n**${strand}**`);
+    for (const item of items) {
+      lines.push(`- **${item.title}**: ${item.objectives.slice(0, 2).join('; ')}`);
+      if (item.subtopics?.length) lines.push(`  Subtopics: ${item.subtopics.slice(0, 4).join(', ')}`);
+    }
+  }
+  lines.push('\n=== END OF CURRICULUM TOPICS ===');
+  lines.push('When helping the teacher, always ground your advice in these specific topics.');
+  return lines.join('\n');
+}
 
 interface ChatMessage {
   id: string;
@@ -43,7 +65,41 @@ class ChatbotService {
 
   /*  System prompts (EN / FR)  */
 
-  private buildSystemPrompt(grade: string, language: Language = 'en'): string {
+  private buildSystemPrompt(grade: string, language: Language = 'en', country: 'cameroon' | 'nigeria' = 'cameroon', curriculumTopics?: TopicItem[]): string {
+    const topicsBlock = curriculumTopics && curriculumTopics.length
+      ? buildCurriculumBlock(curriculumTopics)
+      : buildCurriculumBlock(getTopicsForClassLevel(country, `Primary ${grade}`));
+    if (country === 'nigeria') {
+      return `You are MAMA (Mathematics Assistant for Nigerian Primary Schools), an AI teaching assistant specialized in Nigeria's National Primary Mathematics Curriculum. You are currently assisting a teacher for Primary ${grade}. All your responses must be tailored specifically to this grade level and the Nigerian national curriculum.
+
+You help teachers with:
+- Mathematics curriculum guidance for Nigeria's National Primary Mathematics Standards for Primary ${grade}.
+- Lesson planning and teaching strategies aligned with the Nigerian national curriculum for Primary ${grade}.
+- Student assessment and progress tracking for Primary ${grade}.
+- Explaining mathematical concepts appropriate for Primary ${grade}.
+- Cultural integration of local Nigerian contexts in math education for Primary ${grade}.
+
+Nigerian Primary Mathematics Curriculum Strands covered at Primary ${grade}:
+- **Number and Numeration**: counting, place value, whole numbers, fractions, decimals, percentages.
+- **Basic Operations**: addition, subtraction, multiplication, division with whole numbers and fractions.
+- **Algebraic Processes**: number patterns, sequences, simple open sentences and equations.
+- **Mensuration and Geometry**: measurement of length, mass, capacity, time, perimeter, area; 2D and 3D shapes.
+- **Everyday Statistics**: data collection, frequency tables, bar charts, pictograms, averages.
+
+Key Guidelines:
+- Your primary focus is Primary ${grade} in Nigeria. All examples and advice must be suitable for this level.
+- **Answer specifically what is asked without providing unsolicited information.**
+- Use Nigerian contexts (Naira, local markets, familiar Nigerian foods, cities, cultural activities, etc.).
+- Align all advice firmly to Nigeria's national curriculum standards and UBE framework.
+- Use simple, clear language appropriate for Primary ${grade} teachers.
+- Provide specific, actionable advice for teachers relevant to Primary ${grade}.
+- When an image is shared, analyze it thoroughly for any mathematical content, student work, or educational material.
+- Format your responses using Markdown: use headings, bold text, numbered lists, and bullet points for clarity.
+- When writing mathematical formulas, use LaTeX notation between $...$ for inline and $$...$$ for display blocks.
+
+Be helpful, encouraging, and educational in all responses, ensuring they are directly applicable to Primary ${grade} in Nigeria.${topicsBlock}`;
+    }
+
     if (language === 'fr') {
       return `Vous �tes MAMA (Assistante Math�matique pour le Cameroun), une assistante p�dagogique IA sp�cialis�e dans le programme de math�matiques du primaire au Cameroun. Vous assistez actuellement un enseignant pour le Primaire ${grade}. Toutes vos r�ponses doivent �tre adapt�es � ce niveau.
 
@@ -63,7 +119,7 @@ Directives :
 - Formatez vos r�ponses en Markdown : titres, gras, listes num�rot�es, puces.
 - Lorsque vous �crivez des formules math�matiques, utilisez la notation LaTeX entre $...$ pour les formules en ligne et $$...$$ pour les blocs.
 
-R�pondez TOUJOURS en fran�ais. Soyez utile, encourageant et �ducatif.`;
+Répondez TOUJOURS en français. Soyez utile, encourageant et éducatif.${topicsBlock}`;
     }
 
     return `You are MAMA (Mathematics Assistant for Cameroon), an AI teaching assistant specialized in Cameroon's primary mathematics curriculum. You are currently assisting a teacher for Primary ${grade}. All your responses must be tailored specifically to this grade level.
@@ -86,7 +142,7 @@ Key Guidelines:
 - Format your responses using Markdown: use headings, bold text, numbered lists, and bullet points for clarity.
 - When writing mathematical formulas, use LaTeX notation between $...$ for inline and $$...$$ for display blocks.
 
-Be helpful, encouraging, and educational in all responses, ensuring they are directly applicable to Primary ${grade}.`;
+Be helpful, encouraging, and educational in all responses, ensuring they are directly applicable to Primary ${grade}.${topicsBlock}`;
   }
 
   /*  Content builder (vision support)  */
@@ -133,12 +189,14 @@ Be helpful, encouraging, and educational in all responses, ensuring they are dir
     conversationHistory: ChatMessage[] = [],
     grade: string,
     imageBase64?: string,
-    language: Language = 'en'
+    language: Language = 'en',
+    country: 'cameroon' | 'nigeria' = 'cameroon',
+    curriculumTopics?: TopicItem[]
   ): Promise<ChatbotResponse> {
     if (!grade) {
       return {
         success: false,
-        message: language === 'fr' ? 'Niveau de classe non s�lectionn�.' : 'Grade level is not selected.',
+        message: language === 'fr' ? 'Niveau de classe non sélectionné.' : 'Grade level is not selected.',
         error: 'Grade not provided',
       };
     }
@@ -146,7 +204,7 @@ Be helpful, encouraging, and educational in all responses, ensuring they are dir
     try {
       const hasImage = !!imageBase64;
       const msgs: any[] = [
-        { role: 'system', content: this.buildSystemPrompt(grade, language) },
+        { role: 'system', content: this.buildSystemPrompt(grade, language, country, curriculumTopics) },
         ...this.trimHistory(conversationHistory),
         { role: 'user', content: this.buildMessageContent(message, imageBase64) },
       ];
@@ -185,7 +243,7 @@ Be helpful, encouraging, and educational in all responses, ensuring they are dir
         success: false,
         message:
           language === 'fr'
-            ? "Je m'excuse, mais j'ai rencontr� une erreur. Veuillez r�essayer."
+            ? "Je m'excuse, mais j'ai rencontré une erreur. Veuillez réessayer."
             : 'I apologize, but I encountered an error. Please try again.',
         error: error instanceof Error ? error.message : 'Unknown error',
       };
@@ -200,12 +258,14 @@ Be helpful, encouraging, and educational in all responses, ensuring they are dir
     grade: string,
     onChunk: (chunk: string) => void,
     imageBase64?: string,
-    language: Language = 'en'
+    language: Language = 'en',
+    country: 'cameroon' | 'nigeria' = 'cameroon',
+    curriculumTopics?: TopicItem[]
   ): Promise<ChatbotResponse> {
     if (!grade) {
       return {
         success: false,
-        message: language === 'fr' ? 'Niveau de classe non s�lectionn�.' : 'Grade level is not selected.',
+        message: language === 'fr' ? 'Niveau de classe non sélectionné.' : 'Grade level is not selected.',
         error: 'Grade not provided',
       };
     }
@@ -213,7 +273,7 @@ Be helpful, encouraging, and educational in all responses, ensuring they are dir
     try {
       const hasImage = !!imageBase64;
       const msgs: any[] = [
-        { role: 'system', content: this.buildSystemPrompt(grade, language) },
+        { role: 'system', content: this.buildSystemPrompt(grade, language, country, curriculumTopics) },
         ...this.trimHistory(conversationHistory),
         { role: 'user', content: this.buildMessageContent(message, imageBase64) },
       ];
