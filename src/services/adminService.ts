@@ -875,34 +875,85 @@ export const updateTeacherStatus = async (
 };
 
 /**
- * Create a new teacher account
+ * Create a new teacher account (admin-initiated, pre-verified, no email confirmation required)
  */
 export const createTeacherAccount = async (teacherData: {
   email: string;
-  full_name: string;
-  school_name?: string;
-  country?: string;
   password: string;
-}): Promise<{ success: boolean; error?: string }> => {
+  full_name: string;
+  gender?: string;
+  date_of_birth?: string;
+  country?: string;
+  city?: string;
+  preferred_language?: string;
+  bio?: string;
+  school_name?: string;
+  school_address?: string;
+  school_type?: string;
+  number_of_students?: number;
+  subjects_taught?: string;
+  grade_levels?: string;
+  years_of_experience?: number;
+  education_level?: string;
+  phone_number?: string;
+  whatsapp_number?: string;
+}): Promise<{ success: boolean; userId?: string; error?: string }> => {
   try {
-    // Create auth user using admin client
+    // Build metadata (all fields passed through so the DB trigger can populate profiles)
+    const metadata: Record<string, any> = {
+      full_name: teacherData.full_name,
+      role: 'teacher',
+    };
+    const optionalFields = [
+      'gender','date_of_birth','country','city','preferred_language','bio',
+      'school_name','school_address','school_type','number_of_students',
+      'subjects_taught','grade_levels','years_of_experience','education_level',
+      'phone_number','whatsapp_number',
+    ] as const;
+    optionalFields.forEach(k => {
+      if (teacherData[k] !== undefined && teacherData[k] !== '') metadata[k] = teacherData[k];
+    });
+
+    // Create the auth user — email_confirm:true means no verification email is sent
     const { data, error } = await adminSupabase.auth.admin.createUser({
       email: teacherData.email,
       password: teacherData.password,
       email_confirm: true,
-      user_metadata: {
-        full_name: teacherData.full_name,
-        role: 'teacher',
-        school_name: teacherData.school_name,
-        country: teacherData.country,
-      },
+      user_metadata: metadata,
     });
 
     if (error) {
       return { success: false, error: error.message };
     }
 
-    return { success: true };
+    const userId = data.user?.id;
+    if (!userId) {
+      return { success: false, error: 'User created but no ID returned' };
+    }
+
+    // Upsert the profiles row directly so the profile is immediately available
+    // even if the Postgres trigger hasn't run or doesn't exist.
+    const profilePayload: Record<string, any> = {
+      id: userId,
+      email: teacherData.email,
+      role: 'teacher',
+      email_verified: true,
+      account_status: 'active',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      ...metadata,
+    };
+
+    const { error: profileError } = await adminSupabase
+      .from('profiles')
+      .upsert(profilePayload, { onConflict: 'id' });
+
+    if (profileError) {
+      // Log but don't fail — the trigger may have already created the row
+      console.warn('Profile upsert warning (may already exist via trigger):', profileError.message);
+    }
+
+    return { success: true, userId };
   } catch (error: any) {
     return { success: false, error: error.message || 'Failed to create teacher account' };
   }
@@ -1006,7 +1057,7 @@ export const getAllStudentWorks = async (): Promise<StudentWorkStats[]> => {
     }
 
     console.log('Falling back to direct query with adminSupabase...');
-    console.log('Has service role access:', hasServiceRoleAccess());
+    console.log('Has service role access:', !!import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY);
     
     // Direct query without relationship join (no FK constraint on student_works)
     const { data, error } = await adminSupabase
@@ -1093,19 +1144,34 @@ export const getAllAnnouncements = async (): Promise<AnnouncementStats[]> => {
 
     console.log('RPC error or not available, falling back to direct query:', rpcError?.message);
     
+    // NOTE: announcements.teacher_id references auth.users, not profiles,
+    // so PostgREST cannot auto-resolve the embedded join. Fetch separately.
     const { data: announcements, error } = await adminSupabase
       .from('announcements')
-      .select(`
-        *,
-        profiles:teacher_id ( full_name )
-      `)
+      .select('*')
       .order('created_at', { ascending: false });
 
     if (error) {
       console.warn('Error fetching announcements:', error.message);
       return [];
     }
-    if (!announcements) return [];
+    if (!announcements || announcements.length === 0) return [];
+
+    // Fetch teacher names from profiles using teacher_ids
+    const teacherIds = [...new Set(announcements.map(a => a.teacher_id).filter(Boolean))];
+    let teacherNameMap: Record<string, string> = {};
+    if (teacherIds.length > 0) {
+      const { data: teachers } = await adminSupabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', teacherIds);
+      if (teachers) {
+        teacherNameMap = teachers.reduce((acc, t) => {
+          acc[t.id] = t.full_name;
+          return acc;
+        }, {} as Record<string, string>);
+      }
+    }
 
     // Get read counts for each announcement
     const announcementStats = await Promise.all(
@@ -1118,7 +1184,7 @@ export const getAllAnnouncements = async (): Promise<AnnouncementStats[]> => {
         return {
           id: announcement.id,
           teacher_id: announcement.teacher_id,
-          teacher_name: announcement.profiles?.full_name,
+          teacher_name: teacherNameMap[announcement.teacher_id] || 'Unknown',
           title: announcement.title,
           message: announcement.message,
           target_grade_level: announcement.target_grade_level,

@@ -17,6 +17,7 @@ export interface Announcement {
   target_grade_level: string | null;
   target_class_name: string | null;
   is_pinned: boolean;
+  priority?: string | null;
   expires_at: string | null;
   created_at: string;
   updated_at: string;
