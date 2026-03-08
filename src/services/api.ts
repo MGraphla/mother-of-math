@@ -1,11 +1,35 @@
 // src/services/api.ts
 
+const FALLBACK_API_KEY =
+  "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";
+const FALLBACK_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-const OPENROUTER_MODEL = "openai/gpt-3.5-turbo";
+const OPENROUTER_MODEL = "anthropic/claude-sonnet-4-5";
+
+const cleanJsonResponse = (content: string): string => {
+  const trimmed = content.trim();
+
+  if (!trimmed) {
+    throw new Error("The AI returned an empty response.");
+  }
+
+  let cleaned = trimmed;
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```[a-zA-Z]*\s*/m, '').replace(/```\s*$/m, '').trim();
+  }
+
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+  }
+
+  return cleaned;
+};
 
 // Function to get API key with validation
 export const getApiKey = (): string | undefined => {
-  const key = import.meta.env.VITE_OPENROUTER_API_KEY;
+  const key = import.meta.env.VITE_OPENROUTER_API_KEY || FALLBACK_API_KEY;
   if (!key) {
     console.error('API key is missing. Please check your .env file.');
     return undefined;
@@ -19,7 +43,7 @@ export const getApiKey = (): string | undefined => {
 
 // Function to check if API key is set
 export const hasApiKey = (): boolean => {
-  return !!import.meta.env.VITE_OPENROUTER_API_KEY;
+  return !!(import.meta.env.VITE_OPENROUTER_API_KEY || FALLBACK_API_KEY);
 };
 
 // Main function to send messages to the AI
@@ -29,7 +53,7 @@ export const sendMessage = async (
   responseType: 'json' | 'text' = 'text'
 ): Promise<any> => {
   const apiKey = getApiKey();
-  const apiUrl = import.meta.env.VITE_OPENROUTER_API_URL;
+  const apiUrl = import.meta.env.VITE_OPENROUTER_API_URL || FALLBACK_API_URL;
 
   if (!apiKey) {
     throw new Error("API key not configured properly. Please check your .env file.");
@@ -42,14 +66,14 @@ export const sendMessage = async (
   let userMessageContent: any;
   const requestBody: any = {
       model: OPENROUTER_MODEL, // Default model
-      temperature: 0.8,
-      max_tokens: 4096,
+      temperature: 0.3,
+      max_tokens: 12000,
       stream: false,
   };
 
   // Switch to a vision-capable model if an image is provided
   if (imageBase64) {
-    requestBody.model = "openai/gpt-4o"; // Or another vision model like 'openai/gpt-4-turbo'
+    requestBody.model = "anthropic/claude-sonnet-4-5"; // Vision-capable model for image analysis
   }
 
   if (imageBase64) {
@@ -84,7 +108,7 @@ Always be encouraging, use simple language, and provide actionable advice. Use m
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`,
-        "HTTP-Referer": "http://localhost:5173", // Set a referrer for OpenRouter
+        "HTTP-Referer": typeof window !== 'undefined' ? window.location.origin : "https://mamamath.org",
         "X-Title": "Mother of Math"
       },
       body: JSON.stringify(requestBody)
@@ -101,12 +125,12 @@ Always be encouraging, use simple language, and provide actionable advice. Use m
 
     if (responseType === 'json') {
         try {
-            // The response_format flag should ensure this is a valid JSON string.
-            return JSON.parse(content);
+        const cleaned = cleanJsonResponse(content);
+            return JSON.parse(cleaned);
         } catch (e) {
             console.error("Failed to parse JSON from AI response, even when requested.", e);
             console.error("Raw content was:", content);
-            throw new Error("The AI returned a response that was not valid JSON.");
+        throw new Error("The AI response was incomplete or not valid JSON. Please try again.");
         }
     } else {
         // For 'text' responseType, just return the content.

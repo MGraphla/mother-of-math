@@ -66,7 +66,7 @@ const MOCK_TEACHERS: UserProfile[] = [
 
 const ParentDashboard = () => {
   const { profile } = useAuth();
-  const [children, setChildren] = useState<UserProfile[]>(MOCK_STUDENTS);
+  const [children, setChildren] = useState<UserProfile[]>(mockChildren);
   const [availableTeachers] = useState<UserProfile[]>(MOCK_TEACHERS);
   const [activeTab, setActiveTab] = useState("children");
   const [searchTerm, setSearchTerm] = useState("");

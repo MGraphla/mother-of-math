@@ -8,15 +8,16 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
-import { PlusCircle, Trash2, Download, FileText, FileType, Send, Edit, Save, Plus, X, Loader2, Lightbulb, BookOpen } from 'lucide-react';
+import { PlusCircle, Trash2, Download, FileText, FileType, Send, Edit, Save, Plus, X, Loader2, Lightbulb, BookOpen, GraduationCap, Sparkles, ArrowRight, Globe } from 'lucide-react';
+import { getCurriculumContent, getCurriculumContentAsync, getDefaultClassLevel, getClassLevelsForCountry, formatCurriculumForPrompt, type CurriculumContent } from '@/data/curriculumContent';
 import { useToast } from '@/components/ui/use-toast';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { sendMessage } from '@/services/api'; // Import sendMessage
 import { generateLessonPlan as generateLessonPlanService, formatAIResponseAsMarkdown, exportToPDF, exportToPowerPoint } from '@/services/lessonPlan';
 import { useAuth } from '@/context/AuthContext';
-import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { supabase } from '@/lib/supabase';
+import ExportProgressModal from '@/components/ExportProgressModal';
 
 // Type definitions
 interface LessonSection {
@@ -100,12 +101,22 @@ const isMathTopic = (topic: string): boolean => {
   return mathKeywords.some(keyword => topicLower.includes(keyword));
 };
 
+// Available languages for lesson plans
+const LANGUAGES = [
+  { value: 'english', label: 'English' },
+  { value: 'french', label: 'French' },
+  { value: 'pidgin', label: 'English Pidgin' }
+];
+
 const LessonPlanGenerator: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast(); // Use the toast from the hook
-  const [phase, setPhase] = useState<1 | 2 | 3 | 4>(1);
+  const [phase, setPhase] = useState<0 | 1 | 2 | 3 | 4>(0); // Start at phase 0 (country selection)
   const [topic, setTopic] = useState<string>('');
   const [level, setLevel] = useState<string>('');
+  const [language, setLanguage] = useState<string>('english'); // Default to English
+  const [country, setCountry] = useState<'cameroon' | 'nigeria' | ''>('');
+  const [curriculum, setCurriculum] = useState<CurriculumContent | null>(null);
   const [lessonPlan, setLessonPlan] = useState<LessonPlan>({
     topic: '',
     level: '',
@@ -123,13 +134,13 @@ const LessonPlanGenerator: React.FC = () => {
   const { user } = useAuth();
   const [savedLessonPlans, setSavedLessonPlans] = useState<LessonPlan[]>([]);
 
-  // Load saved lesson plans from localStorage on mount
-  useEffect(() => {
-    const storedPlans = localStorage.getItem('lessonPlans');
-    if (storedPlans) {
-      setSavedLessonPlans(JSON.parse(storedPlans));
-    }
-  }, []);
+  // Export progress modal state
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportType, setExportType] = useState<'pdf' | 'pptx'>('pdf');
+  const [exportProgress, setExportProgress] = useState('');
+  const [exportComplete, setExportComplete] = useState(false);
+
+  // Saved lesson plans are now in Supabase - localStorage loading removed
 
   // Update lessonPlan state (used for saving)
   useEffect(() => {
@@ -140,6 +151,32 @@ const LessonPlanGenerator: React.FC = () => {
       generatedContent: generatedContent // Use generatedContent for the final save
     });
   }, [topic, level, sections, generatedContent]); // Depend on generatedContent
+
+  // Handle country selection with automatic class level assignment
+  const handleCountrySelect = async (selectedCountry: 'cameroon' | 'nigeria') => {
+    setCountry(selectedCountry);
+    const defaultLevel = getDefaultClassLevel(selectedCountry);
+    setLevel(defaultLevel);
+    
+    // Fetch curriculum content from JSON file
+    try {
+      const curriculumContent = await getCurriculumContentAsync(selectedCountry);
+      setCurriculum(curriculumContent);
+      console.log('Loaded curriculum from JSON:', curriculumContent.description);
+    } catch (error) {
+      console.error('Failed to fetch curriculum, using fallback:', error);
+      const fallbackCurriculum = getCurriculumContent(selectedCountry);
+      setCurriculum(fallbackCurriculum);
+    }
+    
+    setPhase(1); // Move to topic selection
+  };
+
+  // Get available class levels based on selected country
+  const getAvailableLevels = (): string[] => {
+    if (!country) return [];
+    return getClassLevelsForCountry(country);
+  };
 
   // Generate initial lesson structure using AI based on topic
   const handleTopicSubmit = async () => {
@@ -167,8 +204,25 @@ const LessonPlanGenerator: React.FC = () => {
     setPhase(2); // Move to the structure generation/display phase
 
     try {
-      // New prompt asking for a JSON object
-      const prompt = `Based on the topic "${topic}" for ${level} students in Cameroon, generate a structured lesson plan outline. You must provide between 5 and 7 sections. Respond with ONLY a valid JSON object in the following format: { "sections": [{"title": "SECTION_TITLE", "keyPoints": "KEY_POINTS_HERE"}] }`;
+      // Determine country name for prompt
+      const countryName = country === 'nigeria' ? 'Nigeria' : 'Cameroon';
+      
+      // Language instruction for the AI
+      const languageInstruction = language === 'french' 
+        ? 'IMPORTANT: Generate all content in French.'
+        : language === 'pidgin'
+        ? 'IMPORTANT: Generate all content in English Pidgin (Cameroonian/Nigerian Pidgin English).'
+        : 'IMPORTANT: Generate all content in English.';
+      
+      // New prompt asking for a JSON object with curriculum alignment
+      const curriculumContext = curriculum ? formatCurriculumForPrompt(curriculum) : '';
+      const prompt = `Based on the topic "${topic}" for ${level} students in ${countryName}, generate a structured lesson plan outline that aligns with the national curriculum standards.
+
+${languageInstruction}
+
+${curriculumContext}
+
+You must provide between 5 and 7 sections. Respond with ONLY a valid JSON object in the following format: { "sections": [{"title": "SECTION_TITLE", "keyPoints": "KEY_POINTS_HERE"}] }`;
       
       const response = await sendMessage(prompt, undefined, 'json');
 
@@ -276,15 +330,28 @@ const LessonPlanGenerator: React.FC = () => {
     toast({ title: "Generating Lesson Plan", description: "The AI is working its magic..." });
 
     try {
-      // Map the sections to match the service's expected type, removing UI-specific fields.
+      // Map the sections to match the service's expected type, including detail fields.
       const sectionsForService = sections.map(s => ({
         id: s.id,
         title: s.title,
-        keyPoints: s.keyPoints,
+        keyPoints: s.keyPoints
+          + (s.time ? `\nTime Allocation: ${s.time}` : '')
+          + (s.teacherActivities ? `\nTeacher Activities: ${s.teacherActivities}` : '')
+          + (s.learnerActivities ? `\nLearner Activities: ${s.learnerActivities}` : ''),
       }));
 
-      // Call the robust service function with the correctly typed data
-      const response = await generateLessonPlanService(topic, level, sectionsForService);
+      // Generate curriculum context for the AI prompt
+      const curriculumContext = curriculum ? formatCurriculumForPrompt(curriculum) : undefined;
+
+      // Call the robust service function with the correctly typed data, curriculum context, and language
+      const response = await generateLessonPlanService(
+        topic, 
+        level, 
+        sectionsForService, 
+        curriculumContext,
+        country || undefined,
+        language as 'english' | 'french' | 'pidgin'
+      );
       console.log('Response received in component:', response);
       
       if (response && response.jsonString) {
@@ -339,21 +406,26 @@ const LessonPlanGenerator: React.FC = () => {
         title: topic || 'Untitled Lesson Plan',
         level: level,
         content: JSON.parse(rawJsonContent),
-        createdAt: serverTimestamp(),
-        userId: user.uid,
+        created_at: new Date().toISOString(),
+        user_id: user.id,
       };
 
       console.log("Data to be saved:", lessonPlanData);
-      console.log(`Firestore path: users/${user.uid}/lesson_plans`);
 
-      const docRef = await addDoc(collection(db, `users/${user.uid}/lesson_plans`), lessonPlanData);
+      const { data, error } = await supabase
+        .from('lesson_plans')
+        .insert(lessonPlanData)
+        .select('id')
+        .single();
+
+      if (error) throw error;
 
       toast({
         title: "Success",
-        description: `Lesson plan saved successfully with ID: ${docRef.id}`,
+        description: `Lesson plan saved successfully with ID: ${data.id}`,
       });
     } catch (error) {
-      console.error("Error saving lesson plan to Firestore:", error);
+      console.error("Error saving lesson plan to Supabase:", error);
       toast({
         title: "Error",
         description: "Failed to save lesson plan. Please try again.",
@@ -373,8 +445,7 @@ const LessonPlanGenerator: React.FC = () => {
       return;
     }
 
-    try {
-      if (!rawJsonContent) {
+    if (!rawJsonContent) {
       toast({
         title: 'Missing Lesson Data',
         description: 'Cannot export PDF without the generated lesson plan data.',
@@ -382,13 +453,23 @@ const LessonPlanGenerator: React.FC = () => {
       });
       return;
     }
-    await exportToPDF(rawJsonContent, topic, level);
-      toast({
-        title: 'Export Successful',
-        description: 'Your lesson plan has been exported as a PDF.',
+
+    // Open the progress modal
+    setExportType('pdf');
+    setExportProgress('Preparing your lesson plan...');
+    setExportComplete(false);
+    setExportModalOpen(true);
+
+    try {
+      await exportToPDF(rawJsonContent, topic, level, (msg) => {
+        setExportProgress(msg);
       });
+
+      setExportComplete(true);
+      setExportProgress('Your lesson plan PDF has been downloaded!');
     } catch (error) {
       console.error('PDF Export Error:', error);
+      setExportModalOpen(false);
       toast({
         title: 'Export Failed',
         description: 'Could not export the lesson plan as a PDF.',
@@ -399,23 +480,23 @@ const LessonPlanGenerator: React.FC = () => {
 
   // Handle exporting as PowerPoint
   const handleExportPowerPoint = async () => {
+    // Open the progress modal
+    setExportType('pptx');
+    setExportProgress('Preparing your presentation...');
+    setExportComplete(false);
+    setExportModalOpen(true);
+
     try {
-      // Show loading toast
-      toast({
-        title: "Exporting as PowerPoint",
-        description: "Your lesson plan is being prepared for download...",
+      // Use the actual export function with rawJsonContent for structured output
+      await exportToPowerPoint(rawJsonContent || editedContent, topic, level, (msg) => {
+        setExportProgress(msg);
       });
-      
-      // Use the actual export function
-      await exportToPowerPoint(editedContent, topic);
-      
-      // Show success toast
-      toast({
-        title: "Success!",
-        description: "Your lesson plan has been downloaded as PowerPoint.",
-      });
+
+      setExportComplete(true);
+      setExportProgress('Your PowerPoint presentation has been downloaded!');
     } catch (error) {
       console.error('Error exporting to PowerPoint:', error);
+      setExportModalOpen(false);
       toast({
         title: "Export Failed",
         description: "There was a problem exporting your lesson plan to PowerPoint.",
@@ -448,72 +529,148 @@ const LessonPlanGenerator: React.FC = () => {
         setEditedContent('');
         setGenerationStep('idle');
       }
-      return Math.max(1, prevPhase - 1) as 1 | 2 | 3 | 4;
+      // If going back from Phase 1, go to country selection (Phase 0)
+      if (prevPhase === 1) {
+        setCountry('');
+        setCurriculum(null);
+        setLevel('');
+        return 0 as 0 | 1 | 2 | 3 | 4;
+      }
+      return Math.max(0, prevPhase - 1) as 0 | 1 | 2 | 3 | 4;
     });
   };
 
-  // Handler for the "Continue Generation" button
-  // const handleContinueGeneration = () => {
-  //   generateLessonPlan('part2');
-  // };
-
-  // Handler for the "Merge Generations" button
-  // const handleMergeGenerations = () => {
-  //   const combinedContent = generatedContentPart1 + '\n\n' + generatedContentPart2;
-  //   setGeneratedContent(combinedContent); // Set final generated content state
-  //   setEditedContent(combinedContent); // Set initial editable content
-  //   setGenerationStep('complete');
-  //   toast({
-  //     title: "Lesson Plan Merged!",
-  //     description: "The two parts have been combined. Review and edit below.",
-  //     variant: "default", 
-  //   });
-  // };
-
   return (
     <div className="container mx-auto p-4 max-w-7xl">
+      {/* Phase Stepper - shows progress through the workflow */}
+      {phase > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center justify-center gap-2 sm:gap-4">
+            {[
+              { num: 1, label: 'Topic' },
+              { num: 2, label: 'Structure' },
+              { num: 3, label: 'Review' },
+              { num: 4, label: 'Generate' },
+            ].map((step, idx) => (
+              <React.Fragment key={step.num}>
+                <div className="flex flex-col items-center">
+                  <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-300 ${
+                    phase >= step.num 
+                      ? 'bg-primary text-white shadow-lg' 
+                      : 'bg-muted text-muted-foreground'
+                  }`}>
+                    {phase > step.num ? '✓' : step.num}
+                  </div>
+                  <span className={`text-xs mt-1 hidden sm:block ${phase >= step.num ? 'text-primary font-medium' : 'text-muted-foreground'}`}>
+                    {step.label}
+                  </span>
+                </div>
+                {idx < 3 && (
+                  <div className={`h-0.5 w-8 sm:w-16 transition-all duration-300 ${
+                    phase > step.num ? 'bg-primary' : 'bg-muted'
+                  }`} />
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Phase 0: Country Selection Screen */}
+      {phase === 0 && (
+        <div className="w-full max-w-2xl mx-auto mt-8">
+          {/* Hero Section */}
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-background border border-primary/15 shadow-lg mb-8">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full translate-y-1/2 -translate-x-1/2" />
+
+            <div className="relative p-8 pb-6 text-center">
+              <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/15 mb-4 shadow-sm">
+                <Globe className="h-7 w-7 text-primary" />
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-primary mb-2 tracking-tight">
+                Welcome to Mama Math
+              </h1>
+              <p className="text-sm sm:text-base text-muted-foreground max-w-md mx-auto leading-relaxed">
+                Select your country to get started with curriculum-aligned lesson plans.
+              </p>
+            </div>
+          </div>
+
+          {/* Country Selection Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {/* Cameroon Card */}
+            <Card 
+              className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all duration-200 group"
+              onClick={() => handleCountrySelect('cameroon')}
+            >
+              <CardContent className="pt-8 pb-8 text-center">
+                <div className="text-6xl mb-4">🇨🇲</div>
+                <h3 className="text-xl font-bold text-foreground group-hover:text-primary transition-colors">Cameroon</h3>
+                <p className="text-sm text-muted-foreground mt-2">Primary School Curriculum</p>
+                <p className="text-xs text-muted-foreground mt-1">(Primary 1 - Primary 6)</p>
+              </CardContent>
+            </Card>
+
+            {/* Nigeria Card */}
+            <Card 
+              className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all duration-200 group"
+              onClick={() => handleCountrySelect('nigeria')}
+            >
+              <CardContent className="pt-8 pb-8 text-center">
+                <div className="text-6xl mb-4">🇳🇬</div>
+                <h3 className="text-xl font-bold text-foreground group-hover:text-primary transition-colors">Nigeria</h3>
+                <p className="text-sm text-muted-foreground mt-2">Primary School Curriculum</p>
+                <p className="text-xs text-muted-foreground mt-1">(Primary 1 - Primary 6)</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <p className="text-center text-xs text-muted-foreground mt-6">
+            Lesson plans will be aligned with the selected country's national curriculum standards.
+          </p>
+        </div>
+      )}
+
       {/* View Lesson Plans Button */}
       {phase === 1 && (
         <div className="flex justify-center mb-4">
-          <Button onClick={() => navigate('/dashboard/view-lesson-plans')} className="shadow-lg">
-            <BookOpen className="h-4 w-4 mr-2" />
+          <Button onClick={() => navigate('/dashboard/view-lesson-plans')} variant="outline" className="shadow-sm border-primary/30 hover:bg-primary/5">
+            <BookOpen className="h-4 w-4 mr-2 text-primary" />
             View Your Lesson Plans
           </Button>
         </div>
       )}
+
       {/* Phase 1: Welcome Screen */}
       {phase === 1 && (
-        <Card className="w-full max-w-3xl mx-auto mt-10">
-          <CardHeader className="text-center">
-            <CardTitle className="text-3xl font-bold text-primary">Mama Math Lesson Plan Generator</CardTitle>
-            <CardDescription className="text-xl mt-2">
-              I'm Mama Math, your lesson plan generator assistant. Tell me what you want to teach and I'll help you create your lesson.
-            </CardDescription>
-          </CardHeader>
+        <div className="w-full max-w-2xl mx-auto mt-4">
+          {/* Hero Section */}
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-background border border-primary/15 shadow-lg mb-6">
+            {/* Decorative background elements */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full translate-y-1/2 -translate-x-1/2" />
 
-          {/* Suggested Questions Section (Card UI) */}
-          <Card className="mt-4 mx-6 bg-primary/5 border border-border shadow-sm mb-6">
-            <CardHeader className="pb-2 flex items-center">
-               <Lightbulb className="h-5 w-5 text-primary mr-2" />
-               <CardTitle className="text-lg font-semibold text-foreground m-0">Examples:</CardTitle>
-            </CardHeader>
-            <CardContent className="py-3 px-4">
-              <ul className="list-disc pl-10 text-muted-foreground space-y-2">
-                <li>"understanding shapes for primary 2"</li>
-                <li>"Counting from one to 20 in primary 1"</li>
-                <li>"Long Division for Primary 5"</li>
-                <li>"BODMAS with local examples for primary 6"</li>
-                <li>"Introduction Algebra for primary 6"</li>
-                <li>"Adition,substraction and division of numbers"</li>
-              </ul>
-            </CardContent>
-          </Card>
+            <div className="relative p-8 pb-6 text-center">
+              {/* Icon badge */}
+              <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/15 mb-4 shadow-sm">
+                <GraduationCap className="h-7 w-7 text-primary" />
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-primary mb-2 tracking-tight">
+                Mama Math Lesson Planner
+              </h1>
+              <p className="text-sm sm:text-base text-muted-foreground max-w-md mx-auto leading-relaxed">
+                Tell me what you want to teach, and I'll create a complete lesson plan tailored to the Cameroon primary curriculum.
+              </p>
+            </div>
+          </div>
 
-          <CardContent>
-            <div className="flex flex-col items-center space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="topic">Topic</Label>
+          {/* Input Section */}
+          <Card className="border-border/60 shadow-md rounded-xl">
+            <CardContent className="p-6">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="topic" className="text-sm font-medium text-foreground">Topic</Label>
                   <div className="relative">
                     <Input
                       id="topic"
@@ -521,40 +678,99 @@ const LessonPlanGenerator: React.FC = () => {
                       value={topic}
                       onChange={(e) => setTopic(e.target.value)}
                       placeholder="e.g., Introduction to Addition"
-                      className="pr-10"
+                      className="pr-10 h-11 rounded-lg border-border/70 focus:border-primary focus:ring-primary/20"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && topic.trim() && level) handleTopicSubmit();
+                      }}
                     />
-                    <Lightbulb className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                    <Sparkles className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/40" />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="level">Class Level</Label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="level" className="text-sm font-medium text-foreground">Class Level</Label>
                   <Select value={level} onValueChange={setLevel}>
-                    <SelectTrigger id="level">
-                      <SelectValue placeholder="Select a class level" />
+                    <SelectTrigger id="level" className="h-11 rounded-lg border-border/70 focus:border-primary focus:ring-primary/20">
+                      <SelectValue placeholder="Select level" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Primary 1">Primary 1</SelectItem>
-                      <SelectItem value="Primary 2">Primary 2</SelectItem>
-                      <SelectItem value="Primary 3">Primary 3</SelectItem>
-                      <SelectItem value="Primary 4">Primary 4</SelectItem>
-                      <SelectItem value="Primary 5">Primary 5</SelectItem>
-                      <SelectItem value="Primary 6">Primary 6</SelectItem>
+                      {getAvailableLevels().map((lvl) => (
+                        <SelectItem key={lvl} value={lvl}>{lvl}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
-              <Button 
-                size="lg" 
+
+              {/* Language Selection */}
+              <div className="mb-5">
+                <Label htmlFor="language" className="text-sm font-medium text-foreground">Lesson Plan Language</Label>
+                <Select value={language} onValueChange={setLanguage}>
+                  <SelectTrigger id="language" className="h-11 rounded-lg border-border/70 focus:border-primary focus:ring-primary/20 mt-1.5">
+                    <SelectValue placeholder="Select language" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LANGUAGES.map((lang) => (
+                      <SelectItem key={lang.value} value={lang.value}>{lang.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">The lesson plan will be generated in this language.</p>
+              </div>
+
+              <Button
+                size="lg"
                 onClick={handleTopicSubmit}
                 disabled={!topic.trim() || !level || isGenerating}
-                className="mt-4 px-8"
+                className="w-full h-12 rounded-xl text-base font-semibold shadow-md hover:shadow-lg transition-all duration-200 bg-primary hover:bg-primary/90"
               >
-                Start <Send className="ml-2 h-4 w-4" />
+                {isGenerating ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Generating...
+                  </>
+                ) : (
+                  <>
+                    Get Started <ArrowRight className="ml-2 h-5 w-5" />
+                  </>
+                )}
               </Button>
-            </div>
+            </CardContent>
+          </Card>
 
-          </CardContent>
-        </Card>
+          {/* Examples Section */}
+          <div className="mt-5">
+            <div className="flex items-center gap-2 mb-3 px-1">
+              <Lightbulb className="h-4 w-4 text-amber-500" />
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Try an example</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { text: 'Counting from 1 to 20', lvl: 'Primary 1' },
+                { text: 'Basic Addition (Sums to 10)', lvl: 'Primary 1' },
+                { text: 'Basic Subtraction', lvl: 'Primary 1' },
+                { text: 'Shapes and Patterns', lvl: 'Primary 2' },
+                { text: 'Measurement - Length', lvl: 'Primary 2' },
+                { text: 'Introduction to Multiplication', lvl: 'Primary 3' },
+              ].map((example) => (
+                <button
+                  key={example.text}
+                  onClick={() => { setTopic(example.text); setLevel(example.lvl); }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-border/70 bg-background hover:bg-primary/5 hover:border-primary/30 hover:text-primary text-muted-foreground transition-all duration-200 cursor-pointer"
+                >
+                  {example.text}
+                  <span className="text-[10px] text-muted-foreground/60">· {example.lvl}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Change Country Button */}
+          <div className="mt-4 text-center">
+            <Button variant="ghost" size="sm" onClick={goBack} className="text-muted-foreground hover:text-primary">
+              <Globe className="h-4 w-4 mr-2" />
+              Change Country ({country === 'cameroon' ? 'Cameroon' : 'Nigeria'})
+            </Button>
+          </div>
+        </div>
       )}
 
       {/* Phase 2: Lesson Scaffolding Screen (Structure Definition) */}
@@ -680,7 +896,7 @@ const LessonPlanGenerator: React.FC = () => {
               <div className="space-y-4">
                 {sections.map((section) => (
                   <div key={section.id} className="border-b pb-4 last:border-b-0">
-                    <h3 className="text-xl font-semibold">{section.heading}</h3>
+                    <h3 className="text-xl font-semibold">{section.title}</h3>
                     <p className="text-muted-foreground">{section.keyPoints}</p>
                     {section.time && <p className="text-muted-foreground">Time: {section.time}</p>}
                     {section.teacherActivities && <p className="text-muted-foreground">Teacher's Activities: {section.teacherActivities}</p>}
@@ -711,19 +927,19 @@ const LessonPlanGenerator: React.FC = () => {
       {/* Phase 4: Final AI Generation, Display, and Editing */}
       {phase === 4 && (
         <div className="space-y-6">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <h2 className="text-2xl font-bold">Your Detailed Lesson Plan</h2>
-            <div className="flex space-x-2">
+            <div className="flex flex-wrap gap-2">
               {/* Save Button - only enabled when generation is complete */}
               <Button onClick={saveLessonPlan} variant="outline" disabled={generationStep !== 'complete'}>
-                <Save className="h-4 w-4 mr-2" /> Save Lesson Plan
+                <Save className="h-4 w-4 mr-2" /> Save
               </Button>
               {/* Export Buttons - only enabled when generation is complete */}
-              <Button onClick={handleExportPDF} variant="outline" disabled={generationStep !== 'complete'}>
-                <FileText className="h-4 w-4 mr-2" /> Download as PDF
+              <Button onClick={handleExportPDF} variant="outline" disabled={generationStep !== 'complete'} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground border-none">
+                <FileText className="h-4 w-4 mr-2" /> PDF
               </Button>
-              <Button onClick={handleExportPowerPoint} disabled={generationStep !== 'complete'}>
-                <FileType className="h-4 w-4 mr-2" /> Download as PowerPoint
+              <Button onClick={handleExportPowerPoint} disabled={generationStep !== 'complete'} className="bg-orange-500 hover:bg-orange-600 text-white">
+                <FileType className="h-4 w-4 mr-2" /> PowerPoint
               </Button>
             </div>
           </div>
@@ -786,6 +1002,14 @@ const LessonPlanGenerator: React.FC = () => {
           )}
         </div>
       )}
+      {/* Export Progress Modal */}
+      <ExportProgressModal
+        isOpen={exportModalOpen}
+        exportType={exportType}
+        progressMessage={exportProgress}
+        isComplete={exportComplete}
+        onClose={() => setExportModalOpen(false)}
+      />
     </div>
   );
 };

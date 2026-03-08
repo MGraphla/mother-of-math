@@ -1,8 +1,14 @@
+//  MAMA Chatbot Service 
+// Supports: streaming, vision, bilingual (EN/FR), context-window management
+
+import type { Language } from '@/lib/i18n';
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  image_url?: string;
 }
 
 interface ChatbotResponse {
@@ -11,70 +17,157 @@ interface ChatbotResponse {
   error?: string;
 }
 
+/** Maximum messages to send to the model (prevents token-limit overflow). */
+const MAX_HISTORY_MESSAGES = 20;
+
 class ChatbotService {
   private apiKey: string;
   private apiUrl: string;
   private model: string;
+  private visionModel: string;
 
   constructor() {
-    this.apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
-    this.apiUrl = import.meta.env.VITE_OPENROUTER_API_URL;
+    this.apiKey =
+      import.meta.env.VITE_OPENROUTER_API_KEY ||
+      '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';
+    this.apiUrl =
+      import.meta.env.VITE_OPENROUTER_API_URL ||
+      'https://openrouter.ai/api/v1/chat/completions';
     this.model = 'google/gemini-2.5-flash';
+    this.visionModel = 'google/gemini-2.5-flash';
 
     if (!this.apiKey) {
-      throw new Error('OpenRouter API key is not configured');
+      console.warn('OpenRouter API key is not configured');
     }
   }
+
+  /*  System prompts (EN / FR)  */
+
+  private buildSystemPrompt(grade: string, language: Language = 'en'): string {
+    if (language === 'fr') {
+      return `Vous �tes MAMA (Assistante Math�matique pour le Cameroun), une assistante p�dagogique IA sp�cialis�e dans le programme de math�matiques du primaire au Cameroun. Vous assistez actuellement un enseignant pour le Primaire ${grade}. Toutes vos r�ponses doivent �tre adapt�es � ce niveau.
+
+Vous aidez les enseignants avec :
+- L'orientation curriculaire en math�matiques selon les normes nationales du Cameroun pour le Primaire ${grade}.
+- La planification de cours et les strat�gies d'enseignement pour le Primaire ${grade}.
+- L'�valuation des �l�ves et le suivi des progr�s pour le Primaire ${grade}.
+- L'explication de concepts math�matiques appropri�s au Primaire ${grade}.
+- L'int�gration culturelle de contextes camerounais locaux dans l'�ducation math�matique pour le Primaire ${grade}.
+
+Directives :
+- Votre objectif principal est le Primaire ${grade}. Tous les exemples et conseils doivent y �tre adapt�s.
+- Utilisez toujours des exemples culturellement pertinents (francs CFA, march�s locaux, aliments familiers, etc.).
+- Utilisez un langage simple et clair adapt� au Primaire ${grade}.
+- Fournissez des conseils sp�cifiques et pratiques pour les enseignants.
+- Lorsqu'une image est partag�e, analysez-la en profondeur pour tout contenu math�matique.
+- Formatez vos r�ponses en Markdown : titres, gras, listes num�rot�es, puces.
+- Lorsque vous �crivez des formules math�matiques, utilisez la notation LaTeX entre $...$ pour les formules en ligne et $$...$$ pour les blocs.
+
+R�pondez TOUJOURS en fran�ais. Soyez utile, encourageant et �ducatif.`;
+    }
+
+    return `You are MAMA (Mathematics Assistant for Cameroon), an AI teaching assistant specialized in Cameroon's primary mathematics curriculum. You are currently assisting a teacher for Primary ${grade}. All your responses must be tailored specifically to this grade level.
+
+You help teachers with:
+- Mathematics curriculum guidance for Cameroon National Primary Mathematics Standards for Primary ${grade}.
+- Lesson planning and teaching strategies for Primary ${grade}.
+- Student assessment and progress tracking for Primary ${grade}.
+- Explaining mathematical concepts appropriate for Primary ${grade}.
+- Cultural integration of local Cameroonian contexts in math education for Primary ${grade}.
+
+Key Guidelines:
+- Your primary focus is Primary ${grade}. All examples, explanations, and advice must be suitable for a child in this class.
+- **Answer specifically what is asked without overwriting or providing unsolicited information.** Do not over-explain unless necessary for clarity.
+- If you ask a follow-up question, ensure it is **directly related to the current discussion**.
+- Always provide culturally relevant examples using Cameroonian contexts (CFA francs, local markets, familiar foods, etc.).
+- Use simple, clear language appropriate for Primary ${grade}.
+- Provide specific, actionable advice for teachers relevant to Primary ${grade}.
+- When an image is shared, analyze it thoroughly for any mathematical content, student work, or educational material.
+- Format your responses using Markdown: use headings, bold text, numbered lists, and bullet points for clarity.
+- When writing mathematical formulas, use LaTeX notation between $...$ for inline and $$...$$ for display blocks.
+
+Be helpful, encouraging, and educational in all responses, ensuring they are directly applicable to Primary ${grade}.`;
+  }
+
+  /*  Content builder (vision support)  */
+
+  private buildMessageContent(text: string, imageBase64?: string): any {
+    if (imageBase64) {
+      return [
+        { type: 'text', text },
+        { type: 'image_url', image_url: { url: imageBase64 } },
+      ];
+    }
+    return text;
+  }
+
+  /*  Context window management  */
+
+  /**
+   * Trims the conversation history to the last MAX_HISTORY_MESSAGES messages.
+   * If the history is longer, a brief context note is prepended so the model
+   * knows there were earlier messages.
+   */
+  private trimHistory(history: ChatMessage[]): { role: string; content: string }[] {
+    const mapped = history.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+
+    if (mapped.length <= MAX_HISTORY_MESSAGES) return mapped;
+
+    const trimmed = mapped.slice(-MAX_HISTORY_MESSAGES);
+    // Prepend a context note so the model knows history was trimmed
+    trimmed.unshift({
+      role: 'system',
+      content:
+        '[Note: Earlier messages in this conversation were omitted for brevity. Continue the conversation from the context below.]',
+    });
+    return trimmed;
+  }
+
+  /*  Non-streaming send (fallback)  */
 
   async sendMessage(
     message: string,
     conversationHistory: ChatMessage[] = [],
-    grade: string
+    grade: string,
+    imageBase64?: string,
+    language: Language = 'en'
   ): Promise<ChatbotResponse> {
     if (!grade) {
       return {
         success: false,
-        message: 'Grade level is not selected. Please select a grade to continue.',
-        error: 'Grade not provided'
+        message: language === 'fr' ? 'Niveau de classe non s�lectionn�.' : 'Grade level is not selected.',
+        error: 'Grade not provided',
       };
     }
 
     try {
-      const systemPrompt = `You are MAMA (Mathematics Assistant for Cameroon), an AI teaching assistant specialized in Cameroon's primary mathematics curriculum. You are currently assisting a teacher for Primary ${grade}. All your responses must be tailored specifically to this grade level.\n\nYou help teachers with:\n- Mathematics curriculum guidance for Cameroon National Primary Mathematics Standards for Primary ${grade}.\n- Lesson planning and teaching strategies for Primary ${grade}.\n- Student assessment and progress tracking for Primary ${grade}.\n- Explaining mathematical concepts appropriate for Primary ${grade}.\n- Cultural integration of local Cameroonian contexts in math education for Primary ${grade}.\n\nKey Guidelines:\n- Your primary focus is Primary ${grade}. All examples, explanations, and advice must be suitable for a child in this class.\n- Always provide culturally relevant examples using Cameroonian contexts (CFA francs, local markets, familiar foods, etc.).\n- Use simple, clear language appropriate for Primary ${grade}.\n- Provide specific, actionable advice for teachers relevant to Primary ${grade}.\n\nBe helpful, encouraging, and educational in all responses, ensuring they are directly applicable to Primary ${grade}.`;
-
-      // Prepare conversation context
-      const messages = [
-        {
-          role: 'system',
-          content: systemPrompt
-        },
-        ...conversationHistory.map(msg => ({
-          role: msg.role,
-          content: msg.content
-        })),
-        {
-          role: 'user',
-          content: message
-        }
+      const hasImage = !!imageBase64;
+      const msgs: any[] = [
+        { role: 'system', content: this.buildSystemPrompt(grade, language) },
+        ...this.trimHistory(conversationHistory),
+        { role: 'user', content: this.buildMessageContent(message, imageBase64) },
       ];
 
       const response = await fetch(this.apiUrl, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
+          Authorization: `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
           'HTTP-Referer': window.location.origin,
-          'X-Title': 'Mother of Mathematics - Cameroon Math Teacher AI'
+          'X-Title': 'Mother of Mathematics - Cameroon Math Teacher AI',
         },
         body: JSON.stringify({
-          model: this.model,
-          messages: messages,
+          model: hasImage ? this.visionModel : this.model,
+          messages: msgs,
           temperature: 0.7,
           max_tokens: 2048,
           top_p: 0.9,
           frequency_penalty: 0.1,
-          presence_penalty: 0.1
-        })
+          presence_penalty: 0.1,
+        }),
       });
 
       if (!response.ok) {
@@ -83,66 +176,116 @@ class ChatbotService {
       }
 
       const data = await response.json();
-      
-      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-        throw new Error('Invalid response format from API');
-      }
+      if (!data.choices?.[0]?.message) throw new Error('Invalid response format from API');
 
-      return {
-        success: true,
-        message: data.choices[0].message.content.trim()
-      };
-
+      return { success: true, message: data.choices[0].message.content.trim() };
     } catch (error) {
       console.error('Chatbot service error:', error);
       return {
         success: false,
-        message: 'I apologize, but I encountered an error processing your request. Please try again.',
-        error: error instanceof Error ? error.message : 'Unknown error'
+        message:
+          language === 'fr'
+            ? "Je m'excuse, mais j'ai rencontr� une erreur. Veuillez r�essayer."
+            : 'I apologize, but I encountered an error. Please try again.',
+        error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
   }
 
-  // Get suggested questions for new users
-  getSuggestedQuestions(): string[] {
-    return [
-      "How can I teach addition to Grade 2 students using local examples?",
-      "What are effective ways to explain fractions using Cameroonian contexts?",
-      "How do I create engaging math lessons about money using CFA francs?",
-      "What teaching strategies work best for multiplication tables?",
-      "How can parents help their children with math homework at home?",
-      "What are common math difficulties for primary school students?",
-      "How do I assess student progress in mathematics effectively?",
-      "Can you suggest math games using local materials?"
-    ];
-  }
+  /*  Streaming send  */
 
-  // Generate conversation starters based on user role
-  getConversationStarters(userRole: 'teacher' | 'parent' | 'student'): string[] {
-    switch (userRole) {
-      case 'teacher':
-        return [
-          "Help me plan a lesson on shapes using local objects",
-          "What's the best way to teach word problems?",
-          "How do I differentiate math instruction for different ability levels?",
-          "Suggest assessment strategies for primary math"
-        ];
-      case 'parent':
-        return [
-          "How can I help my child with math at home?",
-          "My child struggles with math - what should I do?",
-          "What math skills should my Grade 2 child know?",
-          "How do I make math fun for my child?"
-        ];
-      case 'student':
-        return [
-          "I need help with addition problems",
-          "Can you explain subtraction in a simple way?",
-          "Help me understand shapes and their properties",
-          "Show me how to solve word problems step by step"
-        ];
-      default:
-        return this.getSuggestedQuestions();
+  async sendMessageStreaming(
+    message: string,
+    conversationHistory: ChatMessage[] = [],
+    grade: string,
+    onChunk: (chunk: string) => void,
+    imageBase64?: string,
+    language: Language = 'en'
+  ): Promise<ChatbotResponse> {
+    if (!grade) {
+      return {
+        success: false,
+        message: language === 'fr' ? 'Niveau de classe non s�lectionn�.' : 'Grade level is not selected.',
+        error: 'Grade not provided',
+      };
+    }
+
+    try {
+      const hasImage = !!imageBase64;
+      const msgs: any[] = [
+        { role: 'system', content: this.buildSystemPrompt(grade, language) },
+        ...this.trimHistory(conversationHistory),
+        { role: 'user', content: this.buildMessageContent(message, imageBase64) },
+      ];
+
+      const response = await fetch(this.apiUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': window.location.origin,
+          'X-Title': 'Mother of Mathematics - Cameroon Math Teacher AI',
+        },
+        body: JSON.stringify({
+          model: hasImage ? this.visionModel : this.model,
+          messages: msgs,
+          temperature: 0.7,
+          max_tokens: 2048,
+          top_p: 0.9,
+          stream: true,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error?.message || `API request failed: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const decoder = new TextDecoder();
+      let fullText = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+          const jsonStr = trimmed.slice(6);
+          if (jsonStr === '[DONE]') continue;
+
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              fullText += delta;
+              onChunk(delta);
+            }
+          } catch {
+            // skip malformed JSON
+          }
+        }
+      }
+
+      return { success: true, message: fullText };
+    } catch (error) {
+      console.error('Chatbot streaming error:', error);
+      return {
+        success: false,
+        message:
+          language === 'fr'
+            ? "Je m'excuse, mais j'ai rencontr� une erreur. Veuillez r�essayer."
+            : 'I apologize, but I encountered an error. Please try again.',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
   }
 }

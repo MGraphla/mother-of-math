@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#064e3b"/>
+      <stop offset="50%" style="stop-color:#047857"/>
+      <stop offset="100%" style="stop-color:#065f46"/>
+    </linearGradient>
+    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#fbbf24"/>
+      <stop offset="50%" style="stop-color:#f59e0b"/>
+      <stop offset="100%" style="stop-color:#fbbf24"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bgGrad)"/>
+  
+  <!-- Kente Pattern (subtle) -->
+  <g opacity="0.08">
+    <line x1="0" y1="100" x2="1200" y2="100" stroke="#fbbf24" stroke-width="3"/>
+    <line x1="0" y1="200" x2="1200" y2="200" stroke="#34d399" stroke-width="3"/>
+    <line x1="0" y1="300" x2="1200" y2="300" stroke="#fbbf24" stroke-width="3"/>
+    <line x1="0" y1="400" x2="1200" y2="400" stroke="#34d399" stroke-width="3"/>
+    <line x1="0" y1="500" x2="1200" y2="500" stroke="#fbbf24" stroke-width="3"/>
+    <line x1="200" y1="0" x2="200" y2="630" stroke="#34d399" stroke-width="3"/>
+    <line x1="400" y1="0" x2="400" y2="630" stroke="#fbbf24" stroke-width="3"/>
+    <line x1="600" y1="0" x2="600" y2="630" stroke="#34d399" stroke-width="3"/>
+    <line x1="800" y1="0" x2="800" y2="630" stroke="#fbbf24" stroke-width="3"/>
+    <line x1="1000" y1="0" x2="1000" y2="630" stroke="#34d399" stroke-width="3"/>
+  </g>
+  
+  <!-- Logo Circle -->
+  <circle cx="600" cy="220" r="80" fill="#ffffff"/>
+  <text x="600" y="245" font-family="Arial, sans-serif" font-size="72" font-weight="bold" fill="#047857" text-anchor="middle">M</text>
+  
+  <!-- Main Title -->
+  <text x="600" y="360" font-family="Arial, sans-serif" font-size="72" font-weight="bold" fill="url(#textGrad)" text-anchor="middle">Mama Math</text>
+  
+  <!-- Tagline -->
+  <text x="600" y="420" font-family="Arial, sans-serif" font-size="28" fill="#ffffff" text-anchor="middle" opacity="0.9">Transforming Mathematics Education in Africa</text>
+  
+  <!-- URL -->
+  <text x="600" y="570" font-family="Arial, sans-serif" font-size="24" fill="#34d399" text-anchor="middle">mamamath.org</text>
+  
+  <!-- Math symbols decoration -->
+  <g fill="#ffffff" opacity="0.15" font-family="Arial, sans-serif" font-size="48">
+    <text x="100" y="150">π</text>
+    <text x="1050" y="180">∑</text>
+    <text x="150" y="480">√</text>
+    <text x="1080" y="450">∞</text>
+    <text x="80" y="320">÷</text>
+    <text x="1100" y="300">×</text>
+  </g>
+</svg>

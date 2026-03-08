@@ -1,505 +1,531 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { isTeacher, PRIMARY_GRADE_LEVELS } from "@/types";
-import { Assignment, AssignmentSubmission, FeedbackItem } from "@/types";
+import { isTeacher } from "@/types";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter,
+  DialogHeader, DialogTitle
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { FileText, AlertCircle, Trash2 } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger
+} from "@/components/ui/tooltip";
+import {
+  FileText, Loader2, ArrowLeft, CheckCircle2, Clock, Users,
+  GraduationCap, Send, AlertTriangle, Eye, Download, MessageSquare,
+  BarChart3, Star
+} from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
-import { UserProfile } from "@/context/AuthContext";
+import { cn } from "@/lib/utils";
+import {
+  Student, StudentAssignment, AssignmentSubmission,
+  getAssignmentById, getAssignmentStudents, getSubmissionsForAssignment,
+  getStudentsByTeacher, gradeSubmission, returnSubmission,
+} from "@/services/studentService";
 
-// Mock student
-const MOCK_STUDENT: UserProfile = {
-  id: "student-1",
-  email: "manka.c@example.com",
-  role: "student",
-  full_name: "Manka'a Che",
-  school: "Springfield Elementary",
-  created_at: "2024-01-15T10:30:00Z",
-  teacher_id: "mock-user-id",
-  grade_level: "Primary 5",
-  subjects: ["Math", "Science"]
-};
+// ── Types ──────────────────────────────────────────────
 
-// Mock assignment
-const MOCK_ASSIGNMENT: Assignment = {
-  id: "assign-1",
-  title: "Addition and Subtraction Practice",
-  description: "Complete worksheet pages 10-12 with practice problems for addition and subtraction with regrouping.",
-  due_date: "2025-06-05T23:59:59Z",
-  created_at: "2025-05-25T14:30:00Z",
-  teacher_id: "mock-user-id",
-  subject: "Math",
-  grade_level: "Primary 5"
-};
+interface SubmissionWithStudent extends AssignmentSubmission {
+  student: Student | null;
+}
 
-// Mock submission
-const MOCK_SUBMISSION: AssignmentSubmission = {
-  score: null, // Initialize score as null
-  id: "submission-1",
-  assignment_id: "assign-1",
-  student_id: "student-1",
-  submitted_at: "2025-06-01T15:45:00Z",
-  status: "submitted",
-  submission_file_url: "/uploads/student-1/assignment-1.pdf",
-  student_notes: "I had some difficulty with regrouping in subtraction problems."
-};
-
-// Mock feedback items
-const MOCK_FEEDBACK: FeedbackItem[] = [
-  {
-    id: "feedback-1",
-    submission_id: "submission-1",
-    created_at: "2025-06-02T09:30:00Z",
-    error_description: "Incorrect carrying in addition problem #3",
-    correction: "Remember to carry the 1 when the sum of digits exceeds 9.",
-    location: "Page 1, problem 3",
-    error_type: "calculation",
-    severity: 2
-  },
-  {
-    id: "feedback-2",
-    submission_id: "submission-1",
-    created_at: "2025-06-02T09:35:00Z",
-    error_description: "Confusion with place value in problem #7",
-    correction: "When subtracting, make sure you're aligning the numbers by their place values.",
-    location: "Page 2, problem 7",
-    error_type: "concept",
-    severity: 3
-  }
-];
-
-// Common error types for math
-const ERROR_TYPES = [
-  "calculation",
-  "concept",
-  "procedure",
-  "notation",
-  "logical",
-  "arithmetic",
-  "other"
-];
+// ── Component ──────────────────────────────────────────
 
 const FeedbackView = () => {
-  const { profile } = useAuth();
-  const [student] = useState<UserProfile>(MOCK_STUDENT);
-  const [assignment] = useState<Assignment>(MOCK_ASSIGNMENT);
-  const [submission] = useState<AssignmentSubmission>(MOCK_SUBMISSION);
-  const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>(MOCK_FEEDBACK);
-  
-  const [addingFeedback, setAddingFeedback] = useState(false);
-  const [newFeedback, setNewFeedback] = useState({
-    error_description: "",
-    correction: "",
-    location: "",
-    error_type: "calculation",
-    severity: 2
-  });
-  
-  const [activeTab, setActiveTab] = useState<"feedback" | "preview" | "notes">("feedback");
-  const [currentScore, setCurrentScore] = useState<number | string>(submission.score?.toString() || ""); // Use string for input, can be number | null in type
-  
-  // Check if user is a teacher
+  const { assignmentId } = useParams<{ assignmentId: string }>();
+  const navigate = useNavigate();
+  const { user, profile } = useAuth();
+
+  // Data state
+  const [assignment, setAssignment] = useState<StudentAssignment | null>(null);
+  const [submissions, setSubmissions] = useState<SubmissionWithStudent[]>([]);
+  const [assignedStudentIds, setAssignedStudentIds] = useState<string[]>([]);
+  const [allStudents, setAllStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // UI state
+  const [activeTab, setActiveTab] = useState("all");
+  const [selectedSubmission, setSelectedSubmission] = useState<SubmissionWithStudent | null>(null);
+  const [gradeDialogOpen, setGradeDialogOpen] = useState(false);
+  const [gradeScore, setGradeScore] = useState("");
+  const [gradeFeedback, setGradeFeedback] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // ── Load Data ──────────────────────────────────────
+
+  const fetchData = useCallback(async () => {
+    if (!assignmentId || !user?.id) return;
+    setLoading(true);
+    try {
+      const [assignmentData, rawSubmissions, studentIds, students] = await Promise.all([
+        getAssignmentById(assignmentId),
+        getSubmissionsForAssignment(assignmentId),
+        getAssignmentStudents(assignmentId),
+        getStudentsByTeacher(user.id),
+      ]);
+
+      setAssignment(assignmentData);
+      setAssignedStudentIds(studentIds);
+      setAllStudents(students);
+
+      // Enrich submissions with student data
+      const enriched: SubmissionWithStudent[] = rawSubmissions.map((s) => ({
+        ...s,
+        student: students.find((st) => st.id === s.student_id) || null,
+      }));
+      setSubmissions(enriched);
+    } catch (err) {
+      console.error("Error fetching assignment data:", err);
+      toast({ title: "Error", description: "Failed to load assignment data.", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }, [assignmentId, user?.id]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // ── Guard ──────────────────────────────────────────
+
   if (!isTeacher(profile)) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p>Only teachers can access this page.</p>
+        <p className="text-muted-foreground">Only teachers can access this page.</p>
       </div>
     );
   }
 
-  const handleAddFeedback = () => {
-    // Validate form
-    if (!newFeedback.error_description || !newFeedback.correction) {
-      toast({
-        title: "Missing Information",
-        description: "Please provide both an error description and a correction.",
-        variant: "destructive"
-      });
-      return;
-    }
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] gap-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-muted-foreground">Loading submissions...</p>
+      </div>
+    );
+  }
 
-    // Create new feedback item
-    const newFeedbackItem: FeedbackItem = {
-      id: `feedback-${Date.now()}`,
-      submission_id: submission.id,
-      created_at: new Date().toISOString(),
-      error_description: newFeedback.error_description,
-      correction: newFeedback.correction,
-      location: newFeedback.location,
-      error_type: newFeedback.error_type,
-      severity: newFeedback.severity
-    };
-    
-    // Add to list
-    setFeedbackItems([...feedbackItems, newFeedbackItem]);
-    
-    // Reset form
-    setNewFeedback({
-      error_description: "",
-      correction: "",
-      location: "",
-      error_type: "calculation",
-      severity: 2
-    });
-    
-    setAddingFeedback(false);
-    
-    toast({
-      title: "Feedback Added",
-      description: "Your feedback has been added to this submission."
-    });
+  if (!assignment) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] gap-4">
+        <AlertTriangle className="h-10 w-10 text-muted-foreground" />
+        <p className="text-muted-foreground">Assignment not found.</p>
+        <Button variant="outline" onClick={() => navigate("/dashboard/assignments")}>
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Assignments
+        </Button>
+      </div>
+    );
+  }
+
+  // ── Derived Data ───────────────────────────────────
+
+  const getStudentName = (id: string) => allStudents.find((s) => s.id === id)?.full_name || "Unknown Student";
+
+  const submittedStudentIds = new Set(submissions.map((s) => s.student_id));
+  const assignedStudents = allStudents.filter((s) => assignedStudentIds.includes(s.id));
+  const missingStudents = assignedStudents.filter((s) => !submittedStudentIds.has(s.id));
+
+  const gradedCount = submissions.filter((s) => s.status === "graded" || s.status === "returned").length;
+  const pendingCount = submissions.filter((s) => s.status === "submitted").length;
+  const averageScore = (() => {
+    const scored = submissions.filter((s) => s.score !== null && s.score !== undefined);
+    if (scored.length === 0) return null;
+    return Math.round(scored.reduce((sum, s) => sum + (s.score || 0), 0) / scored.length);
+  })();
+
+  const filteredSubmissions = submissions.filter((s) => {
+    if (activeTab === "submitted") return s.status === "submitted";
+    if (activeTab === "graded") return s.status === "graded" || s.status === "returned";
+    return true;
+  });
+
+  // ── Handlers ───────────────────────────────────────
+
+  const openGradeDialog = (sub: SubmissionWithStudent) => {
+    setSelectedSubmission(sub);
+    setGradeScore(sub.score?.toString() || "");
+    setGradeFeedback(sub.teacher_feedback || "");
+    setGradeDialogOpen(true);
   };
-  
-  const deleteFeedback = (feedbackId: string) => {
-    setFeedbackItems(feedbackItems.filter(item => item.id !== feedbackId));
-    toast({
-      title: "Feedback Removed",
-      description: "The feedback item has been deleted."
-    });
-  };
-  
-  const getErrorSeverityLabel = (severity: number): string => {
-    switch (severity) {
-      case 1: return "Minor";
-      case 2: return "Low";
-      case 3: return "Medium";
-      case 4: return "High";
-      case 5: return "Critical";
-      default: return "Unknown";
+
+  const handleGrade = async () => {
+    if (!selectedSubmission) return;
+    const score = gradeScore ? Number(gradeScore) : null;
+
+    setActionLoading(true);
+    try {
+      await gradeSubmission(
+        selectedSubmission.id,
+        score || 0,
+        gradeFeedback.trim()
+      );
+      toast({ title: "Graded!", description: `Submission graded successfully.` });
+      setGradeDialogOpen(false);
+      await fetchData();
+    } catch (err: any) {
+      toast({ title: "Error", description: err?.message || "Failed to grade submission.", variant: "destructive" });
+    } finally {
+      setActionLoading(false);
     }
   };
-  
-  const getErrorSeverityColor = (severity: number): string => {
-    switch (severity) {
-      case 1: return "bg-blue-50 text-blue-700 border-blue-200";
-      case 2: return "bg-green-50 text-green-700 border-green-200";
-      case 3: return "bg-yellow-50 text-yellow-700 border-yellow-200";
-      case 4: return "bg-orange-50 text-orange-700 border-orange-200";
-      case 5: return "bg-red-50 text-red-700 border-red-200";
-      default: return "bg-gray-50 text-gray-700 border-gray-200";
+
+  const handleReturn = async () => {
+    if (!selectedSubmission) return;
+    const score = gradeScore ? Number(gradeScore) : null;
+
+    setActionLoading(true);
+    try {
+      await returnSubmission(
+        selectedSubmission.id,
+        score,
+        gradeFeedback.trim()
+      );
+      toast({ title: "Returned!", description: `Submission returned to student with feedback.` });
+      setGradeDialogOpen(false);
+      await fetchData();
+    } catch (err: any) {
+      toast({ title: "Error", description: err?.message || "Failed to return submission.", variant: "destructive" });
+    } finally {
+      setActionLoading(false);
     }
   };
-  
-  const returnToStudent = () => {
-    // TODO: API call to update submission with feedback, score, and status
-    const updatedSubmission = {
-      ...submission,
-      status: 'graded' as 'graded', // Type assertion
-      score: currentScore !== "" ? parseFloat(currentScore) : null,
-    };
-    // For now, just log and toast
-    console.log("Returning to student with feedback and score:", feedbackItems, updatedSubmission);
-    // Update the mock submission state if you want to see changes reflected in UI (not done here as it's complex with mock data)
-    // setSubmission(updatedSubmission); 
-    toast({
-      title: "Feedback Returned",
-      description: `Feedback has been returned to ${student.full_name}.`
-    });
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "submitted":
+        return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300 border-0">Pending Review</Badge>;
+      case "graded":
+        return <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300 border-0">Graded</Badge>;
+      case "returned":
+        return <Badge className="bg-primary/20 text-primary border-0">Returned</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
   };
-  
+
+  // ── Render ─────────────────────────────────────────
+
   return (
-    <div className="container py-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Student Submission</h1>
-        <p className="text-muted-foreground">
-          Provide feedback on student work
-        </p>
-      </div>
-      
-      {/* Student and assignment info card */}
-      <div className="flex flex-col md:flex-row gap-4">
-        <Card className="flex-1">
-          <CardHeader>
-            <CardTitle>Student Information</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center space-x-4">
-              <Avatar className="h-10 w-10">
-                <AvatarImage src="" />
-                <AvatarFallback className="bg-mama-purple text-white">
-                  {student.full_name?.substring(0, 2).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div>
-                <p className="font-medium">{student.full_name}</p>
-                <p className="text-sm text-muted-foreground">{student.email}</p>
-              </div>
-            </div>
-            <div className="mt-4 space-y-2">
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Level:</span>
-                <span className="text-sm">{student.grade_level}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Subjects:</span>
-                <div className="flex flex-wrap justify-end gap-1">
-                  {student.subjects?.map((subject) => (
-                    <Badge key={subject} variant="outline">{subject}</Badge>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card className="flex-1">
-          <CardHeader>
-            <CardTitle>Assignment Details</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <div>
-                <h3 className="font-medium">{assignment.title}</h3>
-                <p className="text-sm text-muted-foreground">{assignment.description}</p>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Subject:</span>
-                <Badge>{assignment.subject}</Badge>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Due Date:</span>
-                <span className="text-sm">{format(new Date(assignment.due_date), "PPP")}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Submitted:</span>
-                <span className="text-sm">{format(new Date(submission.submitted_at), "PPP")}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Status:</span>
-                <Badge variant="outline" className="capitalize">{submission.status}</Badge>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-      
-      {/* Tabs for different views */}
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="w-full">
-        <TabsList className="grid w-full grid-cols-3 max-w-md">
-          <TabsTrigger value="feedback">Feedback</TabsTrigger>
-          <TabsTrigger value="preview">View Submission</TabsTrigger>
-          <TabsTrigger value="notes">Student Notes</TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="feedback" className="space-y-4 pt-4">
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-            <h2 className="text-xl font-semibold">Error Feedback</h2>
-            <Dialog open={addingFeedback} onOpenChange={setAddingFeedback}>
-              <DialogTrigger asChild>
-                <Button>Add Feedback</Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[600px]">
-                <DialogHeader>
-                  <DialogTitle>Add Error Feedback</DialogTitle>
-                  <DialogDescription>
-                    Identify an error and provide constructive feedback.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="error_description">Error Description</Label>
-                    <Input 
-                      id="error_description" 
-                      value={newFeedback.error_description}
-                      onChange={(e) => setNewFeedback({...newFeedback, error_description: e.target.value})}
-                      placeholder="Describe the specific error"
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="correction">Correction/Guidance</Label>
-                    <Textarea 
-                      id="correction" 
-                      rows={3}
-                      value={newFeedback.correction}
-                      onChange={(e) => setNewFeedback({...newFeedback, correction: e.target.value})}
-                      placeholder="Provide detailed guidance on how to fix the error"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="location">Location</Label>
-                      <Input 
-                        id="location" 
-                        value={newFeedback.location}
-                        onChange={(e) => setNewFeedback({...newFeedback, location: e.target.value})}
-                        placeholder="e.g., Page 1, Problem 3"
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="error_type">Error Type</Label>
-                      <Select 
-                        value={newFeedback.error_type} 
-                        onValueChange={(value) => setNewFeedback({...newFeedback, error_type: value})}
-                      >
-                        <SelectTrigger id="error_type">
-                          <SelectValue placeholder="Select error type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ERROR_TYPES.map((type) => (
-                            <SelectItem key={type} value={type} className="capitalize">
-                              {type}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="severity">Severity (1-5)</Label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min="1"
-                        max="5"
-                        value={newFeedback.severity}
-                        onChange={(e) => setNewFeedback({...newFeedback, severity: parseInt(e.target.value)})}
-                        className="flex-1"
-                      />
-                      <span className="w-16 text-center">
-                        {getErrorSeverityLabel(newFeedback.severity)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setAddingFeedback(false)}>
-                    Cancel
-                  </Button>
-                  <Button onClick={handleAddFeedback}>Add Feedback</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </div>
-          
-          {/* Feedback list */}
-          {feedbackItems.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-8 text-center border rounded-lg">
-              <AlertCircle className="h-10 w-10 text-muted-foreground mb-2" />
-              <p className="text-muted-foreground">No feedback has been provided yet</p>
-              <Button 
-                variant="link" 
-                className="mt-2" 
-                onClick={() => setAddingFeedback(true)}
-              >
-                Add your first feedback
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {feedbackItems.map((item) => (
-                <Card key={item.id} className={`border-l-4 ${getErrorSeverityColor(item.severity)}`}>
-                  <CardHeader className="pb-2">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <CardTitle className="text-base">{item.error_description}</CardTitle>
-                        <CardDescription>
-                          {item.location && (
-                            <span className="mr-3">Location: {item.location}</span>
-                          )}
-                          <Badge variant="outline" className="capitalize">
-                            {item.error_type}
-                          </Badge>
-                          <Badge 
-                            variant="outline" 
-                            className={`ml-2 ${getErrorSeverityColor(item.severity)}`}
-                          >
-                            {getErrorSeverityLabel(item.severity)} Severity
-                          </Badge>
-                        </CardDescription>
-                      </div>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => deleteFeedback(item.id)}
-                        className="h-8 w-8 text-destructive hover:text-destructive/90"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm">{item.correction}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-        
-        <TabsContent value="preview" className="space-y-4 pt-4">
-          <div className="border rounded-lg p-4 flex flex-col items-center justify-center min-h-[400px]">
-            <FileText className="h-16 w-16 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium">Assignment Submission Preview</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              This is where the preview of the student's uploaded work would be displayed.
-            </p>
-            <Button variant="outline" asChild>
-              <a href={submission.submission_file_url} target="_blank" rel="noopener noreferrer">
-                Open Full Document
-              </a>
+    <TooltipProvider>
+      <div className="container max-w-7xl py-6 space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+          <div className="flex items-start gap-3">
+            <Button variant="outline" size="icon" onClick={() => navigate("/dashboard/assignments")} className="shrink-0 mt-1">
+              <ArrowLeft className="h-4 w-4" />
             </Button>
-          </div>
-        </TabsContent>
-        
-        <TabsContent value="notes" className="space-y-4 pt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Student Notes</CardTitle>
-              <CardDescription>
-                Notes provided by the student with their submission
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {submission.student_notes ? (
-                <p className="text-sm">{submission.student_notes}</p>
-              ) : (
-                <p className="text-sm text-muted-foreground">No notes provided by the student.</p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-      
-      {/* Action buttons */}
-      <div className="flex justify-end space-x-3">
-        {/* Score Input Section */}
-        <div className="my-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Grade Submission</CardTitle>
-              <CardDescription>Enter the score for this submission.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-2">
-                <Label htmlFor="score">Score</Label>
-                <Input 
-                  id="score" 
-                  type="number" 
-                  placeholder="Enter score (e.g., 85)" 
-                  value={currentScore}
-                  onChange={(e) => setCurrentScore(e.target.value)}
-                  className="max-w-xs"
-                />
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{assignment.title}</h1>
+              <div className="flex items-center flex-wrap gap-3 text-sm text-muted-foreground mt-1">
+                <span className="flex items-center gap-1">
+                  <GraduationCap className="h-3.5 w-3.5" />
+                  {assignment.grade_level}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3.5 w-3.5" />
+                  Due {format(new Date(assignment.due_date), "MMM d, yyyy")}
+                </span>
+                {assignment.max_score && (
+                  <span className="font-medium">Max Score: {assignment.max_score}</span>
+                )}
               </div>
-            </CardContent>
-          </Card>
+              {assignment.description && (
+                <p className="text-sm text-muted-foreground mt-2 max-w-2xl">{assignment.description}</p>
+              )}
+            </div>
+          </div>
         </div>
 
-        <Button variant="outline">Save Draft</Button>
-        <Button onClick={returnToStudent}>Return to Student & Save Score</Button>
+        {/* Stats Row */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <StatCard icon={<Users className="h-5 w-5" />} label="Assigned" value={assignedStudentIds.length} color="text-primary" bg="bg-primary/10" />
+          <StatCard icon={<FileText className="h-5 w-5" />} label="Submitted" value={submissions.length} color="text-primary" bg="bg-primary/5" />
+          <StatCard icon={<CheckCircle2 className="h-5 w-5" />} label="Graded" value={gradedCount} color="text-emerald-600" bg="bg-emerald-50 dark:bg-emerald-950" />
+          <StatCard icon={<AlertTriangle className="h-5 w-5" />} label="Pending" value={pendingCount} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-950" />
+          <StatCard icon={<BarChart3 className="h-5 w-5" />} label="Avg Score" value={averageScore !== null ? averageScore : "—"} color="text-violet-600" bg="bg-violet-50 dark:bg-violet-950" />
+        </div>
+
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList>
+            <TabsTrigger value="all">All ({submissions.length})</TabsTrigger>
+            <TabsTrigger value="submitted">Pending ({pendingCount})</TabsTrigger>
+            <TabsTrigger value="graded">Graded ({gradedCount})</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        {/* Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Submissions List */}
+          <div className="lg:col-span-2 space-y-4">
+            <h2 className="text-lg font-semibold">Submissions</h2>
+
+            {filteredSubmissions.length === 0 ? (
+              <Card className="border-dashed">
+                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                  <FileText className="h-10 w-10 text-muted-foreground/40 mb-3" />
+                  <p className="font-medium">No submissions yet</p>
+                  <p className="text-sm text-muted-foreground">
+                    {activeTab === "submitted" ? "All submissions have been graded." : "Students haven't submitted work yet."}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {filteredSubmissions.map((sub) => (
+                  <Card
+                    key={sub.id}
+                    className={cn(
+                      "transition-all hover:shadow-md cursor-pointer border-l-4",
+                      sub.status === "submitted" ? "border-l-amber-400" :
+                      sub.status === "graded" ? "border-l-emerald-400" : "border-l-blue-400",
+                      selectedSubmission?.id === sub.id && !gradeDialogOpen && "ring-2 ring-primary/30"
+                    )}
+                    onClick={() => setSelectedSubmission(sub)}
+                  >
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold shrink-0">
+                            {sub.student?.full_name?.substring(0, 2).toUpperCase() || "??"}
+                          </div>
+                          <div className="min-w-0">
+                            <CardTitle className="text-base truncate">
+                              {sub.student?.full_name || "Unknown Student"}
+                            </CardTitle>
+                            <CardDescription className="text-xs">
+                              Submitted {format(new Date(sub.submitted_at), "MMM d, yyyy 'at' h:mm a")}
+                            </CardDescription>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {sub.score !== null && sub.score !== undefined && (
+                            <span className="text-lg font-bold text-primary">
+                              {sub.score}{assignment.max_score ? `/${assignment.max_score}` : ""}
+                            </span>
+                          )}
+                          {getStatusBadge(sub.status)}
+                        </div>
+                      </div>
+                    </CardHeader>
+
+                    <CardContent className="pt-0 pb-3">
+                      {sub.notes && (
+                        <div className="bg-muted/50 p-2.5 rounded-md text-sm mb-2">
+                          <p className="text-xs font-medium text-muted-foreground mb-0.5">Student Notes:</p>
+                          <p className="line-clamp-2">{sub.notes}</p>
+                        </div>
+                      )}
+                      {sub.teacher_feedback && (
+                        <div className="bg-primary/5 p-2.5 rounded-md text-sm border border-primary/10">
+                          <p className="text-xs font-medium text-primary mb-0.5">Your Feedback:</p>
+                          <p className="line-clamp-2">{sub.teacher_feedback}</p>
+                        </div>
+                      )}
+                    </CardContent>
+
+                    <CardFooter className="pt-0 pb-3 flex items-center gap-2">
+                      {sub.file_url && (
+                        <Button variant="outline" size="sm" asChild onClick={(e) => e.stopPropagation()}>
+                          <a href={sub.file_url} target="_blank" rel="noopener noreferrer">
+                            <Download className="h-3.5 w-3.5 mr-1.5" /> View File
+                          </a>
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant={sub.status === "submitted" ? "default" : "outline"}
+                        onClick={(e) => { e.stopPropagation(); openGradeDialog(sub); }}
+                      >
+                        <Star className="h-3.5 w-3.5 mr-1.5" />
+                        {sub.status === "submitted" ? "Grade" : "Update Grade"}
+                      </Button>
+                    </CardFooter>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Missing Students Sidebar */}
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Missing Submissions ({missingStudents.length})
+            </h2>
+            {missingStudents.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center">
+                  <CheckCircle2 className="h-8 w-8 text-emerald-400 mx-auto mb-2" />
+                  <p className="font-medium text-sm">All students have submitted!</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardContent className="py-3">
+                  <ScrollArea className="max-h-[400px]">
+                    <div className="space-y-2">
+                      {missingStudents.map((s) => (
+                        <div key={s.id} className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/50">
+                          <div className="w-8 h-8 rounded-full bg-red-50 text-red-500 flex items-center justify-center text-xs font-bold shrink-0">
+                            {s.full_name.substring(0, 2).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{s.full_name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {s.class_name || s.grade_level}
+                            </p>
+                          </div>
+                          <Badge variant="destructive" className="ml-auto text-xs shrink-0">Missing</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Assignment Instructions */}
+            {assignment.instructions && (
+              <>
+                <h2 className="text-lg font-semibold flex items-center gap-2 pt-2">
+                  <MessageSquare className="h-5 w-5 text-primary" />
+                  Instructions
+                </h2>
+                <Card>
+                  <CardContent className="py-3">
+                    <p className="text-sm">{assignment.instructions}</p>
+                  </CardContent>
+                </Card>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ── Grade / Feedback Dialog ──────────────── */}
+        <Dialog open={gradeDialogOpen} onOpenChange={setGradeDialogOpen}>
+          {selectedSubmission && (
+            <DialogContent className="sm:max-w-[550px]">
+              <DialogHeader>
+                <DialogTitle className="text-xl">
+                  Grade Submission — {selectedSubmission.student?.full_name || "Student"}
+                </DialogTitle>
+                <DialogDescription>
+                  Submitted on {format(new Date(selectedSubmission.submitted_at), "MMMM d, yyyy 'at' h:mm a")}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 py-2">
+                {/* Student notes */}
+                {selectedSubmission.notes && (
+                  <div className="bg-muted/50 p-3 rounded-md">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wider">Student Notes</Label>
+                    <p className="text-sm mt-1">{selectedSubmission.notes}</p>
+                  </div>
+                )}
+
+                {/* Attached file */}
+                {selectedSubmission.file_url && (
+                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-md">
+                    <FileText className="h-5 w-5 text-primary shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">Attached File</p>
+                      <p className="text-xs text-muted-foreground truncate">{selectedSubmission.file_url}</p>
+                    </div>
+                    <Button size="sm" variant="outline" asChild>
+                      <a href={selectedSubmission.file_url} target="_blank" rel="noopener noreferrer">
+                        <Eye className="h-3.5 w-3.5 mr-1" /> View
+                      </a>
+                    </Button>
+                  </div>
+                )}
+
+                <Separator />
+
+                {/* Score */}
+                <div className="grid gap-2">
+                  <Label htmlFor="grade-score" className="font-medium">
+                    Score {assignment.max_score ? `(out of ${assignment.max_score})` : ""}
+                  </Label>
+                  <Input
+                    id="grade-score"
+                    type="number"
+                    min="0"
+                    max={assignment.max_score || undefined}
+                    placeholder={assignment.max_score ? `0 – ${assignment.max_score}` : "Enter score"}
+                    value={gradeScore}
+                    onChange={(e) => setGradeScore(e.target.value)}
+                    className="h-10"
+                  />
+                </div>
+
+                {/* Feedback */}
+                <div className="grid gap-2">
+                  <Label htmlFor="grade-feedback" className="font-medium">Teacher Feedback</Label>
+                  <Textarea
+                    id="grade-feedback"
+                    rows={4}
+                    placeholder="Provide constructive feedback on the student's work..."
+                    value={gradeFeedback}
+                    onChange={(e) => setGradeFeedback(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <DialogFooter className="gap-2 flex-col sm:flex-row">
+                <Button variant="outline" onClick={() => setGradeDialogOpen(false)} disabled={actionLoading}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={handleGrade}
+                  disabled={actionLoading}
+                >
+                  {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                  Save Grade
+                </Button>
+                <Button onClick={handleReturn} disabled={actionLoading}>
+                  {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  <Send className="h-4 w-4 mr-1.5" />
+                  Grade & Return to Student
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          )}
+        </Dialog>
       </div>
-    </div>
+    </TooltipProvider>
   );
 };
+
+// ── Sub-components ─────────────────────────────────────
+
+function StatCard({ icon, label, value, color, bg }: {
+  icon: React.ReactNode; label: string; value: number | string; color: string; bg: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="p-4 flex items-center gap-3">
+        <div className={cn("rounded-lg p-2.5 shrink-0", bg, color)}>{icon}</div>
+        <div>
+          <p className="text-xl font-bold leading-none">{value}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default FeedbackView;

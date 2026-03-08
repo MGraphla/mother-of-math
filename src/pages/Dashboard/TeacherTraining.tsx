@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { PlusCircle } from "lucide-react";
@@ -13,6 +14,7 @@ const TeacherTraining = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { profile } = useAuth();
+  const { t } = useLanguage();
 
   const handleInterviewDeleted = (deletedInterviewId: string) => {
     setInterviews(prevInterviews => prevInterviews.filter(interview => interview.id !== deletedInterviewId));
@@ -40,19 +42,19 @@ const TeacherTraining = () => {
     <div className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <header>
-          <h1 className="text-3xl font-bold tracking-tight">Teacher Training</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t('training.title')}</h1>
           <p className="text-muted-foreground">
-            Practice and upgrade your teaching skills with AI-powered mock interviews.
+            {t('training.description')}
           </p>
         </header>
         <Button className="w-full md:w-auto" onClick={() => setIsModalOpen(true)}>
-          <PlusCircle className="mr-2 h-4 w-4" /> Create Interview
+          <PlusCircle className="mr-2 h-4 w-4" /> {t('training.createInterview')}
         </Button>
       </div>
 
       <div className="mt-8">
         {isLoading ? (
-          <p>Loading interviews...</p>
+          <p>{t('training.loading')}</p>
         ) : interviews.length > 0 ? (
           <div className="flex flex-wrap gap-6 justify-center md:justify-start">
             {interviews.map((interview) => (
@@ -61,9 +63,9 @@ const TeacherTraining = () => {
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center gap-4 rounded-lg border-2 border-dashed border-gray-300 p-12 text-center bg-gray-50 mt-10">
-            <h3 className="text-xl font-semibold text-gray-700">You haven't created any interviews yet.</h3>
+            <h3 className="text-xl font-semibold text-gray-700">{t('training.noInterviews')}</h3>
             <p className="text-gray-500">
-              Click the button above to create your first AI-powered mock interview.
+              {t('training.clickToCreate')}
             </p>
           </div>
         )}

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import FlippableImageCard from '@/components/FlippableImageCard';
+import { useLanguage } from '@/context/LanguageContext';
 import { 
   ArrowRight, 
   BookOpen, 
@@ -70,6 +71,69 @@ const FloatingShapes = () => {
     </div>
   );
 };
+
+// Enhanced floating math symbols for hero
+const FloatingMathSymbols = () => {
+  const symbols = ['π', '∑', '∫', '√', '∞', 'Δ', 'θ', 'λ', '÷', '×', '+', '=', '%'];
+  const items = Array.from({ length: 15 }).map((_, i) => ({
+    id: i,
+    symbol: symbols[i % symbols.length],
+    x: Math.random() * 100,
+    y: Math.random() * 100,
+    size: Math.random() * 24 + 16,
+    duration: Math.random() * 20 + 20,
+    delay: Math.random() * 8,
+  }));
+
+  return (
+    <div className="absolute inset-0 w-full h-full overflow-hidden z-0 pointer-events-none">
+      {items.map(item => (
+        <motion.span
+          key={item.id}
+          className="absolute font-bold text-primary/10 select-none"
+          initial={{ x: `${item.x}vw`, y: `${item.y}vh`, opacity: 0 }}
+          animate={{
+            y: [`${item.y}vh`, `${item.y - 20}vh`],
+            opacity: [0, 0.15, 0],
+            rotate: [0, 360],
+          }}
+          transition={{
+            duration: item.duration,
+            repeat: Infinity,
+            ease: 'linear',
+            delay: item.delay,
+          }}
+          style={{ fontSize: item.size }}
+        >
+          {item.symbol}
+        </motion.span>
+      ))}
+    </div>
+  );
+};
+
+// Scroll indicator component
+const ScrollIndicator = () => (
+  <motion.div
+    className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-20"
+    initial={{ opacity: 0, y: -20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ delay: 2, duration: 0.6 }}
+  >
+    <span className="text-sm text-gray-500 font-medium">Scroll to explore</span>
+    <motion.div
+      className="w-6 h-10 rounded-full border-2 border-gray-300 flex justify-center pt-2"
+      animate={{ borderColor: ['#d1d5db', '#22c55e', '#d1d5db'] }}
+      transition={{ duration: 2, repeat: Infinity }}
+    >
+      <motion.div
+        className="w-1.5 h-1.5 rounded-full bg-primary"
+        animate={{ y: [0, 16, 0] }}
+        transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+      />
+    </motion.div>
+  </motion.div>
+);
 
 const TimelineItem = ({ year, title, description, icon: Icon, isLast = false }) => (
   <motion.div
@@ -389,9 +453,16 @@ const HowItWorks = () => {
 
 const Home = () => {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const { scrollYProgress } = useScroll();
   const y = useTransform(scrollYProgress, [0, 1], [0, -100]);
   const springY = useSpring(y, { stiffness: 100, damping: 30 });
+
+  // Multi-layer parallax for hero background
+  const heroLayer1Y = useTransform(scrollYProgress, [0, 0.5], [0, -80]);
+  const heroLayer2Y = useTransform(scrollYProgress, [0, 0.5], [0, -140]);
+  const heroLayer3Y = useTransform(scrollYProgress, [0, 0.5], [0, 40]);
+  const heroPatternX = useTransform(scrollYProgress, [0, 0.5], [0, -30]);
 
   const handleGetStarted = () => {
     navigate('/sign-up');
@@ -491,7 +562,7 @@ const Home = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  });
+  }, []);
 
   // Autoplay with reset on manual navigation
   useEffect(() => {
@@ -507,58 +578,161 @@ const Home = () => {
       <Header />
       <FloatingActionButton />
 
-      {/* Hero Section */}
-      <section className="relative w-full min-h-[90vh] bg-gradient-to-br from-mint-100 to-white flex items-center overflow-hidden px-0">
-        <div className="absolute inset-0 z-0">
-        <FloatingShapes />
+      {/* Enhanced Hero Section */}
+      <section className="relative w-full min-h-screen bg-gradient-to-br from-green-50 via-white to-purple-50/30 flex items-center overflow-hidden">
+        {/* Parallax animated gradient mesh + African Kente-inspired geometric pattern */}
+        <div className="absolute inset-0 z-0 overflow-hidden">
+          {/* African Kente geometric weave pattern — slow counter-parallax */}
+          <motion.div
+            className="absolute -inset-[10%] opacity-[0.07]"
+            style={{
+              y: heroLayer3Y,
+              x: heroPatternX,
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='80' height='80' fill='none'/%3E%3Cline x1='0' y1='20' x2='80' y2='20' stroke='%2322c55e' stroke-width='1.5'/%3E%3Cline x1='0' y1='40' x2='80' y2='40' stroke='%23d97706' stroke-width='1.5'/%3E%3Cline x1='0' y1='60' x2='80' y2='60' stroke='%2322c55e' stroke-width='1.5'/%3E%3Cline x1='20' y1='0' x2='20' y2='80' stroke='%23d97706' stroke-width='1.5'/%3E%3Cline x1='40' y1='0' x2='40' y2='80' stroke='%2322c55e' stroke-width='1.5'/%3E%3Cline x1='60' y1='0' x2='60' y2='80' stroke='%23d97706' stroke-width='1.5'/%3E%3Cpolygon points='20%2C14 26%2C20 20%2C26 14%2C20' fill='%2322c55e'/%3E%3Cpolygon points='40%2C34 46%2C40 40%2C46 34%2C40' fill='%23d97706'/%3E%3Cpolygon points='60%2C14 66%2C20 60%2C26 54%2C20' fill='%2322c55e'/%3E%3Cpolygon points='20%2C54 26%2C60 20%2C66 14%2C60' fill='%23d97706'/%3E%3Cpolygon points='60%2C54 66%2C60 60%2C66 54%2C60' fill='%2322c55e'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'repeat',
+              backgroundSize: '80px 80px',
+            }}
+          />
+          {/* Parallax blob — green (fastest, moves up most) */}
+          <motion.div
+            className="absolute top-0 left-0 w-[600px] h-[600px] bg-gradient-to-br from-green-200/40 to-emerald-300/20 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2"
+            style={{ y: heroLayer2Y }}
+          />
+          {/* Parallax blob — amber/gold (medium speed) */}
+          <motion.div
+            className="absolute top-1/2 right-0 w-[500px] h-[500px] bg-gradient-to-bl from-amber-200/30 to-yellow-200/20 rounded-full blur-3xl translate-x-1/3"
+            style={{ y: heroLayer1Y }}
+          />
+          {/* Parallax blob — deep green (slowest, drifts up slightly) */}
+          <motion.div
+            className="absolute bottom-0 left-1/3 w-[400px] h-[400px] bg-gradient-to-tr from-emerald-100/30 to-green-100/20 rounded-full blur-3xl translate-y-1/2"
+            style={{ y: heroLayer3Y }}
+          />
+          <FloatingShapes />
+          <FloatingMathSymbols />
         </div>
-        <div className="w-full flex flex-col md:flex-row items-center justify-between py-32 px-0 relative z-10">
-          <div className="w-full md:w-1/2 text-center md:text-left px-4 md:px-8 lg:px-16 xl:pl-32 z-10">
-            <span className="inline-block mb-6 px-6 py-2 bg-green-100 text-green-700 rounded-full font-semibold text-lg tracking-wide">
-              Transforming Mathematics Education
-            </span>
-            <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-extrabold text-gray-900 mb-8 sm:mb-10 leading-tight font-[Poppins,Inter,sans-serif]">
-              Mothers for <motion.span
+        
+        {/* Grid pattern overlay */}
+        <div className="absolute inset-0 z-0 opacity-[0.02]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23000000\' fill-opacity=\'1\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }} />
+        
+        <div className="w-full flex flex-col lg:flex-row items-center justify-between py-24 lg:py-32 px-4 sm:px-8 lg:px-16 xl:px-24 relative z-10">
+          {/* Left Content */}
+          <div className="w-full lg:w-1/2 text-center lg:text-left z-10 max-w-2xl mx-auto lg:mx-0 lg:max-w-none">
+            {/* Animated tagline badge */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+            >
+              <span className="inline-flex items-center gap-2 mb-6 px-5 py-2.5 bg-gradient-to-r from-green-100 to-emerald-100 text-green-700 rounded-full font-semibold text-sm sm:text-base tracking-wide border border-green-200/50 shadow-sm">
+                <Sparkles className="w-4 h-4" />
+                {t('home.tagline')}
+              </span>
+            </motion.div>
+            
+            {/* Staggered headline */}
+            <motion.h1 
+              className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold mb-6 sm:mb-8 leading-[1.1] tracking-tight"
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.1 }}
+            >
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-800 via-amber-600 to-green-700">
+                {t('home.heroTitle')}
+              </span>{' '}
+              <motion.span
+                className="relative inline-block"
                 animate={{
-                  color: ["#22c55e", "#ec4899", "#8b5cf6", "#22c55e"],
-                  textShadow: [
-                    "0 0 12px rgba(34, 197, 94, 0.9)",
-                    "0 0 12px rgba(236, 72, 153, 0.9)",
-                    "0 0 12px rgba(139, 92, 246, 0.9)",
-                    "0 0 12px rgba(34, 197, 94, 0.9)"
-                  ]
+                  color: ["#22c55e", "#8b5cf6", "#ec4899", "#22c55e"],
                 }}
                 transition={{
-                  duration: 5,
+                  duration: 6,
                   repeat: Infinity,
                   ease: "easeInOut"
                 }}
               >
-                Mathematics
+                {t('home.heroMath')}
+                <motion.span
+                  className="absolute -inset-1 rounded-lg bg-gradient-to-r from-green-400/20 via-purple-400/20 to-pink-400/20 blur-xl -z-10"
+                  animate={{
+                    opacity: [0.5, 0.8, 0.5],
+                    scale: [1, 1.05, 1],
+                  }}
+                  transition={{
+                    duration: 3,
+                    repeat: Infinity,
+                    ease: "easeInOut"
+                  }}
+                />
               </motion.span>
-            </h1>
-            <p className="text-xl sm:text-2xl md:text-3xl text-gray-700 mb-10 sm:mb-12 font-[Open_Sans,sans-serif] max-w-xl md:max-w-2xl lg:max-w-3xl mx-auto md:mx-0">
-                We are transforming mathematics in Cameroon with AI-assisted education, fully aligned with the national curriculum.
-            </p>
-            <div className="flex flex-row items-center gap-3 justify-center mb-8">
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <button onClick={handleGetStarted} className="bg-green-600 text-white px-5 py-3 rounded-full text-base font-bold shadow-lg hover:bg-green-700 transition-all duration-300 flex items-center justify-center">
-                  Get Started for Free <ArrowRight className="ml-2 h-4 w-4" />
-                </button>
-              </motion.div>
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <button onClick={() => console.log('Watch Demo clicked')} className="bg-white text-gray-800 border border-gray-200 hover:bg-gray-50 px-5 py-3 rounded-full text-base font-bold shadow-lg transition-all duration-300">
-                  Watch Demo
-                </button>
-              </motion.div>
-            </div>
+            </motion.h1>
+            
+            {/* Subtitle */}
+            <motion.p 
+              className="text-lg sm:text-xl md:text-2xl text-gray-600 mb-8 sm:mb-10 leading-relaxed max-w-xl mx-auto lg:mx-0"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.3 }}
+            >
+              {t('home.heroSubtitle')}
+            </motion.p>
+            
+            {/* CTA Buttons */}
+            <motion.div 
+              className="flex flex-row flex-wrap items-center gap-4 justify-center lg:justify-start mb-10"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.4 }}
+            >
+              <motion.button 
+                onClick={handleGetStarted} 
+                className="relative group bg-gradient-to-r from-green-600 to-emerald-600 text-white px-8 py-4 rounded-full text-lg font-bold shadow-xl hover:shadow-green-500/25 transition-all duration-300 flex items-center justify-center overflow-hidden"
+                whileHover={{ scale: 1.02, y: -2 }} 
+                whileTap={{ scale: 0.98 }}
+              >
+                <span className="relative z-10 flex items-center">
+                  {t('home.startFree')} 
+                  <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                </span>
+                <motion.div
+                  className="absolute inset-0 bg-gradient-to-r from-emerald-600 to-green-600"
+                  initial={{ x: '100%' }}
+                  whileHover={{ x: 0 }}
+                  transition={{ duration: 0.3 }}
+                />
+              </motion.button>
+              
+              <motion.button 
+                onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })} 
+                className="group bg-white/80 backdrop-blur-sm text-gray-700 border-2 border-gray-200 hover:border-primary/50 hover:bg-green-50/50 px-8 py-4 rounded-full text-lg font-bold shadow-lg transition-all duration-300 flex items-center"
+                whileHover={{ scale: 1.02, y: -2 }} 
+                whileTap={{ scale: 0.98 }}
+              >
+                {t('common.learnMore')}
+                <motion.span 
+                  className="ml-2 opacity-0 group-hover:opacity-100 -translate-x-2 group-hover:translate-x-0 transition-all duration-300"
+                >
+                  →
+                </motion.span>
+              </motion.button>
+            </motion.div>
           </div>
-          <div className="relative w-full md:w-1/2 flex justify-center mt-16 md:mt-0">
-            {/* High-quality photo or animated SVG illustration */}
+          
+          {/* Right Side - Flippable Card */}
+          <motion.div 
+            className="relative w-full lg:w-1/2 flex justify-center mt-12 lg:mt-0"
+            initial={{ opacity: 0, x: 50, rotateY: -10 }}
+            animate={{ opacity: 1, x: 0, rotateY: 0 }}
+            transition={{ duration: 0.8, delay: 0.3 }}
+          >
+            {/* Glow effect behind card */}
+            <div className="absolute inset-0 bg-gradient-to-r from-green-400/20 via-purple-400/20 to-pink-400/20 blur-3xl rounded-full scale-75" />
             <FlippableImageCard />
-            {/* Optional: animated shapes or SVG overlays */}
-          </div>
+          </motion.div>
         </div>
+        
+        {/* Scroll indicator */}
+        <ScrollIndicator />
       </section>
 
       {/* Features Section */}
@@ -571,30 +745,30 @@ const Home = () => {
             viewport={{ once: true, amount: 0.5 }}
             transition={{ duration: 0.5 }}
           >
-            <span className="text-primary font-semibold mb-2 block">Features</span>
-            <h2 className="text-6xl md:text-7xl font-extrabold text-gray-900 mb-8 tracking-tight">What It Does?</h2>
-            <p className="text-3xl text-secondary mt-4 max-w-4xl mx-auto font-medium">Empowering teachers and parents to unlock every child's potential in mathematics.</p>
+            <span className="text-primary font-semibold mb-2 block">{t('nav.features')}</span>
+            <h2 className="text-6xl md:text-7xl font-extrabold text-gray-900 mb-8 tracking-tight">{t('home.featuresTitle')}</h2>
+            <p className="text-3xl text-secondary mt-4 max-w-4xl mx-auto font-medium">{t('home.featuresSubtitle')}</p>
           </motion.div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8 lg:gap-10">
             <motion.div className="bg-white rounded-3xl shadow-2xl p-12 flex flex-col items-center border-t-4 border-primary" initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
               <Zap className="w-14 h-14 text-primary mb-6" />
-              <div className="text-2xl sm:text-3xl font-extrabold text-primary mb-4 text-center">AI-Powered Analysis</div>
-              <div className="text-base sm:text-lg text-gray-700 text-center font-medium">Upload student work and get instant, detailed feedback. Our AI identifies error patterns and suggests targeted interventions.</div>
+              <div className="text-2xl sm:text-3xl font-extrabold text-primary mb-4 text-center">{t('home.feature1Title')}</div>
+              <div className="text-base sm:text-lg text-gray-700 text-center font-medium">{t('home.feature1Desc')}</div>
             </motion.div>
             <motion.div className="bg-white rounded-3xl shadow-2xl p-12 flex flex-col items-center border-t-4 border-green-700" initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
               <BookOpen className="w-14 h-14 text-green-700 mb-6" />
-              <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-green-700 mb-4 text-center">Curriculum-Aligned Lessons</div>
-              <div className="text-base sm:text-lg md:text-xl text-gray-700 text-center font-medium">Access a rich library of lesson plans and materials, all perfectly aligned with the official Cameroonian curriculum.</div>
+              <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-green-700 mb-4 text-center">{t('home.feature2Title')}</div>
+              <div className="text-base sm:text-lg md:text-xl text-gray-700 text-center font-medium">{t('home.feature2Desc')}</div>
             </motion.div>
             <motion.div className="bg-white rounded-3xl shadow-2xl p-12 flex flex-col items-center border-t-4 border-yellow-400" initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }}>
               <Target className="w-14 h-14 text-yellow-400 mb-6" />
-              <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-yellow-400 mb-4 text-center">Student Progress Tracking</div>
-              <div className="text-base sm:text-lg md:text-xl text-gray-700 text-center font-medium">Monitor individual and class-wide performance with intuitive dashboards. Understand strengths and weaknesses at a glance.</div>
+              <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-yellow-400 mb-4 text-center">{t('home.feature3Title')}</div>
+              <div className="text-base sm:text-lg md:text-xl text-gray-700 text-center font-medium">{t('home.feature3Desc')}</div>
             </motion.div>
             <motion.div className="bg-white rounded-3xl shadow-2xl p-12 flex flex-col items-center border-t-4 border-pink-400" initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}>
               <Users className="w-14 h-14 text-pink-400 mb-6" />
-              <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-pink-400 mb-4 text-center">Collaborative Platform</div>
-              <div className="text-base sm:text-lg md:text-xl text-gray-700 text-center font-medium">A space for teachers and parents to connect, share insights, and support student learning journeys together.</div>
+              <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-pink-400 mb-4 text-center">{t('home.feature4Title')}</div>
+              <div className="text-base sm:text-lg md:text-xl text-gray-700 text-center font-medium">{t('home.feature4Desc')}</div>
             </motion.div>
           </div>
         </div>
@@ -726,9 +900,10 @@ const Home = () => {
               <Button
                 size="lg"
                 variant="outline"
+                onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })}
                 className="bg-white text-gray-700 border-gray-200 hover:bg-gray-100 font-bold py-3 px-6 sm:py-4 sm:px-8 rounded-full shadow-lg transform transition-all duration-300"
               >
-                Watch Demo
+                Learn More
               </Button>
             </motion.div>
           </div>

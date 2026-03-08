@@ -1,5 +1,4 @@
 import { UserProfile } from "@/context/AuthContext";
-import { Timestamp } from 'firebase/firestore';
 
 export interface Interview {
   id: string;
@@ -11,7 +10,7 @@ export interface Interview {
   time: number;
   questions: string[];
   transcript?: { role: 'user' | 'assistant'; content: string }[];
-  createdAt?: Timestamp;
+  createdAt?: string;
   feedback?: string;
 }
 
@@ -73,15 +72,15 @@ export const isParent = (profile: UserProfile | null): boolean => {
   return profile?.role === 'parent';
 };
 
-// Primary grade levels for the application
+// Primary grade levels for the application (Primary 1–6 only)
 export const PRIMARY_GRADE_LEVELS = [
   "Primary 1",
   "Primary 2",
   "Primary 3",
   "Primary 4",
   "Primary 5",
-  "Primary 6"
-];
+  "Primary 6",
+] as const;
 
 // Helper function to determine if a teacher manages a specific student
 export const teacherManagesStudent = (teacher: UserProfile, studentId: string): boolean => {

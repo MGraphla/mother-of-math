@@ -6,12 +6,11 @@ import { Loader2, ArrowLeft, Wand2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import ReactMarkdown from 'react-markdown';
-import { auth } from '@/lib/firebase';
-import { useAuthState } from 'react-firebase-hooks/auth';
+import { useAuth } from '@/context/AuthContext';
 
 const InterviewDetails = () => {
   const { id } = useParams<{ id: string }>();
-  const [user, authLoading] = useAuthState(auth);
+  const { user, isLoading: authLoading } = useAuth();
   const [interview, setInterview] = useState<Interview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -101,7 +100,7 @@ const InterviewDetails = () => {
                 {interview.transcript.map((entry, index) => (
                   <div key={index} className={`flex items-start gap-3 ${entry.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`p-3 rounded-lg max-w-2xl ${entry.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'}`}>
-                      <p className="font-bold capitalize text-sm">{entry.role === 'user' ? user.displayName || 'You' : 'AI Interviewer'}</p>
+                      <p className="font-bold capitalize text-sm">{entry.role === 'user' ? (user?.user_metadata?.full_name || 'You') : 'AI Interviewer'}</p>
                       <p>{entry.content}</p>
                     </div>
                   </div>
@@ -114,7 +113,7 @@ const InterviewDetails = () => {
     }
 
     // Interview not started yet, show agent
-    return <Agent userName={user.displayName || 'User'} interviewId={interview.id} questions={interview.questions} />;
+    return <Agent userName={user?.user_metadata?.full_name || 'User'} interviewId={interview.id} questions={interview.questions} />;
   };
 
   return (

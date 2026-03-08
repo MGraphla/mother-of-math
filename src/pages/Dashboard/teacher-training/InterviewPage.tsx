@@ -69,7 +69,7 @@ const InterviewPage = () => {
       <Agent 
         questions={interview.questions} 
         interviewId={interviewId}
-        userName={profile?.fullName || 'User'}
+        userName={profile?.full_name || 'User'}
         topic={interview.topic}
       />
     </div>

@@ -1,23 +1,23 @@
 
-import { Button } from "@/components/ui/button";
+import { Heart } from 'lucide-react';
+import { useLanguage } from "@/context/LanguageContext";
 
 const Footer = () => {
+  const { t } = useLanguage();
+
   return (
-    <footer className="bg-white border-t py-4 px-4 mt-auto">
-      <div className="max-w-6xl mx-auto text-center">
-        <p className="text-sm text-muted-foreground">
-          &copy; 2025 Mothers for Mathematics. All rights reserved.
-        </p>
-        <div className="mt-2 flex justify-center gap-4">
-          <Button variant="link" size="sm" className="text-xs">
-            Terms of Service
-          </Button>
-          <Button variant="link" size="sm" className="text-xs">
-            Privacy Policy
-          </Button>
-          <Button variant="link" size="sm" className="text-xs">
-            Contact Us
-          </Button>
+    <footer className="relative bg-gray-950 text-gray-300 overflow-hidden">
+      {/* Bottom bar */}
+      <div className="relative border-t border-white/5">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <p className="text-xs text-gray-500 text-center sm:text-left">
+              &copy; {new Date().getFullYear()} Mothers for Mathematics. {t('footer.rightsReserved')}
+            </p>
+            <p className="text-xs text-gray-500 flex items-center gap-1">
+              Made with <Heart className="h-3 w-3 text-red-400 fill-red-400 inline" /> for Cameroonian educators
+            </p>
+          </div>
         </div>
       </div>
     </footer>

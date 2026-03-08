@@ -1,129 +1,207 @@
-import { useState } from "react";
-import { useAuth } from "@/context/AuthContext";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+﻿import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Award, TrendingUp, Star, Clock } from "lucide-react";
+import { Loader2, Award, TrendingUp, Star, BookCheck, GraduationCap } from "lucide-react";
+import {
+  Student,
+  StudentAssignment,
+  AssignmentSubmission,
+  getStudentSession,
+  getAssignmentsForStudent,
+  getSubmissionsForStudent,
+} from "@/services/studentService";
 
 const StudentProgress = () => {
-  const { profile } = useAuth();
-  
-  // Mock progress data
-  const progressData = {
-    overallProgress: 68,
-    recentTopics: [
-      { name: "Addition", progress: 95, status: "mastered" },
-      { name: "Subtraction", progress: 85, status: "mastered" },
-      { name: "Multiplication", progress: 72, status: "learning" },
-      { name: "Division", progress: 45, status: "learning" },
-      { name: "Fractions", progress: 30, status: "started" }
-    ],
-    achievements: [
-      { name: "Addition Master", date: "May 15, 2025", icon: <Award className="h-5 w-5" /> },
-      { name: "Quick Solver", date: "April 28, 2025", icon: <Clock className="h-5 w-5" /> }
-    ],
-    suggestedPractice: [
-      "Multiplication Tables (1-12)",
-      "Long Division Problems",
-      "Fraction to Decimal Conversions"
-    ]
+  const navigate = useNavigate();
+  const [student, setStudent] = useState<Student | null>(null);
+  const [assignments, setAssignments] = useState<StudentAssignment[]>([]);
+  const [submissions, setSubmissions] = useState<AssignmentSubmission[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const s = getStudentSession();
+    if (!s) { navigate("/student-login", { replace: true }); return; }
+    setStudent(s);
+    loadData(s.id);
+  }, []);
+
+  const loadData = async (studentId: string) => {
+    setIsLoading(true);
+    try {
+      const [a, sub] = await Promise.all([
+        getAssignmentsForStudent(studentId),
+        getSubmissionsForStudent(studentId),
+      ]);
+      setAssignments(a);
+      setSubmissions(sub);
+    } catch (e) {
+      console.error("Error loading progress:", e);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-3 text-muted-foreground">Loading progress...</span>
+      </div>
+    );
+  }
+
+  if (!student) return null;
+
+  const totalAssignments = assignments.length;
+  const completedCount = submissions.length;
+  const gradedSubmissions = submissions.filter((s) => s.status === "graded");
+  const completionRate = totalAssignments > 0 ? Math.round((completedCount / totalAssignments) * 100) : 0;
+  const averageScore = gradedSubmissions.length > 0
+    ? Math.round(gradedSubmissions.reduce((sum, s) => sum + (s.score || 0), 0) / gradedSubmissions.length)
+    : 0;
+
+  // Group submissions by subject via assignments
+  const subjectMap = new Map<string, { total: number; submitted: number; scores: number[] }>();
+  assignments.forEach((a) => {
+    const entry = subjectMap.get(a.subject) || { total: 0, submitted: 0, scores: [] };
+    entry.total++;
+    const sub = submissions.find((s) => s.assignment_id === a.id);
+    if (sub) {
+      entry.submitted++;
+      if (sub.score !== null) entry.scores.push(sub.score);
+    }
+    subjectMap.set(a.subject, entry);
+  });
+
+  const subjects = Array.from(subjectMap.entries()).map(([name, data]) => ({
+    name,
+    progress: data.total > 0 ? Math.round((data.submitted / data.total) * 100) : 0,
+    avgScore: data.scores.length > 0 ? Math.round(data.scores.reduce((a, b) => a + b, 0) / data.scores.length) : null,
+    total: data.total,
+    submitted: data.submitted,
+  }));
+
   return (
-    <div className="container py-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">My Progress</h1>
+    <div className="container py-6 space-y-6 max-w-5xl">
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
+          <TrendingUp className="h-7 w-7 text-primary" /> My Progress
+        </h1>
+        <p className="text-muted-foreground mt-1">Track your learning journey and achievements</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Overall Progress Card */}
-        <Card className="col-span-1 md:col-span-3">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Overall Mathematics Progress</CardTitle>
-            <CardDescription>
-              Your journey in learning mathematics
-            </CardDescription>
+      {/* Overview Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card className="bg-primary/5 border-primary/20">
+          <CardContent className="pt-5 pb-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center mx-auto mb-2">
+              <BookCheck className="h-6 w-6 text-primary" />
+            </div>
+            <p className="text-3xl font-bold">{completionRate}%</p>
+            <p className="text-xs text-muted-foreground mt-1">Completion Rate</p>
+            <Progress value={completionRate} className="h-2 mt-3" />
+          </CardContent>
+        </Card>
+
+        <Card className="bg-primary/5 border-primary/10">
+          <CardContent className="pt-5 pb-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
+              <GraduationCap className="h-6 w-6 text-primary" />
+            </div>
+            <p className="text-3xl font-bold">{averageScore > 0 ? `${averageScore}%` : "\u2014"}</p>
+            <p className="text-xs text-muted-foreground mt-1">Average Score</p>
+            <Progress value={averageScore} className="h-2 mt-3" />
+          </CardContent>
+        </Card>
+
+        <Card className="bg-primary/5 border-primary/10">
+          <CardContent className="pt-5 pb-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
+              <Star className="h-6 w-6 text-primary" />
+            </div>
+            <p className="text-3xl font-bold">{completedCount}/{totalAssignments}</p>
+            <p className="text-xs text-muted-foreground mt-1">Assignments Done</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Subject Breakdown */}
+      {subjects.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Subject Progress</CardTitle>
+            <CardDescription>Your performance across different subjects</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>Progress: {progressData.overallProgress}%</span>
-                <span className="text-muted-foreground">Primary {profile?.grade_level || "5"}</span>
+          <CardContent className="space-y-5">
+            {subjects.map((subject) => (
+              <div key={subject.name} className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-medium">{subject.name}</span>
+                  <div className="flex items-center gap-3">
+                    {subject.avgScore !== null && (
+                      <Badge variant="outline" className="text-xs">Avg: {subject.avgScore}%</Badge>
+                    )}
+                    <span className="text-muted-foreground text-xs">
+                      {subject.submitted}/{subject.total} done
+                    </span>
+                    <span className="font-bold text-sm">{subject.progress}%</span>
+                  </div>
+                </div>
+                <Progress value={subject.progress} className="h-2.5" />
               </div>
-              <Progress value={progressData.overallProgress} className="h-3" />
-            </div>
+            ))}
           </CardContent>
         </Card>
+      )}
 
-        {/* Topics Progress */}
-        <Card className="col-span-1 md:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Topics Progress</CardTitle>
-            <CardDescription>
-              Your progress in different mathematics topics
-            </CardDescription>
+      {/* Recent Graded Assignments */}
+      {gradedSubmissions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Award className="h-5 w-5 text-primary" /> Graded Assignments
+            </CardTitle>
+            <CardDescription>Assignments that have been reviewed by your teacher</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {progressData.recentTopics.map((topic, index) => (
-                <div key={index} className="space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span>{topic.name}</span>
-                    <div className="flex items-center">
-                      <span className="mr-2">{topic.progress}%</span>
-                      <Badge variant={
-                        topic.status === "mastered" ? "default" :
-                        topic.status === "learning" ? "secondary" : "outline"
-                      }>
-                        {topic.status}
-                      </Badge>
+            <div className="space-y-3">
+              {gradedSubmissions.map((sub) => {
+                const assignment = assignments.find((a) => a.id === sub.assignment_id);
+                const score = sub.score || 0;
+                return (
+                  <div key={sub.id} className="flex items-center gap-4 p-3 rounded-lg bg-muted/30">
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 bg-primary/10 text-primary">
+                      {score}%
                     </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{assignment?.title || "Assignment"}</p>
+                      <p className="text-xs text-muted-foreground">{assignment?.subject}</p>
+                    </div>
+                    {sub.teacher_feedback && (
+                      <Badge variant="outline" className="text-xs shrink-0">Has Feedback</Badge>
+                    )}
                   </div>
-                  <Progress value={topic.progress} className="h-2" />
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>
+      )}
 
-        {/* Achievements & Suggested Practice */}
-        <Card className="col-span-1">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Achievements</CardTitle>
-            <CardDescription>
-              Your learning milestones
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {progressData.achievements.map((achievement, index) => (
-                <div key={index} className="flex items-start space-x-2">
-                  <div className="p-2 bg-indigo-100 text-indigo-700 rounded-md">
-                    {achievement.icon}
-                  </div>
-                  <div>
-                    <div className="font-medium text-sm">{achievement.name}</div>
-                    <div className="text-xs text-muted-foreground">{achievement.date}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-          <CardHeader className="pb-2 border-t pt-4">
-            <CardTitle className="text-lg">Suggested Practice</CardTitle>
-            <CardDescription>
-              Topics to focus on
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-2 list-disc list-inside text-sm">
-              {progressData.suggestedPractice.map((item, index) => (
-                <li key={index}>{item}</li>
-              ))}
-            </ul>
+      {/* Empty State */}
+      {totalAssignments === 0 && (
+        <Card className="border-dashed border-2">
+          <CardContent className="py-16 text-center">
+            <TrendingUp className="h-14 w-14 text-muted-foreground/30 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-1">No progress data yet</h3>
+            <p className="text-sm text-muted-foreground">
+              Once your teacher assigns work and you submit it, your progress will appear here.
+            </p>
           </CardContent>
         </Card>
-      </div>
+      )}
     </div>
   );
 };

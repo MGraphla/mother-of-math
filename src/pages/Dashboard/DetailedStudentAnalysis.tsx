@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { UploadCloud, Brain } from 'lucide-react';
 import { toast } from 'sonner';
+import { sendMessage, fileToBase64 } from '@/services/api';
 
 // This will be a more specific page for AI analysis of student work.
 // We will need to define its specific features and workflow based on user requirements.
@@ -57,20 +58,19 @@ const DetailedStudentAnalysis = () => {
 
     setIsLoading(true);
     setAnalysisResult(null);
-    // Simulate API call for analysis
-    // Replace with actual API call to your backend/AI service
     try {
-      // const base64File = await fileToBase64(currentFile); // You'd need a utility like this
-      // const response = await callYourAIService(base64File, /* any other parameters */);
-      // For demonstration:
-      await new Promise(resolve => setTimeout(resolve, 2000)); 
-      const mockAnalysis = `AI Analysis for ${currentFile.name}:\n\nThis is a placeholder analysis. The actual analysis would provide detailed feedback on mathematical errors, concepts, and suggestions for improvement. For example, it might highlight issues with fractions, algebra, or geometry depending on the content of the uploaded work.`;
-      setAnalysisResult(mockAnalysis);
+      const base64 = await fileToBase64(currentFile);
+      const response = await sendMessage(
+        'Please analyze this student math work. Identify errors, explain what the student did correctly and incorrectly, and suggest remediation activities.',
+        base64,
+        'text'
+      );
+      setAnalysisResult(response.text);
       toast.success('Analysis complete!');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Analysis error:', error);
-      toast.error('Analysis failed. Please try again.');
-      setAnalysisResult('Failed to analyze the document.');
+      toast.error(error.message || 'Analysis failed. Please try again.');
+      setAnalysisResult('Failed to analyze the document. Please check your API key configuration.');
     } finally {
       setIsLoading(false);
     }

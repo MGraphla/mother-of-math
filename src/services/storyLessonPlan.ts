@@ -2,6 +2,7 @@ import { sendMessage } from "./api";
 import jsPDF from "jspdf";
 import autoTable from 'jspdf-autotable';
 import PptxGenJS from "pptxgenjs";
+import { generateStoryLessonPlanImages } from "./imageGeneration";
 
 interface LessonSection {
   id: string;
@@ -219,8 +220,9 @@ Ensure the story is educationally sound, culturally authentic, and perfectly ali
   }
 };
 
-export const exportToPDF = async (jsonContent: string, topic: string, level: string) => {
+export const exportToPDF = async (jsonContent: string, topic: string, level: string, onProgress?: (message: string) => void) => {
   try {
+    onProgress?.('Preparing your story lesson plan...');
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 15;
@@ -273,6 +275,8 @@ export const exportToPDF = async (jsonContent: string, topic: string, level: str
     const successfulLogos = logoResults
       .filter(r => r.status === 'fulfilled' && r.value !== null)
       .map(r => (r as PromiseFulfilledResult<any>).value);
+
+    onProgress?.('Building your PDF document...');
 
     // --- DEFINE REPEATING HEADER/FOOTER ---
     const addHeaderAndFooter = (data: any) => {
@@ -563,6 +567,7 @@ export const exportToPDF = async (jsonContent: string, topic: string, level: str
       addHeaderAndFooter({ pageNumber: i });
     }
 
+    onProgress?.('Saving your PDF...');
     doc.save(`${topic.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_story_lesson_plan.pdf`);
 
   } catch (error) {
@@ -660,63 +665,616 @@ const exportMarkdownToPDF = async (content: string, topic: string, level: string
   doc.save(`story-lesson-plan-${topic.replace(/\s+/g, '-').toLowerCase()}.pdf`);
 };
 
-export const exportToPowerPoint = async (content: string, topic: string) => {
+export const exportToPowerPoint = async (
+  content: string,
+  topic: string,
+  onProgress?: (message: string) => void
+) => {
   const pptx = new PptxGenJS();
-  
-  // Title slide
-  const titleSlide = pptx.addSlide();
-  titleSlide.addText(`Story Lesson Plan: ${topic}`, {
-    x: 1,
-    y: 2,
-    w: 8,
-    h: 1.5,
-    fontSize: 32,
-    bold: true,
-    color: "363636",
-    align: "center"
-  });
-  
-  titleSlide.addText("Mathematical Storytelling Approach", {
-    x: 1,
-    y: 4,
-    w: 8,
-    h: 1,
-    fontSize: 18,
-    color: "666666",
-    align: "center"
-  });
-  
-  // Content slides
-  const sections = content.split('## ').filter(section => section.trim());
-  
-  sections.forEach((section) => {
-    const slide = pptx.addSlide();
-    const lines = section.split('\n');
-    const title = lines[0].replace(/^#+\s*/, '');
-    
+
+  // ── Mother of Math Story Branding — matches app CSS --primary hsl(144,100%,31%) ──
+  const PRIMARY     = '009e60';   // App primary green
+  const PRIMARY_DK  = '007a4a';   // Darker green
+  const PRIMARY_LT  = '00c978';   // Lighter green
+  const BROWN       = '4b371c';   // Warm brown (story theme + app secondary)
+  const BROWN_LT    = '6b5030';   // Lighter brown
+  const DARK        = '1a1a2e';   // Near-black
+  const MID         = '333333';   // Dark gray
+  const LIGHT       = 'ffffff';   // White
+  const BG          = 'FFF8F0';   // Warm white bg
+  const BG_STORY    = 'FDF6EC';   // Story warm bg
+  const BG_GREEN    = 'F0FFF4';   // Light green bg
+  const GOLD        = 'F4B400';   // Accent gold
+
+  pptx.defineLayout({ name: 'MAMA_STORY', width: 10, height: 5.625 });
+  pptx.layout = 'MAMA_STORY';
+  pptx.author = 'Mother of Math';
+  pptx.company = 'Mothers for Mathematics';
+  pptx.subject = `Story Lesson: ${topic}`;
+  pptx.title = `Story Lesson Plan: ${topic}`;
+
+  // ── Parse JSON (the story plan may be in raw JSON or markdown) ──
+  let storyPlan: any = null;
+  try {
+    const cleaned = content.trim().replace(/^```[a-zA-Z]*\s*|```\s*$/gm, '');
+    const parsed = JSON.parse(cleaned);
+    storyPlan = parsed.storyLessonPlan || parsed;
+  } catch {
+    // Will use text-based fallback
+  }
+
+  // ── Generate AI story illustrations ──
+  let images: Record<string, string | null> = {};
+  if (storyPlan && typeof storyPlan === 'object') {
+    try {
+      images = await generateStoryLessonPlanImages(
+        topic,
+        storyPlan.gradeLevel || '',
+        storyPlan.storyTheme || topic,
+        storyPlan.storySections || [],
+        onProgress
+      );
+    } catch (error) {
+      console.warn('Story image generation failed:', error);
+      onProgress?.('Image generation unavailable — creating branded slides...');
+    }
+  }
+
+  onProgress?.('Building your story PowerPoint presentation...');
+
+  // ── HELPERS ──
+  const addHeader = (slide: any, title: string, color: string = PRIMARY) => {
+    // Header bar
+    slide.addShape('rect', { x: 0, y: 0, w: 10, h: 0.65, fill: { color } });
+    // Gold accent line under header
+    slide.addShape('rect', { x: 0, y: 0.65, w: 10, h: 0.04, fill: { color: GOLD } });
     slide.addText(title, {
-      x: 0.5,
-      y: 0.5,
-      w: 9,
-      h: 1,
-      fontSize: 24,
-      bold: true,
-      color: "8B5CF6"
+      x: 0.4, y: 0.05, w: 9.2, h: 0.55,
+      fontSize: 18, color: LIGHT, bold: true, fontFace: 'Arial', valign: 'middle',
     });
-    
-    const content = lines.slice(1).join('\n').trim();
-    if (content) {
-      slide.addText(content, {
-        x: 0.5,
-        y: 1.5,
-        w: 9,
-        h: 5,
-        fontSize: 14,
-        color: "363636",
-        valign: "top"
+  };
+
+  const addFooter = (slide: any) => {
+    slide.addShape('rect', { x: 0, y: 5.15, w: 10, h: 0.03, fill: { color: PRIMARY } });
+    slide.addText('MOTHER OF MATH', {
+      x: 0.4, y: 5.22, w: 3.5, h: 0.3,
+      fontSize: 9, color: PRIMARY, bold: true, fontFace: 'Arial',
+    });
+    slide.addText('Story-Based Learning · Cameroon', {
+      x: 5.5, y: 5.22, w: 4, h: 0.3,
+      fontSize: 8, color: '999999', fontFace: 'Arial', align: 'right',
+    });
+  };
+
+  const addSlideImage = (
+    slide: any,
+    imageData: string | null | undefined,
+    x: number, y: number, w: number, h: number,
+    emoji = '📖'
+  ) => {
+    if (imageData) {
+      // Green border frame
+      slide.addShape('rect', {
+        x: x - 0.05, y: y - 0.05, w: w + 0.1, h: h + 0.1,
+        fill: { color: PRIMARY }, rectRadius: 0.08,
+      });
+      slide.addImage({
+        data: imageData, x, y, w, h,
+        rounding: true,
+        sizing: { type: 'cover', w, h },
+      });
+    } else {
+      // Green-tinted placeholder
+      slide.addShape('rect', {
+        x, y, w, h,
+        fill: { color: BG_GREEN }, rectRadius: 0.12,
+        line: { color: PRIMARY, width: 1.5, dashType: 'dash' },
+      });
+      slide.addText(emoji, {
+        x, y: y + h / 2 - 0.4, w, h: 0.8,
+        fontSize: 36, align: 'center', valign: 'middle', color: PRIMARY,
       });
     }
+  };
+
+  // ===================================================================
+  // STRUCTURED JSON STORY SLIDES
+  // ===================================================================
+  if (storyPlan && typeof storyPlan === 'object') {
+
+    // ═══ TITLE SLIDE ═══
+    const titleSlide = pptx.addSlide();
+    titleSlide.background = { color: DARK };
+
+    // Left warm-brown panel
+    titleSlide.addShape('rect', { x: 0, y: 0, w: 5.2, h: 5.625, fill: { color: BROWN } });
+
+    // Decorative circles
+    titleSlide.addShape('ellipse', {
+      x: -0.3, y: 4, w: 1.8, h: 1.8,
+      fill: { color: PRIMARY, transparency: 50 },
+    });
+    titleSlide.addShape('ellipse', {
+      x: 3.8, y: -0.3, w: 1.2, h: 1.2,
+      fill: { color: GOLD, transparency: 40 },
+    });
+    titleSlide.addShape('ellipse', {
+      x: 1.5, y: 4.5, w: 1.2, h: 1.2,
+      fill: { color: PRIMARY_LT, transparency: 60 },
+    });
+
+    // Branding
+    titleSlide.addText('MOTHER OF MATH', {
+      x: 0.5, y: 0.4, w: 4.2, h: 0.35,
+      fontSize: 11, color: LIGHT, bold: true, fontFace: 'Arial', charSpacing: 3,
+    });
+    titleSlide.addShape('line', {
+      x: 0.5, y: 0.85, w: 2.2, h: 0,
+      line: { color: GOLD, width: 3 },
+    });
+
+    // Story title
+    const storyTitle = storyPlan.title || `Story Lesson: ${topic}`;
+    titleSlide.addText(storyTitle, {
+      x: 0.5, y: 1.2, w: 4.2, h: 1.8,
+      fontSize: 26, color: LIGHT, bold: true, fontFace: 'Arial', valign: 'top', wrap: true,
+    });
+
+    // Theme badge
+    if (storyPlan.storyTheme) {
+      titleSlide.addShape('rect', {
+        x: 0.5, y: 3.2, w: 3.5, h: 0.38,
+        fill: { color: PRIMARY }, rectRadius: 0.06,
+      });
+      titleSlide.addText(`Theme: ${storyPlan.storyTheme}`, {
+        x: 0.5, y: 3.2, w: 3.5, h: 0.38,
+        fontSize: 11, color: LIGHT, bold: true, fontFace: 'Arial', align: 'center',
+      });
+    }
+
+    // Level badge
+    if (storyPlan.gradeLevel) {
+      titleSlide.addShape('rect', {
+        x: 0.5, y: 3.72, w: 2.5, h: 0.38,
+        fill: { color: GOLD }, rectRadius: 0.06,
+      });
+      titleSlide.addText(storyPlan.gradeLevel, {
+        x: 0.5, y: 3.72, w: 2.5, h: 0.38,
+        fontSize: 12, color: DARK, bold: true, fontFace: 'Arial', align: 'center',
+      });
+    }
+
+    titleSlide.addText('Mathematical Storytelling', {
+      x: 0.5, y: 4.8, w: 4.2, h: 0.3,
+      fontSize: 10, color: BG, fontFace: 'Arial',
+    });
+
+    // Right: Hero image
+    if (images.title) {
+      titleSlide.addImage({
+        data: images.title,
+        x: 5.2, y: 0, w: 4.8, h: 5.625,
+        sizing: { type: 'cover', w: 4.8, h: 5.625 },
+      });
+    } else {
+      titleSlide.addShape('rect', { x: 5.2, y: 0, w: 4.8, h: 5.625, fill: { color: PRIMARY_DK } });
+      titleSlide.addShape('ellipse', {
+        x: 6.2, y: 1.5, w: 2.8, h: 2.8,
+        fill: { color: PRIMARY, transparency: 40 },
+      });
+      titleSlide.addText('📖', {
+        x: 5.2, y: 1.8, w: 4.8, h: 2,
+        fontSize: 64, align: 'center', valign: 'middle',
+      });
+    }
+
+    // ═══ STORY OVERVIEW & CHARACTERS SLIDE ═══
+    if (storyPlan.storyOverview || storyPlan.characters) {
+      const overviewSlide = pptx.addSlide();
+      overviewSlide.background = { color: BG };
+      addHeader(overviewSlide, 'STORY OVERVIEW', BROWN);
+
+      // Always show character image
+      addSlideImage(overviewSlide, images.characters, 6.3, 0.9, 3.2, 3.9, '👧🏾');
+
+      const textW = 5.5;
+      let yPos = 0.85;
+
+      // Story overview
+      if (storyPlan.storyOverview) {
+        overviewSlide.addText(storyPlan.storyOverview, {
+          x: 0.5, y: yPos, w: textW, h: 1.2,
+          fontSize: 13, color: MID, fontFace: 'Arial', wrap: true, valign: 'top',
+          italic: true, lineSpacingMultiple: 1.2,
+        });
+        yPos += 1.3;
+      }
+
+      // Setting
+      if (storyPlan.setting) {
+        overviewSlide.addShape('rect', { x: 0.4, y: yPos, w: 0.06, h: 0.3, fill: { color: PRIMARY } });
+        overviewSlide.addText('SETTING', {
+          x: 0.6, y: yPos, w: 3, h: 0.3,
+          fontSize: 10, color: PRIMARY, bold: true, fontFace: 'Arial',
+        });
+        yPos += 0.35;
+        overviewSlide.addText(storyPlan.setting, {
+          x: 0.6, y: yPos, w: textW - 0.2, h: 0.6,
+          fontSize: 12, color: MID, fontFace: 'Arial', wrap: true, valign: 'top',
+        });
+        yPos += 0.7;
+      }
+
+      // Characters
+      if (storyPlan.characters && Array.isArray(storyPlan.characters)) {
+        overviewSlide.addShape('rect', { x: 0.4, y: yPos, w: 0.06, h: 0.3, fill: { color: BROWN } });
+        overviewSlide.addText('MAIN CHARACTERS', {
+          x: 0.6, y: yPos, w: 3, h: 0.3,
+          fontSize: 10, color: BROWN, bold: true, fontFace: 'Arial',
+        });
+        yPos += 0.35;
+
+        const charTexts = storyPlan.characters.map((c: any) => ({
+          text: typeof c === 'string' ? c : `${c.name}: ${c.description}`,
+          options: { bullet: true, color: MID, paraSpaceBefore: 3, paraSpaceAfter: 2 },
+        }));
+        overviewSlide.addText(charTexts, {
+          x: 0.6, y: yPos, w: textW - 0.2, h: 5 - yPos,
+          fontSize: 11, fontFace: 'Arial', wrap: true, valign: 'top',
+          bullet: { type: 'bullet' },
+        });
+      }
+
+      addFooter(overviewSlide);
+    }
+
+    // ═══ OBJECTIVES SLIDE ═══
+    if (storyPlan.lessonObjectives && Array.isArray(storyPlan.lessonObjectives)) {
+      const objSlide = pptx.addSlide();
+      objSlide.background = { color: BG_GREEN };
+      addHeader(objSlide, 'LEARNING OBJECTIVES');
+
+      // Image on the right
+      addSlideImage(objSlide, images.objectives, 6.3, 0.9, 3.2, 3.9, '🎯');
+
+      // Green vertical accent bar
+      objSlide.addShape('rect', { x: 0.35, y: 0.85, w: 0.06, h: 4.0, fill: { color: PRIMARY } });
+
+      objSlide.addText('Through this story, learners will be able to:', {
+        x: 0.55, y: 0.85, w: 5.5, h: 0.35,
+        fontSize: 12, color: PRIMARY_DK, italic: true, fontFace: 'Arial',
+      });
+
+      objSlide.addText(
+        storyPlan.lessonObjectives.map((obj: string, i: number) => ({
+          text: `${i + 1}.  ${obj}`,
+          options: { color: MID, paraSpaceBefore: 8, paraSpaceAfter: 4 },
+        })),
+        {
+          x: 0.6, y: 1.3, w: 5.3, h: 3.5,
+          fontSize: 14, fontFace: 'Arial', wrap: true, valign: 'top',
+          lineSpacingMultiple: 1.15,
+        }
+      );
+
+      addFooter(objSlide);
+    }
+
+    // ═══ STORY SECTION SLIDES ═══
+    if (storyPlan.storySections && Array.isArray(storyPlan.storySections)) {
+      storyPlan.storySections.forEach((section: any, idx: number) => {
+        const storyImg = images[`story_${idx}`];
+        const activityImg = images[`activity_${idx}`];
+
+        // STORY CONTENT slide
+        const storySlide = pptx.addSlide();
+        storySlide.background = { color: BG_STORY };
+        addHeader(storySlide, section.title || `PART ${idx + 1}`, BROWN);
+
+        // Story image on the right
+        addSlideImage(storySlide, storyImg, 6.3, 0.9, 3.2, 3.5, '🎭');
+
+        const txtW = 5.4;
+
+        // Story content
+        if (section.storyContent) {
+          storySlide.addShape('rect', { x: 0.4, y: 0.85, w: 0.06, h: 0.3, fill: { color: GOLD } });
+          storySlide.addText('THE STORY', {
+            x: 0.6, y: 0.85, w: 3, h: 0.3,
+            fontSize: 10, color: BROWN, bold: true, fontFace: 'Arial',
+          });
+
+          storySlide.addText(section.storyContent, {
+            x: 0.6, y: 1.25, w: txtW, h: 2.2,
+            fontSize: 12, color: MID, fontFace: 'Arial', wrap: true, valign: 'top',
+            italic: true, lineSpacingMultiple: 1.25,
+          });
+        }
+
+        // Math concept callout
+        if (section.mathConcept) {
+          storySlide.addShape('rect', {
+            x: 0.5, y: 3.55, w: txtW + 0.2, h: 0.75,
+            fill: { color: PRIMARY, transparency: 90 },
+            rectRadius: 0.06,
+          });
+          storySlide.addShape('rect', { x: 0.5, y: 3.55, w: 0.06, h: 0.75, fill: { color: PRIMARY } });
+          storySlide.addText(`Math Concept: ${section.mathConcept}`, {
+            x: 0.7, y: 3.55, w: txtW, h: 0.75,
+            fontSize: 11, color: PRIMARY_DK, fontFace: 'Arial', wrap: true, valign: 'middle',
+            bold: true,
+          });
+        }
+
+        addFooter(storySlide);
+
+        // TEACHER GUIDANCE + STUDENT ACTIVITIES slide
+        if (
+          (section.teacherGuidance && section.teacherGuidance.length > 0) ||
+          (section.studentActivities && section.studentActivities.length > 0)
+        ) {
+          const actSlide = pptx.addSlide();
+          actSlide.background = { color: BG_GREEN };
+          addHeader(actSlide, `${section.title || `PART ${idx + 1}`} — ACTIVITIES`, PRIMARY);
+
+          // Activity image on the right
+          addSlideImage(actSlide, activityImg, 6.3, 0.9, 3.2, 3.8, '👧🏾');
+
+          let yPos = 0.85;
+
+          // Teacher Guidance
+          if (section.teacherGuidance && Array.isArray(section.teacherGuidance)) {
+            actSlide.addShape('rect', { x: 0.4, y: yPos, w: 0.06, h: 0.3, fill: { color: PRIMARY } });
+            actSlide.addText('TEACHER GUIDANCE', {
+              x: 0.6, y: yPos, w: 4, h: 0.3,
+              fontSize: 10, color: PRIMARY, bold: true, fontFace: 'Arial',
+            });
+            yPos += 0.35;
+
+            actSlide.addText(
+              section.teacherGuidance.map((g: string) => ({
+                text: g,
+                options: { bullet: true, color: MID, paraSpaceBefore: 3, paraSpaceAfter: 2 },
+              })),
+              {
+                x: 0.6, y: yPos, w: 5.4, h: 1.8,
+                fontSize: 11, fontFace: 'Arial', wrap: true, valign: 'top',
+                bullet: { type: 'bullet' },
+              }
+            );
+            yPos += 1.9;
+          }
+
+          // Student Activities
+          if (section.studentActivities && Array.isArray(section.studentActivities)) {
+            actSlide.addShape('rect', { x: 0.4, y: yPos, w: 0.06, h: 0.3, fill: { color: BROWN } });
+            actSlide.addText('STUDENT ACTIVITIES', {
+              x: 0.6, y: yPos, w: 4, h: 0.3,
+              fontSize: 10, color: BROWN, bold: true, fontFace: 'Arial',
+            });
+            yPos += 0.35;
+
+            actSlide.addText(
+              section.studentActivities.map((a: string) => ({
+                text: a,
+                options: { bullet: true, color: MID, paraSpaceBefore: 3, paraSpaceAfter: 2 },
+              })),
+              {
+                x: 0.6, y: yPos, w: 5.4, h: 5 - yPos,
+                fontSize: 11, fontFace: 'Arial', wrap: true, valign: 'top',
+                bullet: { type: 'bullet' },
+              }
+            );
+          }
+
+          addFooter(actSlide);
+        }
+      });
+    }
+
+    // ═══ PRACTICE & ASSESSMENT SLIDE ═══
+    if (storyPlan.practiceActivities || storyPlan.assessment?.description) {
+      const practiceSlide = pptx.addSlide();
+      practiceSlide.background = { color: BG_GREEN };
+      addHeader(practiceSlide, 'PRACTICE & ASSESSMENT');
+
+      // Image on the right
+      addSlideImage(practiceSlide, images.practice, 6.3, 0.9, 3.2, 3.9, '📋');
+
+      let yPos = 0.85;
+
+      if (storyPlan.practiceActivities && Array.isArray(storyPlan.practiceActivities)) {
+        practiceSlide.addShape('rect', { x: 0.4, y: yPos, w: 0.06, h: 0.3, fill: { color: PRIMARY } });
+        practiceSlide.addText('PRACTICE ACTIVITIES', {
+          x: 0.6, y: yPos, w: 4, h: 0.3,
+          fontSize: 10, color: PRIMARY, bold: true, fontFace: 'Arial',
+        });
+        yPos += 0.35;
+
+        practiceSlide.addText(
+          storyPlan.practiceActivities.map((a: string) => ({
+            text: a,
+            options: { bullet: true, color: MID, paraSpaceBefore: 4, paraSpaceAfter: 2 },
+          })),
+          {
+            x: 0.6, y: yPos, w: 5.4, h: 1.8,
+            fontSize: 12, fontFace: 'Arial', wrap: true, valign: 'top',
+            bullet: { type: 'bullet' },
+          }
+        );
+        yPos += 1.9;
+      }
+
+      if (storyPlan.assessment?.description) {
+        practiceSlide.addShape('rect', { x: 0.4, y: yPos, w: 0.06, h: 0.3, fill: { color: BROWN } });
+        practiceSlide.addText('ASSESSMENT', {
+          x: 0.6, y: yPos, w: 4, h: 0.3,
+          fontSize: 10, color: BROWN, bold: true, fontFace: 'Arial',
+        });
+        yPos += 0.35;
+
+        practiceSlide.addText(storyPlan.assessment.description, {
+          x: 0.6, y: yPos, w: 5.4, h: 5 - yPos,
+          fontSize: 12, color: MID, fontFace: 'Arial', wrap: true, valign: 'top',
+          lineSpacingMultiple: 1.2,
+        });
+      }
+
+      addFooter(practiceSlide);
+    }
+
+    // ═══ EXTENSION & CULTURAL CONNECTIONS SLIDE ═══
+    if (storyPlan.extensionActivities || storyPlan.culturalConnections) {
+      const extSlide = pptx.addSlide();
+      extSlide.background = { color: BG };
+      addHeader(extSlide, 'EXTENSIONS & CULTURAL CONNECTIONS', BROWN);
+
+      // Image on the right
+      addSlideImage(extSlide, images.extensions, 6.3, 0.9, 3.2, 3.9, '🌍');
+
+      let yPos = 0.85;
+
+      if (storyPlan.extensionActivities && Array.isArray(storyPlan.extensionActivities)) {
+        extSlide.addShape('rect', { x: 0.4, y: yPos, w: 0.06, h: 0.3, fill: { color: GOLD } });
+        extSlide.addText('EXTENSION ACTIVITIES', {
+          x: 0.6, y: yPos, w: 4, h: 0.3,
+          fontSize: 10, color: BROWN, bold: true, fontFace: 'Arial',
+        });
+        yPos += 0.35;
+
+        extSlide.addText(
+          storyPlan.extensionActivities.map((a: string) => ({
+            text: a,
+            options: { bullet: true, color: MID, paraSpaceBefore: 4, paraSpaceAfter: 2 },
+          })),
+          {
+            x: 0.6, y: yPos, w: 5.4, h: 1.8,
+            fontSize: 12, fontFace: 'Arial', wrap: true, valign: 'top',
+            bullet: { type: 'bullet' },
+          }
+        );
+        yPos += 1.9;
+      }
+
+      if (storyPlan.culturalConnections) {
+        extSlide.addShape('rect', { x: 0.4, y: yPos, w: 0.06, h: 0.3, fill: { color: PRIMARY } });
+        extSlide.addText('CULTURAL CONNECTIONS', {
+          x: 0.6, y: yPos, w: 4, h: 0.3,
+          fontSize: 10, color: PRIMARY, bold: true, fontFace: 'Arial',
+        });
+        yPos += 0.35;
+
+        extSlide.addText(storyPlan.culturalConnections, {
+          x: 0.6, y: yPos, w: 5.4, h: 5 - yPos,
+          fontSize: 12, color: MID, fontFace: 'Arial', wrap: true, valign: 'top',
+          lineSpacingMultiple: 1.2,
+        });
+      }
+
+      addFooter(extSlide);
+    }
+
+    // ═══ CLOSING SLIDE ═══
+    const closingSlide = pptx.addSlide();
+    closingSlide.background = { color: DARK };
+
+    closingSlide.addShape('rect', { x: 0, y: 0, w: 5.2, h: 5.625, fill: { color: BROWN } });
+
+    // Decorative circles
+    closingSlide.addShape('ellipse', {
+      x: 3.5, y: 3.5, w: 2.5, h: 2.5,
+      fill: { color: PRIMARY, transparency: 50 },
+    });
+    closingSlide.addShape('ellipse', {
+      x: -0.3, y: -0.3, w: 1.6, h: 1.6,
+      fill: { color: PRIMARY_LT, transparency: 40 },
+    });
+
+    closingSlide.addText('The End!', {
+      x: 0.5, y: 1.2, w: 4.2, h: 0.8,
+      fontSize: 34, color: LIGHT, bold: true, fontFace: 'Arial',
+    });
+    closingSlide.addText('Happy Storytelling & Learning', {
+      x: 0.5, y: 2.2, w: 4.2, h: 0.5,
+      fontSize: 16, color: BG, fontFace: 'Arial',
+    });
+
+    closingSlide.addShape('line', {
+      x: 0.5, y: 3.2, w: 2.2, h: 0,
+      line: { color: GOLD, width: 3 },
+    });
+
+    closingSlide.addText('MOTHER OF MATH', {
+      x: 0.5, y: 3.6, w: 4.2, h: 0.35,
+      fontSize: 12, color: LIGHT, bold: true, fontFace: 'Arial', charSpacing: 3,
+    });
+    closingSlide.addText('Mothers for Mathematics · Cameroon', {
+      x: 0.5, y: 4.1, w: 4.2, h: 0.3,
+      fontSize: 10, color: BG, fontFace: 'Arial',
+    });
+
+    if (images.closing) {
+      closingSlide.addImage({
+        data: images.closing,
+        x: 5.2, y: 0, w: 4.8, h: 5.625,
+        sizing: { type: 'cover', w: 4.8, h: 5.625 },
+      });
+    } else {
+      closingSlide.addShape('rect', { x: 5.2, y: 0, w: 4.8, h: 5.625, fill: { color: PRIMARY_DK } });
+      closingSlide.addShape('ellipse', {
+        x: 6.4, y: 1.6, w: 2.4, h: 2.4,
+        fill: { color: PRIMARY, transparency: 40 },
+      });
+      closingSlide.addText('🎓', {
+        x: 5.2, y: 1.8, w: 4.8, h: 2,
+        fontSize: 64, align: 'center', valign: 'middle',
+      });
+    }
+
+  } else {
+    // ===================================================================
+    // FALLBACK: markdown/text-based slides
+    // ===================================================================
+    const fbTitle = pptx.addSlide();
+    fbTitle.background = { color: BROWN };
+    fbTitle.addText(`Story Lesson Plan: ${topic}`, {
+      x: 1, y: 1.5, w: 8, h: 1.5,
+      fontSize: 30, color: LIGHT, bold: true, align: 'center', fontFace: 'Arial', wrap: true,
+    });
+    fbTitle.addText('Mathematical Storytelling Approach', {
+      x: 1, y: 3.5, w: 8, h: 0.5,
+      fontSize: 16, color: BG, align: 'center', fontFace: 'Arial',
+    });
+    fbTitle.addText('MOTHER OF MATH', {
+      x: 1, y: 4.5, w: 8, h: 0.4,
+      fontSize: 11, color: LIGHT, bold: true, align: 'center', fontFace: 'Arial', charSpacing: 3,
+    });
+
+    const sections = content.split('## ').filter(s => s.trim());
+    sections.forEach(section => {
+      const slide = pptx.addSlide();
+      slide.background = { color: BG_STORY };
+      const lines = section.split('\n');
+      const title = lines[0].replace(/^#+\s*/, '');
+
+      addHeader(slide, title, BROWN);
+
+      const body = lines.slice(1).join('\n').trim();
+      if (body) {
+        slide.addText(body, {
+          x: 0.5, y: 0.9, w: 9, h: 4,
+          fontSize: 13, color: MID, fontFace: 'Arial', wrap: true, valign: 'top',
+          lineSpacingMultiple: 1.2,
+        });
+      }
+
+      addFooter(slide);
+    });
+  }
+
+  onProgress?.('Saving your presentation...');
+
+  await pptx.writeFile({
+    fileName: `story-lesson-plan-${topic.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.pptx`,
   });
-  
-  await pptx.writeFile({ fileName: `story-lesson-plan-${topic.replace(/\s+/g, '-').toLowerCase()}.pptx` });
 };

@@ -1,23 +1,17 @@
-import { useEffect, useState } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Outlet } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import DashboardSidebar from "./DashboardSidebar";
-import { Search, Bell, User, Menu } from 'lucide-react';
+import { Search, User, Menu } from 'lucide-react';
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import NotificationBell from "./NotificationBell";
 
 const DashboardLayout = () => {
-  const { profile, isAuthenticated } = useAuth();
-  const navigate = useNavigate();
+  const { profile } = useAuth();
   const [isSidebarExpanded, setSidebarExpanded] = useState(true);
   const [isSheetOpen, setSheetOpen] = useState(false);
-
-  useEffect(() => {
-    if (!isAuthenticated) {
-      navigate("/sign-in");
-    }
-  }, [isAuthenticated, navigate]);
 
   if (!profile) {
     return null;
@@ -71,9 +65,7 @@ const DashboardLayout = () => {
                 placeholder="Search..."
               />
             </div>
-            <Button variant="ghost" size="icon">
-              <Bell className="text-gray-600 w-6 h-6 hover:text-primary transition-colors" />
-            </Button>
+            <NotificationBell isTeacher={true} />
             <div className="flex items-center">
               <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold">
                 <User className="w-6 h-6" />

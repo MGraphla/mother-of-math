@@ -1,0 +1,142 @@
+{
+  "nigeria": {
+    "country": "Nigeria",
+    "level": "Primary",
+    "subject": "Mathematics",
+    "description": "Nigerian National Mathematics Curriculum for Primary Schools",
+    "topics": [
+      {
+        "title": "Number and Numeration",
+        "objectives": [
+          "Count and write whole numbers up to 1,000,000",
+          "Understand place value and number notation",
+          "Compare and order numbers",
+          "Work with fractions, decimals and percentages"
+        ],
+        "subtopics": ["Whole numbers", "Fractions", "Decimals", "Percentages", "Ratios"]
+      },
+      {
+        "title": "Basic Operations",
+        "objectives": [
+          "Perform addition and subtraction of whole numbers",
+          "Multiply and divide whole numbers",
+          "Apply BODMAS/PEDMAS rules",
+          "Solve word problems involving basic operations"
+        ],
+        "subtopics": ["Addition", "Subtraction", "Multiplication", "Division", "Word Problems"]
+      },
+      {
+        "title": "Measurement",
+        "objectives": [
+          "Measure and estimate length using standard units (m, cm, km)",
+          "Measure mass using grams and kilograms",
+          "Measure capacity using litres and millilitres",
+          "Read and interpret time on clocks",
+          "Work with Nigerian currency (Naira and Kobo)"
+        ],
+        "subtopics": ["Length", "Mass", "Capacity", "Time", "Money"]
+      },
+      {
+        "title": "Geometry and Shapes",
+        "objectives": [
+          "Identify and name 2D shapes (circle, square, rectangle, triangle)",
+          "Identify and name 3D shapes (cube, cuboid, cylinder, sphere)",
+          "Understand properties of shapes (sides, angles, faces)",
+          "Identify lines of symmetry",
+          "Measure angles using a protractor"
+        ],
+        "subtopics": ["2D Shapes", "3D Shapes", "Angles", "Symmetry", "Perimeter and Area"]
+      },
+      {
+        "title": "Algebraic Thinking",
+        "objectives": [
+          "Recognize and continue number patterns",
+          "Use letters to represent unknown values",
+          "Solve simple equations",
+          "Understand the concept of variables"
+        ],
+        "subtopics": ["Patterns", "Simple Equations", "Variables", "Sequences"]
+      },
+      {
+        "title": "Data Handling and Statistics",
+        "objectives": [
+          "Collect and organize data",
+          "Read and draw bar charts, pie charts, and pictographs",
+          "Calculate mean, median and mode",
+          "Interpret statistical information"
+        ],
+        "subtopics": ["Data Collection", "Bar Charts", "Pictographs", "Mean and Mode"]
+      }
+    ]
+  },
+  "cameroon": {
+    "country": "Cameroon",
+    "level": "Primary",
+    "subject": "Mathematics",
+    "description": "Cameroonian National Mathematics Curriculum for Primary Schools",
+    "topics": [
+      {
+        "title": "Numération et Sens des Nombres",
+        "objectives": [
+          "Compter, lire et écrire les nombres jusqu'à 1 000 000",
+          "Comprendre la valeur de position des chiffres",
+          "Comparer et ordonner les nombres entiers",
+          "Travailler avec les fractions et les décimaux"
+        ],
+        "subtopics": ["Nombres entiers", "Fractions ordinaires", "Nombres décimaux", "Pourcentages"]
+      },
+      {
+        "title": "Opérations Arithmétiques",
+        "objectives": [
+          "Effectuer l'addition et la soustraction de nombres entiers",
+          "Maîtriser la multiplication et la division",
+          "Appliquer les propriétés des opérations",
+          "Résoudre des problèmes concrets avec les quatre opérations"
+        ],
+        "subtopics": ["Addition", "Soustraction", "Multiplication", "Division", "Problèmes"]
+      },
+      {
+        "title": "Mesure et Grandeurs",
+        "objectives": [
+          "Mesurer et estimer des longueurs en mètres et centimètres",
+          "Utiliser les unités de masse (gramme, kilogramme)",
+          "Mesurer les capacités (litre, centilitre)",
+          "Lire l'heure et calculer des durées",
+          "Utiliser le franc CFA dans des situations réelles"
+        ],
+        "subtopics": ["Longueur", "Masse", "Capacité", "Temps", "Monnaie (FCFA)"]
+      },
+      {
+        "title": "Géométrie",
+        "objectives": [
+          "Reconnaître et nommer les figures planes (carré, rectangle, cercle, triangle)",
+          "Identifier les solides géométriques (cube, boîte, cylindre, boule)",
+          "Comprendre les propriétés des figures",
+          "Identifier les axes de symétrie",
+          "Calculer le périmètre et l'aire"
+        ],
+        "subtopics": ["Figures planes", "Solides", "Angles", "Symétrie", "Périmètre et Aire"]
+      },
+      {
+        "title": "Raisonnement Logique et Algèbre",
+        "objectives": [
+          "Reconnaître et compléter des suites de nombres",
+          "Utiliser des lettres pour des valeurs inconnues",
+          "Résoudre des équations simples",
+          "Développer la pensée logique et systématique"
+        ],
+        "subtopics": ["Suites numériques", "Équations simples", "Inconnues", "Logique"]
+      },
+      {
+        "title": "Traitement de Données et Statistiques",
+        "objectives": [
+          "Collecter et organiser des données",
+          "Construire et lire des tableaux, diagrammes en barres et pictogrammes",
+          "Interpréter des graphiques simples",
+          "Calculer des moyennes simples"
+        ],
+        "subtopics": ["Collecte de données", "Tableaux", "Diagrammes en barres", "Pictogrammes", "Moyenne"]
+      }
+    ]
+  }
+}

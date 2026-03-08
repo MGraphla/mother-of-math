@@ -6,20 +6,20 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { GraduationCap, BookOpen, User } from "lucide-react";
+import { GraduationCap, User } from "lucide-react";
 
 const StudentLogin = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const navigate = useNavigate();
   const { toast } = useToast();
   const { signIn } = useAuth();
   
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validate form
     if (!email || !password) {
       toast({
         title: "Missing Information",
@@ -30,36 +30,27 @@ const StudentLogin = () => {
     }
     
     setIsLoggingIn(true);
-    
-    // In a real application, you would verify credentials with your backend
-    // For demo purposes, we'll simulate a successful login after a delay
-    // Mock login data - in a real app this would come from your API
-    const mockStudentData = {
-      id: `student-${Date.now()}`,
-      email: email,
-      role: "student",
-      full_name: email.split('@')[0], // Just a placeholder name from the email
-      grade_level: "Primary 5",
-      subjects: ["Mathematics"],
-      created_at: new Date().toISOString(),
-      teacher_id: "teacher-1"
-    };
-    
-    setTimeout(() => {
-      setIsLoggingIn(false);
-      
-      // Set the authentication state in the context
-      signIn(email, password);
-      
-      // Show success notification
+    setErrorMessage("");
+
+    try {
+      await signIn(email, password);
       toast({
         title: "Login Successful",
         description: "Welcome back to Mother of Math!",
       });
-      
       // Navigate to student dashboard
-      navigate("/dashboard/student-dashboard");
-    }, 1500);
+      navigate("/student");
+    } catch (error: any) {
+      console.error("Student login error:", error);
+      setErrorMessage(error.message || "Invalid email or password. Please try again.");
+      toast({
+        title: "Login Failed",
+        description: error.message || "Invalid email or password.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
   
   return (
@@ -68,7 +59,7 @@ const StudentLogin = () => {
       <header className="border-b bg-white">
         <div className="container py-4 flex justify-between items-center">
           <Link to="/" className="flex items-center space-x-2">
-            <div className="w-10 h-10 rounded-full bg-mama-purple flex items-center justify-center text-white font-bold">
+            <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold">
               M
             </div>
             <span className="font-bold text-xl text-foreground">Math Mama</span>
@@ -106,6 +97,9 @@ const StudentLogin = () => {
                   <CardDescription className="text-center">
                     Enter your login details to access your dashboard
                   </CardDescription>
+                  {errorMessage && (
+                    <p className="text-sm text-red-600 text-center bg-red-50 rounded-lg p-2">{errorMessage}</p>
+                  )}
                 </CardHeader>
                 <form onSubmit={handleLogin}>
                   <CardContent className="space-y-4">
@@ -122,7 +116,7 @@ const StudentLogin = () => {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <label htmlFor="password" className="text-sm font-medium">Password</label>
-                        <Link to="/forgot-password" className="text-xs text-mama-purple hover:underline">
+                        <Link to="/forgot-password" className="text-xs text-primary hover:underline">
                           Forgot password?
                         </Link>
                       </div>
@@ -170,7 +164,7 @@ const StudentLogin = () => {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <label htmlFor="parent-password" className="text-sm font-medium">Password</label>
-                        <Link to="/forgot-password" className="text-xs text-mama-purple hover:underline">
+                        <Link to="/forgot-password" className="text-xs text-primary hover:underline">
                           Forgot password?
                         </Link>
                       </div>
@@ -197,7 +191,7 @@ const StudentLogin = () => {
           </Tabs>
           
           <div className="mt-4 text-center text-sm text-muted-foreground">
-            <p>Need help? Contact support at <a href="mailto:support@motherofmath.com" className="text-mama-purple hover:underline">support@motherofmath.com</a></p>
+            <p>Need help? Contact support at <a href="mailto:support@motherofmath.com" className="text-primary hover:underline">support@motherofmath.com</a></p>
           </div>
         </div>
       </div>

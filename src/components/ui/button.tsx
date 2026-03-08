@@ -42,12 +42,22 @@ export interface ButtonProps
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, children, ripple = true, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, children, ripple = true, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
-    const buttonRef = React.useRef<HTMLButtonElement>(null);
+    const internalRef = React.useRef<HTMLButtonElement>(null);
+
+    // Merge the forwarded ref with our internal ref so Radix components work
+    const mergedRef = React.useCallback(
+      (node: HTMLButtonElement | null) => {
+        internalRef.current = node;
+        if (typeof ref === "function") ref(node);
+        else if (ref) (ref as React.MutableRefObject<HTMLButtonElement | null>).current = node;
+      },
+      [ref]
+    );
 
     const createRipple = (event: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
-      const button = buttonRef.current;
+      const button = internalRef.current;
       if (!button) return;
       const circle = document.createElement("span");
       const diameter = Math.max(button.clientWidth, button.clientHeight);
@@ -64,11 +74,10 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 
     return (
       <Comp
-        ref={buttonRef}
+        ref={mergedRef}
         className={cn(
           "relative overflow-hidden transition-transform active:scale-95 focus:outline-none",
-          buttonVariants({ className }),
-          className
+          buttonVariants({ variant, size, className })
         )}
         {...props}
         onClick={e => {
