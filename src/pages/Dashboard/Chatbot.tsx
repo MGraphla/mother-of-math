@@ -134,8 +134,8 @@ const StreamingText: React.FC<{ text: string; darkMode: boolean }> = ({ text, da
   <div className={cn(
     "prose prose-sm max-w-none text-[14px] sm:text-[15px]",
     darkMode
-      ? "prose-invert prose-headings:text-green-400 prose-strong:text-gray-100 prose-a:text-green-400 prose-li:marker:text-green-400 prose-code:bg-gray-700 prose-code:text-green-300 prose-pre:bg-gray-900 prose-pre:text-gray-100"
-      : "prose-headings:text-green-800 prose-headings:font-semibold prose-strong:text-gray-900 prose-a:text-green-600 prose-li:marker:text-green-600 prose-code:bg-gray-100 prose-code:text-green-700 prose-pre:bg-gray-900 prose-pre:text-gray-100"
+      ? "prose-invert prose-headings:text-green-400 prose-strong:text-green-400 prose-a:text-green-400 prose-li:marker:text-green-400 prose-code:bg-gray-700 prose-code:text-green-300 prose-pre:bg-gray-900 prose-pre:text-gray-100"
+      : "prose-headings:text-[#009e60] prose-headings:font-semibold prose-strong:text-[#009e60] prose-a:text-[#009e60] prose-li:marker:text-[#009e60] prose-code:bg-gray-100 prose-code:text-[#009e60] prose-pre:bg-gray-900 prose-pre:text-gray-100"
   )}>
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]}
@@ -187,8 +187,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
     const proseClasses = cn(
       "prose prose-sm max-w-none text-[14px] sm:text-[15px]",
       darkMode
-        ? "prose-invert prose-headings:text-green-400 prose-strong:text-gray-100 prose-a:text-green-400 prose-li:marker:text-green-400 prose-code:bg-gray-700 prose-code:text-green-300 prose-pre:bg-gray-900 prose-pre:text-gray-100"
-        : "prose-headings:text-green-800 prose-headings:font-semibold prose-strong:text-gray-900 prose-a:text-green-600 prose-li:marker:text-green-600 prose-code:bg-gray-100 prose-code:text-green-700 prose-pre:bg-gray-900 prose-pre:text-gray-100"
+        ? "prose-invert prose-headings:text-green-400 prose-strong:text-green-400 prose-a:text-green-400 prose-li:marker:text-green-400 prose-code:bg-gray-700 prose-code:text-green-300 prose-pre:bg-gray-900 prose-pre:text-gray-100"
+        : "prose-headings:text-[#009e60] prose-headings:font-semibold prose-strong:text-[#009e60] prose-a:text-[#009e60] prose-li:marker:text-[#009e60] prose-code:bg-gray-100 prose-code:text-[#009e60] prose-pre:bg-gray-900 prose-pre:text-gray-100"
     );
 
     return (
@@ -199,8 +199,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
         className={cn("flex gap-2 sm:gap-3 group", isAssistant ? "justify-start" : "justify-end")}
       >
         {isAssistant && (
-          <div className="shrink-0 w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-green-600 to-emerald-700 flex items-center justify-center shadow-md shadow-green-600/20 self-end">
-            <Bot className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+          <div className="shrink-0 w-8 h-8 sm:w-9 sm:h-9 rounded-xl overflow-hidden shadow-md shadow-green-600/20 self-end">
+            <img src="/mama%20math.svg" alt="MAMA" className="w-full h-full object-cover" />
           </div>
         )}
 
@@ -971,8 +971,8 @@ const Chatbot: React.FC = () => {
                 onClick={() => setSidebarOpen(!sidebarOpen)} title={t(language, "sidebar.history")}>
                 <PanelLeft className="w-5 h-5" />
               </Button>
-              <div className="p-2 rounded-xl bg-gradient-to-br from-green-600 to-emerald-700 shadow-md shadow-green-600/20 shrink-0">
-                <Bot className="w-5 h-5 text-white" />
+              <div className="w-10 h-10 rounded-xl overflow-hidden shadow-md shadow-green-600/20 shrink-0">
+                <img src="/mama%20math.svg" alt="MAMA" className="w-full h-full object-cover" />
               </div>
               <div className="min-w-0">
                 <h1 className={cn("text-base sm:text-lg font-bold truncate leading-tight", darkMode ? "text-gray-100" : "text-gray-900")}>{t(language, "app.title")}</h1>
@@ -1112,8 +1112,8 @@ const Chatbot: React.FC = () => {
 
                   {isLoading && !isStreamingActive && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex gap-2 sm:gap-3">
-                      <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-green-600 to-emerald-700 flex items-center justify-center shadow-md shadow-green-600/20">
-                        <Bot className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                      <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl overflow-hidden shadow-md shadow-green-600/20">
+                        <img src="/mama%20math.svg" alt="MAMA" className="w-full h-full object-cover" />
                       </div>
                       <div className={cn("rounded-2xl rounded-bl-md px-4 py-3 shadow-sm", darkMode ? "bg-gray-800 border border-gray-700" : "bg-white border border-gray-100")}>
                         <TypingIndicator />

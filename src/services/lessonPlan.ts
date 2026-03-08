@@ -174,7 +174,12 @@ The "lessonPlan" object must contain:
     - "teacherActivities": An array of strings describing specific teacher actions. Be concrete: include exact questions to ask, exact content to write on the board, and specific instructions.
     - "learnerActivities": An array of strings describing specific pupil actions and expected responses.
 9. "evaluation": An object with a "description" key summarizing the assessment approach.
-10. "assignment": An object with a "description" key for homework, with clear instructions and examples.
+10. "assignment": An object with a "description" key. CRITICAL: The assignment MUST be PRACTICAL, HANDS-ON HOMEWORK with SPECIFIC EXERCISES. Do NOT write instructional text or teaching guidelines. Instead, provide:
+   - 3-5 specific numbered math problems or exercises students must solve
+   - Word problems with real-life scenarios (e.g., "Maria has 5 oranges. She gives 2 to her friend. How many oranges does Maria have left?")
+   - Practice questions using mathematical notation (e.g., "Solve: 15 + 7 = ___" or "Circle the even numbers: 2, 5, 8, 11, 14")
+   - Activities students can do at home (e.g., "Count and write how many cups, spoons, and plates are in your kitchen.")
+   NEVER use phrases like "Students will..." or "This assignment helps..." — only include the actual problems/tasks for students to complete.
 
 **Crucial Formatting Example:**
 {
@@ -296,9 +301,7 @@ export const exportToPDF = async (
     // --- LOAD LOGOS ---
     const logoUrls = [
       '/logos/ebase_africa.svg',
-      '/logos/eef.svg',
-      '/logos/better_purpose.avif',
-      '/logos/gates_foundation.svg'
+      '/logos/Daara-logo-1024x547.png'
     ];
     const logoHeight = 8;
     const logoPadding = 4;

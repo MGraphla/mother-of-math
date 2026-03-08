@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { PlusCircle, Trash2, Download, FileText, FileType, Send, Edit, Save, Plus, X, Loader2, Lightbulb, BookOpen, GraduationCap, Sparkles, ArrowRight, Globe } from 'lucide-react';
-import { getCurriculumContent, getCurriculumContentAsync, getDefaultClassLevel, getClassLevelsForCountry, formatCurriculumForPrompt, type CurriculumContent } from '@/data/curriculumContent';
+import { getCurriculumContent, getCurriculumContentAsync, getDefaultClassLevel, getClassLevelsForCountry, formatCurriculumForPrompt, formatSelectedTopicForPrompt, getTopicsForClassLevel, type CurriculumContent, type TopicItem } from '@/data/curriculumContent';
 import { useToast } from '@/components/ui/use-toast';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -113,6 +113,9 @@ const LessonPlanGenerator: React.FC = () => {
   const { toast } = useToast(); // Use the toast from the hook
   const [phase, setPhase] = useState<0 | 1 | 2 | 3 | 4>(0); // Start at phase 0 (country selection)
   const [topic, setTopic] = useState<string>('');
+  const [selectedTopicId, setSelectedTopicId] = useState<string>(''); // For dropdown selection
+  const [availableTopics, setAvailableTopics] = useState<TopicItem[]>([]); // Topics for current class level
+  const [selectedTopicData, setSelectedTopicData] = useState<TopicItem | null>(null); // Full topic data
   const [level, setLevel] = useState<string>('');
   const [language, setLanguage] = useState<string>('english'); // Default to English
   const [country, setCountry] = useState<'cameroon' | 'nigeria' | ''>('');
@@ -158,6 +161,13 @@ const LessonPlanGenerator: React.FC = () => {
     const defaultLevel = getDefaultClassLevel(selectedCountry);
     setLevel(defaultLevel);
     
+    // Load topics for the default class level
+    const topics = getTopicsForClassLevel(selectedCountry, defaultLevel);
+    setAvailableTopics(topics);
+    setSelectedTopicId('');
+    setSelectedTopicData(null);
+    setTopic('');
+    
     // Fetch curriculum content from JSON file
     try {
       const curriculumContent = await getCurriculumContentAsync(selectedCountry);
@@ -172,6 +182,39 @@ const LessonPlanGenerator: React.FC = () => {
     setPhase(1); // Move to topic selection
   };
 
+  // Handle class level change - update available topics
+  const handleLevelChange = (newLevel: string) => {
+    setLevel(newLevel);
+    if (country) {
+      const topics = getTopicsForClassLevel(country, newLevel);
+      setAvailableTopics(topics);
+      setSelectedTopicId('');
+      setSelectedTopicData(null);
+      setTopic('');
+    }
+  };
+
+  // Handle topic selection from dropdown
+  const handleTopicSelect = (topicId: string) => {
+    setSelectedTopicId(topicId);
+    const topicData = availableTopics.find(t => t.id === topicId);
+    if (topicData) {
+      setSelectedTopicData(topicData);
+      setTopic(topicData.title);
+    }
+  };
+
+  // Group topics by strand for better organization in dropdown
+  const getTopicsGroupedByStrand = (): Record<string, TopicItem[]> => {
+    return availableTopics.reduce((acc, topic) => {
+      if (!acc[topic.strand]) {
+        acc[topic.strand] = [];
+      }
+      acc[topic.strand].push(topic);
+      return acc;
+    }, {} as Record<string, TopicItem[]>);
+  };
+
   // Get available class levels based on selected country
   const getAvailableLevels = (): string[] => {
     if (!country) return [];
@@ -180,25 +223,16 @@ const LessonPlanGenerator: React.FC = () => {
 
   // Generate initial lesson structure using AI based on topic
   const handleTopicSubmit = async () => {
-    if (!topic || !level) {
+    if (!topic || !level || !selectedTopicId) {
       toast({
         title: "Missing Information",
-        description: "Please enter a topic and select a level.",
+        description: "Please select a topic and class level.",
         variant: "destructive",
       });
       return;
     }
 
-    // NEW: Check if the topic is math-related
-    if (!isMathTopic(topic)) {
-      toast({
-        title: "Invalid Topic",
-        description: "Please enter a mathematics-related topic. This generator specializes in math lesson plans.",
-        variant: "destructive",
-        duration: 5000,
-      });
-      return; // Stop execution
-    }
+    // Topics from dropdown are all math-related, no need to check
 
     setIsGenerating(true);
     setPhase(2); // Move to the structure generation/display phase
@@ -214,13 +248,23 @@ const LessonPlanGenerator: React.FC = () => {
         ? 'IMPORTANT: Generate all content in English Pidgin (Cameroonian/Nigerian Pidgin English).'
         : 'IMPORTANT: Generate all content in English.';
       
-      // New prompt asking for a JSON object with curriculum alignment
-      const curriculumContext = curriculum ? formatCurriculumForPrompt(curriculum) : '';
-      const prompt = `Based on the topic "${topic}" for ${level} students in ${countryName}, generate a structured lesson plan outline that aligns with the national curriculum standards.
+      // Generate detailed topic-specific curriculum context using the selected topic data
+      const topicCurriculumContext = selectedTopicData && country 
+        ? formatSelectedTopicForPrompt(selectedTopicData, level, country)
+        : (curriculum ? formatCurriculumForPrompt(curriculum) : '');
+      
+      const prompt = `Based on the topic "${topic}" for ${level} students in ${countryName}, generate a structured lesson plan outline that strictly aligns with the official national curriculum standards.
 
 ${languageInstruction}
 
-${curriculumContext}
+${topicCurriculumContext}
+
+CRITICAL: Your lesson plan structure MUST:
+1. Use the EXACT learning objectives from the curriculum alignment above
+2. Incorporate the suggested teaching activities and methodology
+3. Include the teaching aids/materials specified
+4. Follow the assessment methods provided
+5. Design homework based on the real-life applications listed
 
 You must provide between 5 and 7 sections. Respond with ONLY a valid JSON object in the following format: { "sections": [{"title": "SECTION_TITLE", "keyPoints": "KEY_POINTS_HERE"}] }`;
       
@@ -340,15 +384,23 @@ You must provide between 5 and 7 sections. Respond with ONLY a valid JSON object
           + (s.learnerActivities ? `\nLearner Activities: ${s.learnerActivities}` : ''),
       }));
 
-      // Generate curriculum context for the AI prompt
-      const curriculumContext = curriculum ? formatCurriculumForPrompt(curriculum) : undefined;
+      // Generate curriculum context for the AI prompt (general curriculum)
+      const generalCurriculumContext = curriculum ? formatCurriculumForPrompt(curriculum) : '';
+      
+      // Generate detailed topic-specific curriculum context using the selected topic data
+      const topicCurriculumContext = selectedTopicData && country 
+        ? formatSelectedTopicForPrompt(selectedTopicData, level, country)
+        : '';
+      
+      // Combine both contexts - topic-specific context takes priority
+      const fullCurriculumContext = topicCurriculumContext || generalCurriculumContext || undefined;
 
       // Call the robust service function with the correctly typed data, curriculum context, and language
       const response = await generateLessonPlanService(
         topic, 
         level, 
         sectionsForService, 
-        curriculumContext,
+        fullCurriculumContext,
         country || undefined,
         language as 'english' | 'french' | 'pidgin'
       );
@@ -578,56 +630,122 @@ You must provide between 5 and 7 sections. Respond with ONLY a valid JSON object
 
       {/* Phase 0: Country Selection Screen */}
       {phase === 0 && (
-        <div className="w-full max-w-2xl mx-auto mt-8">
-          {/* Hero Section */}
-          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-background border border-primary/15 shadow-lg mb-8">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/2" />
-            <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full translate-y-1/2 -translate-x-1/2" />
+        <div className="w-full max-w-3xl mx-auto mt-6 px-1">
+          {/* Hero Banner */}
+          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/20 via-emerald-50 to-teal-50 dark:from-primary/20 dark:via-primary/5 dark:to-background border border-primary/20 shadow-xl mb-8">
+            {/* Soft glow blobs */}
+            <div className="absolute top-0 right-0 w-56 h-56 bg-primary/10 rounded-full -translate-y-1/3 translate-x-1/3 blur-3xl pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-44 h-44 bg-emerald-400/10 rounded-full translate-y-1/3 -translate-x-1/3 blur-3xl pointer-events-none" />
+            <div className="absolute top-1/2 left-1/2 w-36 h-36 bg-teal-300/10 rounded-full -translate-x-1/2 -translate-y-1/2 blur-2xl pointer-events-none" />
 
-            <div className="relative p-8 pb-6 text-center">
-              <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/15 mb-4 shadow-sm">
-                <Globe className="h-7 w-7 text-primary" />
+            {/* Floating math symbols – decorative */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none select-none">
+              <span className="absolute top-5 left-8 text-4xl font-black text-primary/[0.07]">∑</span>
+              <span className="absolute top-10 right-14 text-3xl font-black text-primary/[0.07]">π</span>
+              <span className="absolute bottom-7 left-14 text-3xl font-black text-primary/[0.07]">÷</span>
+              <span className="absolute bottom-8 right-10 text-4xl font-black text-primary/[0.07]">×</span>
+              <span className="absolute top-1/2 left-5 text-2xl font-black text-primary/[0.06]">√</span>
+              <span className="absolute top-7 left-[38%] text-2xl font-black text-primary/[0.06]">+</span>
+              <span className="absolute bottom-5 right-[35%] text-3xl font-black text-primary/[0.06]">%</span>
+              <span className="absolute top-1/3 right-[20%] text-2xl font-black text-primary/[0.05]">∞</span>
+            </div>
+
+            <div className="relative p-10 text-center">
+              {/* Icon */}
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary shadow-lg shadow-primary/30 mb-5 overflow-hidden">
+                <img src="/mama%20math.svg" alt="Mama Math" className="w-full h-full object-cover" />
               </div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-primary mb-2 tracking-tight">
-                Welcome to Mama Math
+
+              {/* Headline */}
+              <h1 className="text-3xl sm:text-4xl font-extrabold text-foreground mb-3 tracking-tight">
+                Welcome to{' '}
+                <span className="text-primary relative">
+                  Mama Math
+                  <span className="absolute -bottom-1 left-0 w-full h-0.5 bg-primary/30 rounded-full" />
+                </span>
               </h1>
               <p className="text-sm sm:text-base text-muted-foreground max-w-md mx-auto leading-relaxed">
-                Select your country to get started with curriculum-aligned lesson plans.
+                Choose your country to unlock curriculum-aligned, AI-generated mathematics lesson plans tailored for primary school teachers.
               </p>
+
+
             </div>
           </div>
 
-          {/* Country Selection Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          {/* Section label */}
+          <p className="text-center text-[11px] font-bold text-muted-foreground mb-5 uppercase tracking-[0.2em]">
+            Select Your Country
+          </p>
+
+          {/* Country Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             {/* Cameroon Card */}
-            <Card 
-              className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all duration-200 group"
+            <button
+              className="group relative overflow-hidden rounded-2xl border-2 border-transparent bg-white dark:bg-card shadow-md hover:shadow-2xl hover:border-primary/40 hover:-translate-y-1.5 active:translate-y-0 transition-all duration-300 text-left focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-2"
               onClick={() => handleCountrySelect('cameroon')}
             >
-              <CardContent className="pt-8 pb-8 text-center">
-                <div className="text-6xl mb-4">🇨🇲</div>
-                <h3 className="text-xl font-bold text-foreground group-hover:text-primary transition-colors">Cameroon</h3>
-                <p className="text-sm text-muted-foreground mt-2">Primary School Curriculum</p>
-                <p className="text-xs text-muted-foreground mt-1">(Primary 1 - Primary 6)</p>
-              </CardContent>
-            </Card>
+              {/* Flag-colour top stripe */}
+              <div className="h-1.5 w-full bg-gradient-to-r from-green-600 via-red-500 to-yellow-400" />
+
+              {/* Hover glow */}
+              <div className="absolute inset-0 bg-gradient-to-br from-primary/0 to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none rounded-2xl" />
+
+              <div className="relative p-6">
+                <div className="flex items-start justify-between mb-5">
+                  <span className="text-5xl leading-none drop-shadow-sm">🇨🇲</span>
+                  <div className="flex items-center justify-center w-9 h-9 rounded-full bg-muted group-hover:bg-primary transition-colors duration-300 shadow-sm">
+                    <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-white transition-colors duration-300 group-hover:translate-x-0.5" />
+                  </div>
+                </div>
+
+                <h3 className="text-xl font-bold text-foreground group-hover:text-primary transition-colors mb-1">
+                  Cameroon
+                </h3>
+                <p className="text-sm text-muted-foreground mb-4">Primary School Mathematics</p>
+
+                <div className="pt-4 border-t border-border/60 flex items-center gap-2 text-xs text-muted-foreground">
+                  <GraduationCap className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>Primary 1 – Primary 6</span>
+                </div>
+              </div>
+            </button>
 
             {/* Nigeria Card */}
-            <Card 
-              className="cursor-pointer hover:shadow-lg hover:border-primary/50 transition-all duration-200 group"
+            <button
+              className="group relative overflow-hidden rounded-2xl border-2 border-transparent bg-white dark:bg-card shadow-md hover:shadow-2xl hover:border-primary/40 hover:-translate-y-1.5 active:translate-y-0 transition-all duration-300 text-left focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-2"
               onClick={() => handleCountrySelect('nigeria')}
             >
-              <CardContent className="pt-8 pb-8 text-center">
-                <div className="text-6xl mb-4">🇳🇬</div>
-                <h3 className="text-xl font-bold text-foreground group-hover:text-primary transition-colors">Nigeria</h3>
-                <p className="text-sm text-muted-foreground mt-2">Primary School Curriculum</p>
-                <p className="text-xs text-muted-foreground mt-1">(Primary 1 - Primary 6)</p>
-              </CardContent>
-            </Card>
+              {/* Flag-colour top stripe */}
+              <div className="h-1.5 w-full bg-gradient-to-r from-green-600 via-green-100 to-green-600" />
+
+              {/* Hover glow */}
+              <div className="absolute inset-0 bg-gradient-to-br from-primary/0 to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none rounded-2xl" />
+
+              <div className="relative p-6">
+                <div className="flex items-start justify-between mb-5">
+                  <span className="text-5xl leading-none drop-shadow-sm">🇳🇬</span>
+                  <div className="flex items-center justify-center w-9 h-9 rounded-full bg-muted group-hover:bg-primary transition-colors duration-300 shadow-sm">
+                    <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-white transition-colors duration-300 group-hover:translate-x-0.5" />
+                  </div>
+                </div>
+
+                <h3 className="text-xl font-bold text-foreground group-hover:text-primary transition-colors mb-1">
+                  Nigeria
+                </h3>
+                <p className="text-sm text-muted-foreground mb-4">Primary School Mathematics</p>
+
+                <div className="pt-4 border-t border-border/60 flex items-center gap-2 text-xs text-muted-foreground">
+                  <GraduationCap className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>Primary 1 – Primary 3</span>
+                </div>
+              </div>
+            </button>
           </div>
 
-          <p className="text-center text-xs text-muted-foreground mt-6">
-            Lesson plans will be aligned with the selected country's national curriculum standards.
+          {/* Footer note */}
+          <p className="text-center text-xs text-muted-foreground mt-6 flex items-center justify-center gap-1.5">
+            <Globe className="h-3.5 w-3.5 flex-shrink-0" />
+            Lesson plans will be aligned with your selected country's national curriculum standards.
           </p>
         </div>
       )}
@@ -666,102 +784,211 @@ You must provide between 5 and 7 sections. Respond with ONLY a valid JSON object
           </div>
 
           {/* Input Section */}
-          <Card className="border-border/60 shadow-md rounded-xl">
-            <CardContent className="p-6">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="topic" className="text-sm font-medium text-foreground">Topic</Label>
-                  <div className="relative">
-                    <Input
-                      id="topic"
-                      type="text"
-                      value={topic}
-                      onChange={(e) => setTopic(e.target.value)}
-                      placeholder="e.g., Introduction to Addition"
-                      className="pr-10 h-11 rounded-lg border-border/70 focus:border-primary focus:ring-primary/20"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && topic.trim() && level) handleTopicSubmit();
-                      }}
-                    />
-                    <Sparkles className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/40" />
+          <Card className="border-0 shadow-xl rounded-2xl bg-card/95 backdrop-blur-sm overflow-hidden">
+            {/* Progress Indicator */}
+            <div className="px-6 pt-5 pb-0">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-muted-foreground">Progress</span>
+                <span className="text-xs font-semibold text-primary">
+                  {[level, selectedTopicId, language !== 'english'].filter(Boolean).length}/3 steps
+                </span>
+              </div>
+              <div className="h-1.5 bg-muted/50 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-primary to-primary/70 rounded-full transition-all duration-500 ease-out"
+                  style={{ width: `${([level, selectedTopicId, true].filter(Boolean).length / 3) * 100}%` }}
+                />
+              </div>
+            </div>
+
+            <CardContent className="p-6 pt-5">
+              {/* Step 1: Class Level Selection */}
+              <div className="mb-6">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className={`flex items-center justify-center w-8 h-8 rounded-xl transition-all duration-300 ${level ? 'bg-primary text-white shadow-md shadow-primary/30' : 'bg-muted text-muted-foreground'}`}>
+                    <span className="text-sm font-bold">1</span>
+                  </div>
+                  <div>
+                    <Label htmlFor="level" className="text-sm font-semibold text-foreground">Class Level</Label>
+                    <p className="text-xs text-muted-foreground">Select the grade you're teaching</p>
                   </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="level" className="text-sm font-medium text-foreground">Class Level</Label>
-                  <Select value={level} onValueChange={setLevel}>
-                    <SelectTrigger id="level" className="h-11 rounded-lg border-border/70 focus:border-primary focus:ring-primary/20">
-                      <SelectValue placeholder="Select level" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {getAvailableLevels().map((lvl) => (
-                        <SelectItem key={lvl} value={lvl}>{lvl}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* Language Selection */}
-              <div className="mb-5">
-                <Label htmlFor="language" className="text-sm font-medium text-foreground">Lesson Plan Language</Label>
-                <Select value={language} onValueChange={setLanguage}>
-                  <SelectTrigger id="language" className="h-11 rounded-lg border-border/70 focus:border-primary focus:ring-primary/20 mt-1.5">
-                    <SelectValue placeholder="Select language" />
+                <Select value={level} onValueChange={handleLevelChange}>
+                  <SelectTrigger id="level" className="h-12 rounded-xl border-2 border-border/50 bg-background hover:border-primary/50 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-200 pl-4">
+                    <SelectValue placeholder="Choose a class level..." />
                   </SelectTrigger>
-                  <SelectContent>
-                    {LANGUAGES.map((lang) => (
-                      <SelectItem key={lang.value} value={lang.value}>{lang.label}</SelectItem>
+                  <SelectContent className="rounded-xl border-2 border-border/50 shadow-xl">
+                    {getAvailableLevels().map((lvl) => (
+                      <SelectItem key={lvl} value={lvl} className="rounded-lg my-0.5 cursor-pointer hover:bg-primary/10 focus:bg-primary/10">
+                        <span className="font-medium">{lvl}</span>
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground mt-1">The lesson plan will be generated in this language.</p>
               </div>
 
+              {/* Divider */}
+              <div className="relative my-5">
+                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/40"></div></div>
+              </div>
+
+              {/* Step 2: Topic Selection from Curriculum */}
+              <div className="mb-6">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className={`flex items-center justify-center w-8 h-8 rounded-xl transition-all duration-300 ${selectedTopicId ? 'bg-primary text-white shadow-md shadow-primary/30' : level ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                    <span className="text-sm font-bold">2</span>
+                  </div>
+                  <div>
+                    <Label htmlFor="topic" className="text-sm font-semibold text-foreground">Curriculum Topic</Label>
+                    <p className="text-xs text-muted-foreground">Select from the {country === 'cameroon' ? 'Cameroon' : 'Nigeria'} curriculum</p>
+                  </div>
+                </div>
+                <Select value={selectedTopicId} onValueChange={handleTopicSelect} disabled={availableTopics.length === 0}>
+                  <SelectTrigger 
+                    id="topic" 
+                    className={`h-12 rounded-xl border-2 transition-all duration-200 pl-4 ${
+                      availableTopics.length === 0 
+                        ? 'border-border/30 bg-muted/30 text-muted-foreground cursor-not-allowed' 
+                        : 'border-border/50 bg-background hover:border-primary/50 focus:border-primary focus:ring-2 focus:ring-primary/20'
+                    }`}
+                  >
+                    <SelectValue placeholder={availableTopics.length === 0 ? "Select a class level first" : "Browse curriculum topics..."} />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border-2 border-border/50 shadow-xl max-h-[320px]">
+                    {Object.entries(getTopicsGroupedByStrand()).map(([strand, topics]) => (
+                      <div key={strand} className="mb-1">
+                        <div className="px-3 py-2 text-xs font-bold text-primary uppercase tracking-wider bg-gradient-to-r from-primary/10 to-transparent sticky top-0 backdrop-blur-sm border-b border-primary/10">
+                          📚 {strand}
+                        </div>
+                        {topics.map((t) => (
+                          <SelectItem 
+                            key={t.id} 
+                            value={t.id} 
+                            className="pl-5 py-2.5 rounded-lg my-0.5 cursor-pointer hover:bg-primary/10 focus:bg-primary/10"
+                          >
+                            <div className="flex flex-col">
+                              <span className="font-medium text-foreground">{t.title}</span>
+                              <span className="text-[10px] text-muted-foreground mt-0.5">{t.objectives[0]?.slice(0, 50)}...</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </div>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {availableTopics.length === 0 && level && (
+                  <div className="flex items-center gap-2 mt-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+                    <span className="text-amber-600 dark:text-amber-400">⚠️</span>
+                    <p className="text-xs text-amber-700 dark:text-amber-300">Topics for {level} are coming soon. Please select Primary 1 or Primary 2.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Selected Topic Details Card */}
+              {selectedTopicData && (
+                <div className="mb-6 p-4 bg-gradient-to-br from-primary/8 via-primary/5 to-transparent rounded-xl border border-primary/20 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
+                      <BookOpen className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-bold text-foreground text-base leading-tight">{selectedTopicData.title}</h4>
+                      <span className="inline-flex items-center px-2 py-0.5 mt-1.5 text-[10px] font-semibold text-primary bg-primary/10 rounded-full">
+                        {selectedTopicData.strand}
+                      </span>
+                      <div className="mt-3 space-y-2">
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Learning Objectives</p>
+                          <ul className="space-y-1">
+                            {selectedTopicData.objectives.slice(0, 3).map((obj, idx) => (
+                              <li key={idx} className="flex items-start gap-2 text-xs text-foreground/80">
+                                <span className="text-primary mt-0.5">•</span>
+                                <span>{obj}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        {selectedTopicData.suggestedMaterials && selectedTopicData.suggestedMaterials.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Materials Needed</p>
+                            <div className="flex flex-wrap gap-1">
+                              {selectedTopicData.suggestedMaterials.map((mat, idx) => (
+                                <span key={idx} className="inline-flex items-center px-2 py-0.5 text-[10px] font-medium bg-background border border-border/60 rounded-md text-muted-foreground">
+                                  {mat}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Divider */}
+              <div className="relative my-5">
+                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border/40"></div></div>
+              </div>
+
+              {/* Step 3: Language Selection */}
+              <div className="mb-6">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-primary text-white shadow-md shadow-primary/30 transition-all duration-300">
+                    <span className="text-sm font-bold">3</span>
+                  </div>
+                  <div>
+                    <Label htmlFor="language" className="text-sm font-semibold text-foreground">Lesson Language</Label>
+                    <p className="text-xs text-muted-foreground">Choose the language for your lesson plan</p>
+                  </div>
+                </div>
+                <Select value={language} onValueChange={setLanguage}>
+                  <SelectTrigger id="language" className="h-12 rounded-xl border-2 border-border/50 bg-background hover:border-primary/50 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-200 pl-4">
+                    <SelectValue placeholder="Select language..." />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border-2 border-border/50 shadow-xl">
+                    {LANGUAGES.map((lang) => (
+                      <SelectItem key={lang.value} value={lang.value} className="rounded-lg my-0.5 cursor-pointer hover:bg-primary/10 focus:bg-primary/10">
+                        <span className="font-medium">{lang.label}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Generate Button */}
               <Button
                 size="lg"
                 onClick={handleTopicSubmit}
-                disabled={!topic.trim() || !level || isGenerating}
-                className="w-full h-12 rounded-xl text-base font-semibold shadow-md hover:shadow-lg transition-all duration-200 bg-primary hover:bg-primary/90"
+                disabled={!selectedTopicId || !level || isGenerating}
+                className={`w-full h-14 rounded-xl text-base font-bold transition-all duration-300 ${
+                  !selectedTopicId || !level 
+                    ? 'bg-muted text-muted-foreground cursor-not-allowed' 
+                    : 'bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary text-white shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 hover:scale-[1.02] active:scale-[0.98]'
+                }`}
               >
                 {isGenerating ? (
-                  <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Generating...
-                  </>
+                  <div className="flex items-center gap-3">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Generating Your Lesson Plan...</span>
+                  </div>
                 ) : (
-                  <>
-                    Get Started <ArrowRight className="ml-2 h-5 w-5" />
-                  </>
+                  <div className="flex items-center gap-3">
+                    <Sparkles className="h-5 w-5" />
+                    <span>Generate Lesson Plan</span>
+                    <ArrowRight className="h-5 w-5" />
+                  </div>
                 )}
               </Button>
+
+              {/* Helper text */}
+              {!selectedTopicId && level && availableTopics.length > 0 && (
+                <p className="text-center text-xs text-muted-foreground mt-3">
+                  Select a topic above to continue
+                </p>
+              )}
             </CardContent>
           </Card>
-
-          {/* Examples Section */}
-          <div className="mt-5">
-            <div className="flex items-center gap-2 mb-3 px-1">
-              <Lightbulb className="h-4 w-4 text-amber-500" />
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Try an example</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { text: 'Counting from 1 to 20', lvl: 'Primary 1' },
-                { text: 'Basic Addition (Sums to 10)', lvl: 'Primary 1' },
-                { text: 'Basic Subtraction', lvl: 'Primary 1' },
-                { text: 'Shapes and Patterns', lvl: 'Primary 2' },
-                { text: 'Measurement - Length', lvl: 'Primary 2' },
-                { text: 'Introduction to Multiplication', lvl: 'Primary 3' },
-              ].map((example) => (
-                <button
-                  key={example.text}
-                  onClick={() => { setTopic(example.text); setLevel(example.lvl); }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-border/70 bg-background hover:bg-primary/5 hover:border-primary/30 hover:text-primary text-muted-foreground transition-all duration-200 cursor-pointer"
-                >
-                  {example.text}
-                  <span className="text-[10px] text-muted-foreground/60">· {example.lvl}</span>
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* Change Country Button */}
           <div className="mt-4 text-center">

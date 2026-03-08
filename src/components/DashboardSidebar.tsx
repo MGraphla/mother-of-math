@@ -92,11 +92,16 @@ const DashboardSidebar = ({ profile, isExpanded, setExpanded, onLinkClick }: Das
     )}>
       <div className={cn("flex items-center h-16 px-4", isExpanded ? "justify-between" : "justify-center")}>
         <Link to="/" className={cn("flex items-center gap-2", !isExpanded && "hidden")}>
-          <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-primary font-bold text-lg shadow-inner">
-            M
+          <div className="w-8 h-8 rounded-full overflow-hidden shadow-inner">
+            <img src="/mama%20math.svg" alt="MAMA" className="w-full h-full object-cover" />
           </div>
           <span className="font-extrabold text-xl tracking-wider">MAMA</span>
         </Link>
+        {!isExpanded && (
+          <Link to="/" className="w-8 h-8 rounded-full overflow-hidden shadow-inner">
+            <img src="/mama%20math.svg" alt="MAMA" className="w-full h-full object-cover" />
+          </Link>
+        )}
         <Button variant="ghost" size="icon" onClick={() => setExpanded(!isExpanded)} className="hidden lg:flex hover:bg-white/20">
           {isExpanded ? <ChevronsLeft /> : <ChevronsRight />}
         </Button>
