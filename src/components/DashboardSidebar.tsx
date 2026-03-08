@@ -107,11 +107,11 @@ const DashboardSidebar = ({ profile, isExpanded, setExpanded, onLinkClick }: Das
         </Button>
       </div>
 
-      <nav className="flex-1 flex flex-col gap-2 p-2">
+      <nav className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1 p-2 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
         {navItems.map((item) => <NavLink key={item.href} item={item} />)}
       </nav>
 
-      <div className="p-2 border-t border-white/10">
+      <div className="shrink-0 p-2 border-t border-white/10">
         {/* Language Toggle */}
         {isExpanded && (
           <div className="pb-2">
