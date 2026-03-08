@@ -33,8 +33,8 @@ class ChatbotService {
     this.apiUrl =
       import.meta.env.VITE_OPENROUTER_API_URL ||
       'https://openrouter.ai/api/v1/chat/completions';
-    this.model = 'google/gemini-2.5-flash';
-    this.visionModel = 'google/gemini-2.5-flash';
+    this.model = 'google/gemini-3.1-flash-lite-preview';
+    this.visionModel = 'google/gemini-3.1-flash-lite-preview';
 
     if (!this.apiKey) {
       console.warn('OpenRouter API key is not configured');
