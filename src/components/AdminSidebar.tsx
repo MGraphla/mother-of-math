@@ -13,8 +13,6 @@ import {
   Activity,
   Settings,
   LogOut,
-  Shield,
-  Bell,
   UserPlus,
   FolderOpen,
   Megaphone,
@@ -125,8 +123,8 @@ const AdminSidebar = () => {
     <aside className="fixed top-0 left-0 h-full w-64 bg-gray-900 border-r border-gray-800 flex flex-col z-40">
       {/* Logo/Header */}
       <div className="flex items-center gap-3 h-16 px-5 border-b border-gray-800">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-          <Shield className="w-5 h-5 text-white" />
+        <div className="w-10 h-10 rounded-full overflow-hidden shadow-inner flex-shrink-0">
+          <img src="/mama%20math.svg" alt="MAMA" className="w-full h-full object-cover" />
         </div>
         <div>
           <h1 className="text-white font-bold text-lg">Admin Portal</h1>

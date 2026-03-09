@@ -34,9 +34,6 @@ const ViewLessonPlans = lazy(() => import("@/pages/Dashboard/ViewLessonPlans"));
 const Chatbot = lazy(() => import("@/pages/Dashboard/Chatbot"));
 const Upload = lazy(() => import("@/pages/Dashboard/Upload"));
 const Settings = lazy(() => import('@/pages/Dashboard/Settings'));
-const TeacherTraining = lazy(() => import('@/pages/Dashboard/TeacherTraining'));
-const InterviewPage = lazy(() => import('@/pages/Dashboard/teacher-training/InterviewPage'));
-const InterviewResultsPage = lazy(() => import('@/pages/Dashboard/teacher-training/InterviewResultsPage'));
 const AssignmentManagement = lazy(() => import("@/pages/Dashboard/AssignmentManagement"));
 const StudentAssignments = lazy(() => import("@/pages/Dashboard/StudentAssignments"));
 const StudentAccountCreation = lazy(() => import("@/pages/Dashboard/StudentAccountCreation"));
@@ -156,9 +153,6 @@ const AppContent = () => {
             <Route path="view-lesson-plans" element={<ViewLessonPlans />} />
             <Route path="chatbot" element={<Chatbot />} />
             <Route path="settings" element={<Settings />} />
-            <Route path="teacher-training" element={<TeacherTraining />} />
-            <Route path="teacher-training/:interviewId" element={<InterviewPage />} />
-            <Route path="teacher-training/results/:interviewId" element={<InterviewResultsPage />} />
             <Route path="announcements" element={<TeacherAnnouncements />} />
             <Route path="resources" element={<TeacherResources />} />
             <Route path="support" element={<TeacherSupport />} />

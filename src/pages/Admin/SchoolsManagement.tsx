@@ -98,8 +98,8 @@ const SchoolsManagementPage: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Schools & Organizations</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-3xl font-bold tracking-tight text-white">Schools & Organizations</h1>
+            <p className="text-gray-400">
               Schools and educational institutions using the platform
             </p>
           </div>

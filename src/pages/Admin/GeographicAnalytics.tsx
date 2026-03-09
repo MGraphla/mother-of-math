@@ -177,8 +177,8 @@ const GeographicAnalyticsPage: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Geographic Analytics</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-3xl font-bold tracking-tight text-white">Geographic Analytics</h1>
+            <p className="text-gray-400">
               Analyze user distribution across countries and regions
             </p>
           </div>

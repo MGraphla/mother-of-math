@@ -135,8 +135,8 @@ const SystemHealthPage: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">System Health</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-3xl font-bold tracking-tight text-white">System Health</h1>
+            <p className="text-gray-400">
               Monitor system performance, uptime, and service status
             </p>
           </div>

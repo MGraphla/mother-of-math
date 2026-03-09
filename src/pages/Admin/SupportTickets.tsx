@@ -1144,13 +1144,13 @@ const SupportTicketsManagement: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
+          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3 text-white">
             <div className="p-2 bg-primary/10 rounded-lg">
               <TicketIcon className="h-8 w-8 text-primary" />
             </div>
             Support Center
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-gray-400 mt-1">
             Manage and respond to support tickets
           </p>
         </div>

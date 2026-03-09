@@ -8,7 +8,6 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import GoogleIcon from "@/components/icons/GoogleIcon";
 import {
-  BookHeart,
   User,
   Mail,
   Lock,
@@ -737,8 +736,8 @@ const SignUp = () => {
           {/* Header */}
           <div className="relative px-6 pt-8 pb-6 text-center bg-gradient-to-b from-green-50/80 to-transparent">
             <Link to="/" className="inline-flex items-center gap-2 mb-4">
-              <div className="bg-gradient-to-br from-green-500 to-emerald-600 p-2 rounded-xl shadow-lg shadow-green-500/20">
-                <BookHeart className="h-5 w-5 text-white" />
+              <div className="w-10 h-10 rounded-full overflow-hidden shadow-lg shadow-green-500/20 flex-shrink-0">
+                <img src="/mama%20math.svg" alt="MAMA" className="w-full h-full object-cover" />
               </div>
               <span className="text-lg font-extrabold bg-gradient-to-r from-green-600 to-emerald-500 bg-clip-text text-transparent">
                 Mama Math

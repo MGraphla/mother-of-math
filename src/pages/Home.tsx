@@ -679,20 +679,21 @@ const Home = () => {
             
             {/* CTA Buttons */}
             <motion.div 
-              className="flex flex-row flex-wrap items-center gap-4 justify-center lg:justify-start mb-10"
+              className="mx-auto grid w-full max-w-sm grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:max-w-none sm:gap-4 sm:justify-center lg:mx-0 lg:justify-start mb-10"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
             >
               <motion.button 
                 onClick={handleGetStarted} 
-                className="relative group bg-gradient-to-r from-green-600 to-emerald-600 text-white px-8 py-4 rounded-full text-lg font-bold shadow-xl hover:shadow-green-500/25 transition-all duration-300 flex items-center justify-center overflow-hidden"
+                className="relative group w-full min-w-0 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-3 py-3 sm:px-8 sm:py-4 rounded-full text-sm sm:text-lg font-bold shadow-xl hover:shadow-green-500/25 transition-all duration-300 flex items-center justify-center overflow-hidden"
                 whileHover={{ scale: 1.02, y: -2 }} 
                 whileTap={{ scale: 0.98 }}
               >
-                <span className="relative z-10 flex items-center">
-                  {t('home.startFree')} 
-                  <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                <span className="relative z-10 flex items-center whitespace-nowrap">
+                  <span className="sm:hidden">Get Started</span>
+                  <span className="hidden sm:inline">{t('home.startFree')}</span>
+                  <ArrowRight className="ml-1 sm:ml-2 h-4 w-4 sm:h-5 sm:w-5 group-hover:translate-x-1 transition-transform" />
                 </span>
                 <motion.div
                   className="absolute inset-0 bg-gradient-to-r from-emerald-600 to-green-600"
@@ -704,7 +705,7 @@ const Home = () => {
               
               <motion.button 
                 onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })} 
-                className="group bg-white/80 backdrop-blur-sm text-gray-700 border-2 border-gray-200 hover:border-primary/50 hover:bg-green-50/50 px-8 py-4 rounded-full text-lg font-bold shadow-lg transition-all duration-300 flex items-center"
+                className="group w-full min-w-0 bg-white/80 backdrop-blur-sm text-gray-700 border-2 border-gray-200 hover:border-primary/50 hover:bg-green-50/50 px-3 py-3 sm:px-8 sm:py-4 rounded-full text-sm sm:text-lg font-bold shadow-lg transition-all duration-300 flex items-center justify-center whitespace-nowrap"
                 whileHover={{ scale: 1.02, y: -2 }} 
                 whileTap={{ scale: 0.98 }}
               >
@@ -886,26 +887,24 @@ const Home = () => {
           <p className="text-lg sm:text-xl mb-6 sm:mb-8 opacity-90 max-w-2xl mx-auto">
             Join hundreds of teachers and parents across Cameroon making a difference.
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <Button
-                size="lg"
-                onClick={handleGetStarted}
-                className="bg-green-500 text-white hover:bg-green-600 font-bold py-3 px-6 sm:py-4 sm:px-8 rounded-full shadow-lg transform transition-all duration-300 flex items-center gap-2"
-              >
-                Get Started for Free <ArrowRight className="w-5 h-5" />
-              </Button>
-            </motion.div>
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })}
-                className="bg-white text-gray-700 border-gray-200 hover:bg-gray-100 font-bold py-3 px-6 sm:py-4 sm:px-8 rounded-full shadow-lg transform transition-all duration-300"
-              >
-                Learn More
-              </Button>
-            </motion.div>
+          <div className="mx-auto grid w-full max-w-sm grid-cols-2 gap-2 sm:flex sm:w-auto sm:max-w-none sm:gap-4 sm:justify-center">
+            <Button
+              size="sm"
+              onClick={handleGetStarted}
+              className="h-auto min-w-0 w-full bg-green-500 text-white hover:bg-green-600 font-bold text-[11px] sm:text-base py-2 px-2 sm:py-4 sm:px-8 rounded-full shadow-lg transition-transform duration-300 hover:scale-105 active:scale-95 flex items-center justify-center gap-1 sm:gap-2"
+            >
+              <span className="sm:hidden">Get Started</span>
+              <span className="hidden sm:inline">Get Started for Free</span>
+              <ArrowRight className="hidden sm:block w-5 h-5" />
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })}
+              className="h-auto min-w-0 w-full bg-white text-gray-700 border-gray-200 hover:bg-gray-100 font-bold text-[11px] sm:text-base py-2 px-2 sm:py-4 sm:px-8 rounded-full shadow-lg transition-transform duration-300 hover:scale-105 active:scale-95"
+            >
+              Learn More
+            </Button>
           </div>
         </motion.div>
       </div>

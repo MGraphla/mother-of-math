@@ -3,7 +3,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
-  Home, BookOpen, Upload, Settings, LogOut, Users, ClipboardList, UserPlus, BookCheck, UserCircle, UsersRound, ChevronsLeft, ChevronsRight, BrainCircuit, Sparkles, MessageCircle, BarChart, Megaphone, ImageIcon, HelpCircle
+  Home, BookOpen, Upload, Settings, LogOut, Users, ClipboardList, UserPlus, BookCheck, UserCircle, UsersRound, ChevronsLeft, ChevronsRight, Sparkles, MessageCircle, BarChart, Megaphone, ImageIcon, HelpCircle
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,6 @@ const DashboardSidebar = ({ profile, isExpanded, setExpanded, onLinkClick }: Das
       { name: t('sidebar.viewLessonPlans'), href: "/dashboard/view-lesson-plans", icon: <BookCheck className="h-5 w-5" /> },
       { name: t('sidebar.chatBot'), href: "/dashboard/chatbot", icon: <MessageCircle className="h-5 w-5" /> },
       { name: t('sidebar.uploadWork'), href: "/dashboard/upload", icon: <Upload className="h-5 w-5" /> },
-      { name: t('sidebar.teacherTraining'), href: "/dashboard/teacher-training", icon: <BrainCircuit className="h-5 w-5" /> },
       { name: t('sidebar.announcements'), href: "/dashboard/announcements", icon: <Megaphone className="h-5 w-5" /> },
       { name: t('sidebar.resources'), href: "/dashboard/resources", icon: <BookOpen className="h-5 w-5" /> },
       { name: t('sidebar.generateImages'), href: "/dashboard/generate-images", icon: <ImageIcon className="h-5 w-5" /> },

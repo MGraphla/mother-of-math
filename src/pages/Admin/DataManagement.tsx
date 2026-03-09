@@ -99,8 +99,8 @@ const DataManagementPage: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Data Management</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-3xl font-bold tracking-tight text-white">Data Management</h1>
+            <p className="text-gray-400">
               GDPR compliance, data exports, and audit logs
             </p>
           </div>

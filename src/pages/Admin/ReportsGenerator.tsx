@@ -265,8 +265,8 @@ const ReportsGeneratorPage: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Reports Generator</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-3xl font-bold tracking-tight text-white">Reports Generator</h1>
+            <p className="text-gray-400">
               Generate custom reports and schedule automated exports
             </p>
           </div>

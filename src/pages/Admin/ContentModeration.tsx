@@ -147,8 +147,8 @@ const ContentModerationPage: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Content Moderation</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-3xl font-bold tracking-tight text-white">Content Moderation</h1>
+            <p className="text-gray-400">
               Review and moderate flagged content across the platform
             </p>
           </div>
