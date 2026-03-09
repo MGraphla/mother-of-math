@@ -43,6 +43,7 @@ const StudentAccountCreation = lazy(() => import("@/pages/Dashboard/StudentAccou
 const StudentDashboard = lazy(() => import("@/pages/Dashboard/StudentDashboard"));
 const StudentProgress = lazy(() => import("@/pages/Dashboard/StudentProgress"));
 const StudentProfile = lazy(() => import("@/pages/Dashboard/StudentProfile"));
+const StudentAIFeedback = lazy(() => import("@/pages/Dashboard/StudentAIFeedback"));
 const DetailedStudentAnalysis = lazy(() => import("@/pages/Dashboard/DetailedStudentAnalysis"));
 
 // Announcements & Resources
@@ -179,6 +180,7 @@ const AppContent = () => {
           <Route path="profile" element={<StudentProfile />} />
           <Route path="announcements" element={<StudentAnnouncements />} />
           <Route path="resources" element={<StudentResources />} />
+          <Route path="analysis" element={<StudentAIFeedback />} />
         </Route>
 
         {/* Fallback Route */}

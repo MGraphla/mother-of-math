@@ -85,6 +85,10 @@ import {
   deleteStudentWork,
   deleteStudentWorkFile,
 } from "@/lib/supabase";
+import {
+  type Student,
+  getStudentsByTeacher,
+} from "@/services/studentService";
 import jsPDF from "jspdf";
 
 /* ─── Direct API helper (uses fallback key for reliability) ─── */
@@ -162,6 +166,7 @@ interface UploadedFile {
   studentName: string;
   subject: string;
   grade: string;
+  studentId?: string;   // linked student record id
 }
 
 /* ─── Component ─── */
@@ -170,6 +175,7 @@ const Upload = () => {
   const { user } = useAuth();
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [historyFiles, setHistoryFiles] = useState<UploadedFile[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
@@ -223,7 +229,11 @@ const Upload = () => {
         return;
       }
       try {
-        const works = await getStudentWorks(user.id);
+        const [works, teacherStudents] = await Promise.all([
+          getStudentWorks(user.id),
+          getStudentsByTeacher(user.id),
+        ]);
+        setStudents(teacherStudents);
         const loaded: UploadedFile[] = works.map((sw) => ({
           id: sw.id,
           dbId: sw.id,
@@ -244,6 +254,7 @@ const Upload = () => {
           studentName: sw.student_name || "",
           subject: sw.subject || "",
           grade: sw.grade || "",
+          studentId: sw.student_id || undefined,
         }));
         setHistoryFiles(loaded);
       } catch (e) {
@@ -442,10 +453,27 @@ No extra text or introductions. Use simple language for primary school teachers.
       setFiles((prev) =>
         prev.map((f) =>
           f.id === fileObj.id
-            ? { ...f, status: "success" as const, analysis }
+            ? {
+                ...f,
+                status: "success" as const,
+                analysis,
+                // Auto-fill subject as Mathematics if not already set
+                subject: f.subject || "Mathematics",
+              }
             : f
         )
       );
+
+      // Persist auto-filled subject if it was empty
+      const currentFile = files.find((f) => f.id === fileObj.id);
+      if (fileObj.dbId && !currentFile?.subject) {
+        try {
+          await updateStudentWork(fileObj.dbId, { subject: "Mathematics" });
+        } catch (e) {
+          console.error("Subject auto-fill save error:", e);
+        }
+      }
+
       toast.success("Analysis completed successfully");
     } catch (error) {
       console.error("Analysis error:", error);
@@ -736,31 +764,67 @@ No extra text or introductions. Use simple language for primary school teachers.
     }
   };
 
+  /* Handle student selection from dropdown — auto-fills name, grade, and links student_id */
+  const handleSelectStudent = async (
+    fileId: string,
+    dbId: string | undefined,
+    student: Student
+  ) => {
+    // Update local state
+    setFiles((prev) =>
+      prev.map((f) =>
+        f.id === fileId
+          ? {
+              ...f,
+              studentName: student.full_name,
+              grade: student.grade_level,
+              studentId: student.id,
+            }
+          : f
+      )
+    );
+    // Persist to DB
+    if (dbId) {
+      try {
+        await updateStudentWork(dbId, {
+          student_name: student.full_name,
+          grade: student.grade_level,
+          student_id: student.id,
+        });
+      } catch (e) {
+        console.error("Student link save error:", e);
+      }
+    }
+  };
+
   /* Feature 9: Batch metadata apply */
   const applyBatchMetadata = async () => {
     if (selectedFiles.length === 0) return;
+    // Resolve student_id if a student was chosen from the list
+    const matchedStudent = batchMeta.studentName.trim()
+      ? students.find((s) => s.full_name === batchMeta.studentName.trim())
+      : undefined;
+
     for (const id of selectedFiles) {
       const file = files.find((f) => f.id === id);
       if (!file) continue;
       if (batchMeta.studentName.trim()) {
-        updateFieldLocal(id, "studentName", batchMeta.studentName.trim());
-        if (file.dbId)
-          await saveFieldToDb(
-            file.dbId,
-            "studentName",
-            batchMeta.studentName.trim()
-          );
+        if (matchedStudent) {
+          // Use the full handleSelectStudent to also link student_id and grade
+          await handleSelectStudent(id, file.dbId, matchedStudent);
+        } else {
+          updateFieldLocal(id, "studentName", batchMeta.studentName.trim());
+          if (file.dbId)
+            await saveFieldToDb(file.dbId, "studentName", batchMeta.studentName.trim());
+        }
       }
       if (batchMeta.subject.trim()) {
         updateFieldLocal(id, "subject", batchMeta.subject.trim());
         if (file.dbId)
-          await saveFieldToDb(
-            file.dbId,
-            "subject",
-            batchMeta.subject.trim()
-          );
+          await saveFieldToDb(file.dbId, "subject", batchMeta.subject.trim());
       }
-      if (batchMeta.grade.trim()) {
+      if (batchMeta.grade.trim() && !matchedStudent) {
+        // Only override grade manually if student was not picked from dropdown
         updateFieldLocal(id, "grade", batchMeta.grade.trim());
         if (file.dbId)
           await saveFieldToDb(file.dbId, "grade", batchMeta.grade.trim());
@@ -1312,25 +1376,37 @@ No extra text or introductions. Use simple language for primary school teachers.
 
               {/* Metadata inputs */}
               <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-2">
-                <Input
-                  placeholder="Student name"
-                  value={file.studentName}
-                  onChange={(e) =>
-                    updateFieldLocal(
-                      file.id,
-                      "studentName",
-                      e.target.value
-                    )
-                  }
-                  onBlur={(e) =>
-                    saveFieldToDb(
-                      file.dbId,
-                      "studentName",
-                      e.target.value
-                    )
-                  }
-                  className="h-7 text-xs w-28 sm:w-36"
-                />
+                {/* Student dropdown — populated from teacher's class */}
+                <Select
+                  value={file.studentId || "__manual__"}
+                  onValueChange={(val) => {
+                    if (val === "__manual__") return;
+                    const picked = students.find((s) => s.id === val);
+                    if (picked) handleSelectStudent(file.id, file.dbId, picked);
+                  }}
+                >
+                  <SelectTrigger className="h-7 text-xs w-32 sm:w-40">
+                    <SelectValue placeholder="Select student…">
+                      {file.studentName || "Select student…"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {students.length === 0 ? (
+                      <SelectItem value="__manual__" disabled>
+                        No students yet
+                      </SelectItem>
+                    ) : (
+                      students.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.full_name}
+                          <span className="ml-1 text-muted-foreground text-[10px]">
+                            ({s.grade_level})
+                          </span>
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
                 <Input
                   placeholder="Subject"
                   value={file.subject}
@@ -1343,7 +1419,7 @@ No extra text or introductions. Use simple language for primary school teachers.
                   className="h-7 text-xs w-24 sm:w-32"
                 />
                 <Input
-                  placeholder="Grade"
+                  placeholder="Grade level"
                   value={file.grade}
                   onChange={(e) =>
                     updateFieldLocal(file.id, "grade", e.target.value)
@@ -1351,7 +1427,9 @@ No extra text or introductions. Use simple language for primary school teachers.
                   onBlur={(e) =>
                     saveFieldToDb(file.dbId, "grade", e.target.value)
                   }
-                  className="h-7 text-xs w-20 sm:w-28"
+                  className="h-7 text-xs w-24 sm:w-28"
+                  readOnly={!!file.studentId}
+                  title={file.studentId ? "Auto-filled from student record" : ""}
                 />
               </div>
 
@@ -2449,16 +2527,44 @@ No extra text or introductions. Use simple language for primary school teachers.
               <label className="text-sm font-medium mb-1 block">
                 Student Name
               </label>
-              <Input
-                placeholder="e.g. Jean-Pierre"
-                value={batchMeta.studentName}
-                onChange={(e) =>
-                  setBatchMeta((prev) => ({
-                    ...prev,
-                    studentName: e.target.value,
-                  }))
-                }
-              />
+              {students.length > 0 ? (
+                <Select
+                  value={batchMeta.studentName}
+                  onValueChange={(val) => {
+                    const s = students.find((st) => st.full_name === val);
+                    setBatchMeta((prev) => ({
+                      ...prev,
+                      studentName: val,
+                      grade: s?.grade_level || prev.grade,
+                    }));
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select student…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {students.map((s) => (
+                      <SelectItem key={s.id} value={s.full_name}>
+                        {s.full_name}
+                        <span className="ml-1 text-muted-foreground text-[11px]">
+                          ({s.grade_level})
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  placeholder="e.g. Jean-Pierre"
+                  value={batchMeta.studentName}
+                  onChange={(e) =>
+                    setBatchMeta((prev) => ({
+                      ...prev,
+                      studentName: e.target.value,
+                    }))
+                  }
+                />
+              )}
             </div>
             <div>
               <label className="text-sm font-medium mb-1 block">

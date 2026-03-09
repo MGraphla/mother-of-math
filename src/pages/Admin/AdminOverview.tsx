@@ -241,12 +241,72 @@ const AdminOverview = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-          className="w-10 h-10 border-3 border-indigo-500 border-t-transparent rounded-full"
-        />
+      <div className="flex flex-col items-center justify-center min-h-[70vh] gap-8 select-none">
+        {/* Outer pulse ring */}
+        <div className="relative flex items-center justify-center">
+          <motion.div
+            className="absolute w-40 h-40 rounded-full border-2 border-indigo-400/30"
+            animate={{ scale: [1, 1.4, 1], opacity: [0.4, 0, 0.4] }}
+            transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+          />
+          <motion.div
+            className="absolute w-28 h-28 rounded-full border-2 border-indigo-400/40"
+            animate={{ scale: [1, 1.3, 1], opacity: [0.5, 0, 0.5] }}
+            transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
+          />
+          {/* Spinning arc */}
+          <motion.div
+            className="w-20 h-20 rounded-full border-4 border-indigo-200 border-t-indigo-600"
+            animate={{ rotate: 360 }}
+            transition={{ duration: 0.9, repeat: Infinity, ease: "linear" }}
+          />
+          {/* Inner icon */}
+          <motion.div
+            className="absolute flex items-center justify-center w-10 h-10 rounded-full bg-indigo-600 shadow-lg shadow-indigo-500/40"
+            animate={{ scale: [1, 1.12, 1] }}
+            transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+          >
+            <BarChart3 className="w-5 h-5 text-white" />
+          </motion.div>
+        </div>
+
+        {/* Text block */}
+        <div className="flex flex-col items-center gap-2 text-center">
+          <motion.h2
+            className="text-2xl font-bold text-foreground"
+            animate={{ opacity: [0.7, 1, 0.7] }}
+            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+          >
+            Loading Dashboard Data
+          </motion.h2>
+          <p className="text-muted-foreground text-sm max-w-xs">
+            Fetching live statistics from all teachers, students, and activity logs…
+          </p>
+
+          {/* Animated dots */}
+          <div className="flex gap-1.5 mt-1">
+            {[0, 1, 2].map((i) => (
+              <motion.div
+                key={i}
+                className="w-2 h-2 rounded-full bg-indigo-500"
+                animate={{ y: [0, -6, 0], opacity: [0.5, 1, 0.5] }}
+                transition={{ duration: 0.8, repeat: Infinity, ease: "easeInOut", delay: i * 0.18 }}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Skeleton stat cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full max-w-2xl px-4">
+          {[...Array(8)].map((_, i) => (
+            <motion.div
+              key={i}
+              className="h-16 rounded-xl bg-muted/60"
+              animate={{ opacity: [0.4, 0.8, 0.4] }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut", delay: i * 0.1 }}
+            />
+          ))}
+        </div>
       </div>
     );
   }

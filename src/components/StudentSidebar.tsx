@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
-  Home, BookCheck, LogOut, Award, UserCircle, Megaphone, BookOpen, ChevronRight
+  Home, BookCheck, LogOut, Award, UserCircle, Megaphone, BookOpen, ChevronRight, Brain
 } from "lucide-react";
 import { useAuth, UserProfile } from "@/context/AuthContext";
 import { clearStudentSession } from "@/services/studentService";
@@ -26,6 +26,7 @@ const StudentSidebar = ({ profile, isExpanded, onLinkClick }: StudentSidebarProp
     { name: t('sidebar.assignments'), href: "/student/assignments", icon: <BookCheck className="h-5 w-5" />, description: t('student.desc.homework') },
     { name: t('common.progress'), href: "/student/progress", icon: <Award className="h-5 w-5" />, description: t('student.desc.grades') },
     { name: t('sidebar.announcements'), href: "/student/announcements", icon: <Megaphone className="h-5 w-5" />, description: t('student.desc.updates') },
+    { name: "My AI Feedback", href: "/student/analysis", icon: <Brain className="h-5 w-5" />, description: "View your AI-graded work" },
     { name: t('sidebar.resources'), href: "/student/resources", icon: <BookOpen className="h-5 w-5" />, description: t('student.desc.library') },
     { name: t('nav.profile'), href: "/student/profile", icon: <UserCircle className="h-5 w-5" />, description: t('student.desc.myInfo') },
   ];

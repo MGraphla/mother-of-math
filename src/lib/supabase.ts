@@ -59,6 +59,7 @@ export interface StudentWork {
   image_url: string;
   parent_id: string;
   teacher_id?: string;
+  student_id?: string;        // links to students.id
   feedback?: string;
   error_type?: string;
   remediation?: string;
@@ -339,4 +340,32 @@ export const deleteStudentWork = async (id: string) => {
     .eq('id', id);
 
   if (error) { console.error('Error deleting student work:', error); throw error; }
+};
+
+/**
+ * Get AI analysis results for a student, identified by their access token.
+ * Tries the RPC function first (requires migration SQL to be run).
+ * Falls back to querying by student_name if the RPC is not available.
+ */
+export const getStudentWorksByToken = async (
+  accessToken: string,
+  studentName: string
+): Promise<StudentWork[]> => {
+  // Try RPC first (requires supabase-student-works-migration.sql to be run)
+  const { data: rpcData, error: rpcError } = await supabase
+    .rpc('get_works_for_student', { p_access_token: accessToken });
+
+  if (!rpcError && rpcData) {
+    return rpcData as StudentWork[];
+  }
+
+  // Fallback: query by student_name (works without migration)
+  const { data, error } = await supabase
+    .from('student_works')
+    .select('*')
+    .eq('student_name', studentName)
+    .order('created_at', { ascending: false });
+
+  if (error) { console.error('Error fetching student works by name:', error); return []; }
+  return (data || []) as StudentWork[];
 };
