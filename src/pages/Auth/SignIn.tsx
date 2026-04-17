@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAuth, getDashboardPath } from "@/context/AuthContext";
+import { useAuth, getDashboardPath, needsGoogleExtraProfile } from "@/context/AuthContext";
+import { supabase, getUserProfile } from "@/lib/supabase";
 import { useLanguage } from "@/context/LanguageContext";
 import GoogleIcon from "@/components/icons/GoogleIcon";
 import {
@@ -23,15 +24,24 @@ const SignIn = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
-  const { signIn, signInWithGoogle, profile, isAuthenticated } = useAuth();
+  const { signIn, signInWithGoogle, profile, user, isAuthenticated } = useAuth();
   const { t } = useLanguage();
 
-  // If already authenticated, redirect to the appropriate dashboard
+  // If already authenticated, send Google incompletes to the one-time wizard; everyone else to dashboard.
   useEffect(() => {
-    if (isAuthenticated && profile) {
-      navigate(getDashboardPath(profile), { replace: true });
+    if (isAuthenticated && user) {
+      if (profile) {
+        if (needsGoogleExtraProfile(user, profile)) {
+          navigate("/complete-profile", { replace: true });
+        } else {
+          navigate(getDashboardPath(profile), { replace: true });
+        }
+      }
+      // Note: if profile is null but user is authenticated, the handleSubmit
+      // function handles navigation directly. This useEffect is mainly for
+      // users who land on /sign-in while already logged in.
     }
-  }, [isAuthenticated, profile, navigate]);
+  }, [isAuthenticated, profile, user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +50,31 @@ const SignIn = () => {
 
     try {
       await signIn(email, password);
-      // onAuthStateChange will update profile; useEffect above handles redirect
+      // signIn succeeded — session is now set. Actively fetch the session
+      // and navigate instead of relying solely on the useEffect (which can
+      // stall when the profile fetch is slow or fails on mobile / PWA).
+      const { data: { session: freshSession } } = await supabase.auth.getSession();
+      if (freshSession?.user) {
+        let freshProfile = null;
+        try {
+          freshProfile = await getUserProfile(freshSession.user.id);
+        } catch (profileErr) {
+          console.warn("Profile fetch after sign-in failed, using fallback:", profileErr);
+        }
+        if (freshProfile) {
+          if (needsGoogleExtraProfile(freshSession.user, freshProfile)) {
+            navigate("/complete-profile", { replace: true });
+          } else {
+            navigate(getDashboardPath(freshProfile), { replace: true });
+          }
+        } else {
+          // Profile fetch failed or returned null — navigate to default dashboard.
+          // The dashboard's ProtectedRoute will handle further checks.
+          navigate("/dashboard", { replace: true });
+        }
+        return;
+      }
+      // Fallback: if somehow no session yet, the useEffect will handle it
     } catch (error: any) {
       console.error("Error signing in:", error);
       setErrorMessage(error.message || "Invalid email or password. Please try again.");
@@ -264,7 +298,7 @@ const SignIn = () => {
               {t('auth.continueWithGoogle')}
             </Button>
 
-            {/* Student login link */}
+            {/* Learner login link */}
             <div className="mt-4 text-center">
               <Link
                 to="/student-login"

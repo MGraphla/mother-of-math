@@ -27,6 +27,7 @@ export default defineConfig(({ mode }) => ({
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api/], // Don't intercept API routes
+        cleanupOutdatedCaches: true,
       },
       manifest: {
         name: 'Mama Math - Mathematics Education',

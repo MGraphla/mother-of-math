@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useAuth } from "@/context/AuthContext";
+import { useAuth, getDashboardPath } from "@/context/AuthContext";
+import { supabase, getUserProfile } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,14 +35,31 @@ const StudentLogin = () => {
 
     try {
       await signIn(email, password);
+      // Actively fetch session & profile to navigate immediately
+      // instead of relying on context updates (which can stall on mobile/PWA).
+      const { data: { session: freshSession } } = await supabase.auth.getSession();
+      if (freshSession?.user) {
+        let freshProfile = null;
+        try {
+          freshProfile = await getUserProfile(freshSession.user.id);
+        } catch {
+          // Profile fetch failed — use fallback
+        }
+        toast({
+          title: "Login Successful",
+          description: "Welcome back to Mother of Math!",
+        });
+        navigate(getDashboardPath(freshProfile), { replace: true });
+        return;
+      }
+      // Fallback: navigate to student dashboard
       toast({
         title: "Login Successful",
         description: "Welcome back to Mother of Math!",
       });
-      // Navigate to student dashboard
-      navigate("/student");
+      navigate("/student", { replace: true });
     } catch (error: any) {
-      console.error("Student login error:", error);
+      console.error("Learner login error:", error);
       setErrorMessage(error.message || "Invalid email or password. Please try again.");
       toast({
         title: "Login Failed",
@@ -54,21 +72,21 @@ const StudentLogin = () => {
   };
   
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="flex min-h-dvh flex-col">
       {/* Header */}
-      <header className="border-b bg-white">
-        <div className="container py-4 flex justify-between items-center">
-          <Link to="/" className="flex items-center space-x-2">
-            <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold">
+      <header className="border-b bg-white pt-[env(safe-area-inset-top,0px)]">
+        <div className="container flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:py-4">
+          <Link to="/" className="flex min-w-0 items-center gap-2 sm:space-x-2">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary font-bold text-white">
               M
             </div>
-            <span className="font-bold text-xl text-foreground">Math Mama</span>
+            <span className="truncate font-bold text-lg text-foreground sm:text-xl">Math Mama</span>
           </Link>
-          <div className="space-x-2">
-            <Button variant="outline" asChild>
+          <div className="flex w-full flex-col gap-2 xs:flex-row xs:justify-end sm:w-auto">
+            <Button variant="outline" className="h-11 w-full touch-manipulation sm:h-10 sm:w-auto" asChild>
               <Link to="/sign-in">Teacher Login</Link>
             </Button>
-            <Button asChild>
+            <Button className="h-11 w-full touch-manipulation sm:h-10 sm:w-auto" asChild>
               <Link to="/sign-up">Register</Link>
             </Button>
           </div>
@@ -76,16 +94,16 @@ const StudentLogin = () => {
       </header>
       
       {/* Main Content */}
-      <div className="flex-1 flex items-center justify-center p-4 bg-gray-50">
-        <div className="w-full max-w-md">
+      <div className="flex flex-1 items-center justify-center bg-gray-50 p-3 pb-[max(1rem,env(safe-area-inset-bottom,0px))] sm:p-4">
+        <div className="w-full min-w-0 max-w-md">
           <Tabs defaultValue="student" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-6">
-              <TabsTrigger value="student">
-                <GraduationCap className="mr-2 h-4 w-4" />
-                Student
+            <TabsList className="mb-6 grid h-11 w-full grid-cols-2 touch-manipulation">
+              <TabsTrigger value="student" className="text-xs sm:text-sm">
+                <GraduationCap className="mr-1.5 h-4 w-4 sm:mr-2" />
+                Learner
               </TabsTrigger>
-              <TabsTrigger value="parent">
-                <User className="mr-2 h-4 w-4" />
+              <TabsTrigger value="parent" className="text-xs sm:text-sm">
+                <User className="mr-1.5 h-4 w-4 sm:mr-2" />
                 Parent
               </TabsTrigger>
             </TabsList>
@@ -93,7 +111,7 @@ const StudentLogin = () => {
             <TabsContent value="student">
               <Card className="w-full">
                 <CardHeader className="space-y-1">
-                  <CardTitle className="text-2xl text-center">Student Login</CardTitle>
+                  <CardTitle className="text-2xl text-center">Learner Login</CardTitle>
                   <CardDescription className="text-center">
                     Enter your login details to access your dashboard
                   </CardDescription>
@@ -152,7 +170,7 @@ const StudentLogin = () => {
                 <form onSubmit={handleLogin}>
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
-                      <label htmlFor="parent-email" className="text-sm font-medium">Student's Email</label>
+                      <label htmlFor="parent-email" className="text-sm font-medium">Learner's Email</label>
                       <Input
                         id="parent-email"
                         type="email"
