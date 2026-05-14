@@ -124,13 +124,13 @@ const SchoolsManagementPage: React.FC = () => {
             loading={loading}
           />
           <KPICard
-            title="Students in Schools"
+            title="Learner in Schools"
             value={totalStudentsInSchools}
             icon={<GraduationCap className="h-5 w-5" />}
             loading={loading}
           />
           <KPICard
-            title="Avg Students/School"
+            title="Avg Learner/School"
             value={avgStudentsPerSchool}
             icon={<TrendingUp className="h-5 w-5" />}
             loading={loading}
@@ -177,7 +177,7 @@ const SchoolsManagementPage: React.FC = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle>Top Schools by Students</CardTitle>
+              <CardTitle>Top Schools by Learner</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="h-[300px]">
@@ -198,7 +198,7 @@ const SchoolsManagementPage: React.FC = () => {
                         tickFormatter={(value) => value.length > 20 ? `${value.substring(0, 20)}...` : value}
                       />
                       <Tooltip />
-                      <Bar dataKey="studentCount" fill="#6366f1" name="Students" />
+                      <Bar dataKey="studentCount" fill="#6366f1" name="Learner" />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
@@ -269,7 +269,7 @@ const SchoolsManagementPage: React.FC = () => {
                     <TableHead>Type</TableHead>
                     <TableHead>Location</TableHead>
                     <TableHead className="text-right">Teachers</TableHead>
-                    <TableHead className="text-right">Students</TableHead>
+                    <TableHead className="text-right">Learner</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

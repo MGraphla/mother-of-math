@@ -160,7 +160,7 @@ const TeacherPerformanceAnalyticsPage: React.FC = () => {
   // Prepare radar chart data for selected teacher
   const getRadarData = (teacher: TeacherPerformance) => [
     { subject: 'Lesson Plans', value: Math.min(teacher.total_lesson_plans * 10, 100), fullMark: 100 },
-    { subject: 'Students', value: Math.min(teacher.total_students * 5, 100), fullMark: 100 },
+    { subject: 'Learner', value: Math.min(teacher.total_students * 5, 100), fullMark: 100 },
     { subject: 'Assignments', value: Math.min(teacher.total_assignments * 8, 100), fullMark: 100 },
     { subject: 'Chatbot Use', value: Math.min(teacher.total_chatbot_messages * 2, 100), fullMark: 100 },
     { subject: 'Login Activity', value: Math.min((teacher.login_count || 0) * 5, 100), fullMark: 100 },
@@ -266,12 +266,12 @@ const TeacherPerformanceAnalyticsPage: React.FC = () => {
           </CardContent>
         </Card>
 
-        {/* Performance vs Students Scatter */}
+        {/* Performance vs Learner Scatter */}
         <Card className="bg-gray-900/50 border-gray-800">
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <TrendingUp className="h-5 w-5 text-green-400" />
-              Performance vs Student Count
+              Performance vs Learner Count
             </CardTitle>
             <CardDescription className="text-gray-400">
               Bubble size represents lesson plans
@@ -281,13 +281,13 @@ const TeacherPerformanceAnalyticsPage: React.FC = () => {
             <ResponsiveContainer width="100%" height={300}>
               <ScatterChart>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis dataKey="x" stroke="#9ca3af" name="Students" unit="" />
+                <XAxis dataKey="x" stroke="#9ca3af" name="Learner" unit="" />
                 <YAxis dataKey="y" stroke="#9ca3af" name="Performance" domain={[0, 100]} />
                 <ZAxis dataKey="z" range={[50, 400]} />
                 <Tooltip
                   contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }}
                   cursor={{ strokeDasharray: '3 3' }}
-                  formatter={(value: number, name: string) => [value, name === 'x' ? 'Students' : 'Score']}
+                  formatter={(value: number, name: string) => [value, name === 'x' ? 'Learner' : 'Score']}
                 />
                 <Scatter data={scatterData} fill="#10b981">
                   {scatterData.map((entry, index) => (
@@ -369,7 +369,7 @@ const TeacherPerformanceAnalyticsPage: React.FC = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="performanceScore">Performance</SelectItem>
-                    <SelectItem value="students">Students</SelectItem>
+                    <SelectItem value="students">Learner</SelectItem>
                     <SelectItem value="lessonPlans">Lesson Plans</SelectItem>
                     <SelectItem value="assignments">Assignments</SelectItem>
                     <SelectItem value="name">Name</SelectItem>
@@ -386,7 +386,7 @@ const TeacherPerformanceAnalyticsPage: React.FC = () => {
                     <TableHead className="text-gray-400">Rank</TableHead>
                     <TableHead className="text-gray-400">Teacher</TableHead>
                     <TableHead className="text-gray-400 text-center">Score</TableHead>
-                    <TableHead className="text-gray-400 text-center">Students</TableHead>
+                    <TableHead className="text-gray-400 text-center">Learner</TableHead>
                     <TableHead className="text-gray-400 text-center">Lessons</TableHead>
                     <TableHead className="text-gray-400 text-center">Status</TableHead>
                   </TableRow>

@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
 
 // Layouts
 const DashboardLayout = lazy(() => import('@/components/DashboardLayout'));
@@ -55,6 +56,7 @@ const GenerateImages = lazy(() => import("@/pages/Dashboard/GenerateImages"));
 
 // Public access pages
 const StudentAccess = lazy(() => import("@/pages/StudentAccess"));
+const ClassEnroll = lazy(() => import("@/pages/ClassEnroll"));
 const ParentDashboard = lazy(() => import("@/pages/Dashboard/ParentDashboard"));
 const ParentAssignmentSubmission = lazy(() => import("@/pages/Dashboard/ParentAssignmentSubmission"));
 const FeedbackView = lazy(() => import("@/pages/Dashboard/FeedbackView"));
@@ -88,11 +90,14 @@ const AIUsageAnalytics = lazy(() => import("@/pages/Admin/AIUsageAnalytics"));
 const TeacherPerformance = lazy(() => import("@/pages/Admin/TeacherPerformance"));
 const StudentPerformance = lazy(() => import("@/pages/Admin/StudentPerformance"));
 
+// Partner Monitor — read-only dashboard for implementing partners
+const MonitorRoutes = lazy(() => import("@/monitor"));
+
 const queryClient = new QueryClient();
 
 const AppContent = () => {
   return (
-    <Suspense fallback={<></>}>
+    <Suspense fallback={<LoadingAnimation fullScreen message="Loading Mother of Math..." />}>
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<Home />} />
@@ -104,8 +109,12 @@ const AppContent = () => {
         <Route path="/complete-profile" element={<CompleteProfile />} />
         <Route path="/student-login" element={<StudentLogin />} />
         <Route path="/student-access/:token" element={<StudentAccess />} />
+        <Route path="/enroll/:code" element={<ClassEnroll />} />
         <Route path="/auth-success" element={<AuthSuccess />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
+
+        {/* Partner Monitor (read-only dashboard for implementing partners) */}
+        <Route path="/monitor/*" element={<MonitorRoutes />} />
 
         {/* Admin Routes (Public Login, Protected Dashboard) */}
         <Route path="/admin/login" element={<AdminLogin />} />
@@ -138,8 +147,8 @@ const AppContent = () => {
           <Route path="student-performance" element={<StudentPerformance />} />
         </Route>
 
-        {/* Protected Routes */}
-        <Route element={<ProtectedRoute />}>
+        {/* Protected Routes — Teacher Dashboard */}
+        <Route element={<ProtectedRoute allowedRoles={['teacher', 'admin']} />}>
           <Route path="/dashboard/*" element={<DashboardLayout />}>
             <Route index element={<Overview />} />
             <Route path="lesson-plan" element={<LessonPlanGenerator />} />
@@ -158,15 +167,17 @@ const AppContent = () => {
             <Route path="support" element={<TeacherSupport />} />
             <Route path="generate-images" element={<GenerateImages />} />
           </Route>
+        </Route>
 
+        {/* Protected Routes — Parent Dashboard */}
+        <Route element={<ProtectedRoute allowedRoles={['parent', 'admin']} />}>
           <Route path="/parent-dashboard/*" element={<ParentDashboardLayout />}>
             <Route index element={<ParentDashboard />} />
             <Route path="submissions" element={<ParentAssignmentSubmission />} />
           </Route>
-
         </Route>
 
-        {/* Student routes — accessible via magic link (no auth required) */}
+        {/* Learner routes — accessible via magic link (no auth required) */}
         <Route path="/student/*" element={<StudentDashboardLayout />}>
           <Route index element={<StudentDashboard />} />
           <Route path="assignments" element={<StudentAssignments />} />

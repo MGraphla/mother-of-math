@@ -20,7 +20,8 @@ export default defineConfig(({ mode }) => ({
     VitePWA({
       registerType: 'autoUpdate',
       devOptions: {
-        enabled: true,
+        // Only register the service worker in dev when needed; production builds always emit SW.
+        enabled: mode === 'development',
         type: 'module',
       },
       workbox: {

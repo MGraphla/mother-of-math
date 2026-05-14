@@ -102,7 +102,7 @@ export const generateLessonPlan = async (
   sections: LessonSection[],
   curriculumContext?: string,
   country?: 'cameroon' | 'nigeria',
-  language?: 'english' | 'french' | 'pidgin'
+  language?: 'english' | 'french' | 'pidgin' | 'hausa' | 'yoruba' | string
 ) => {
   const sectionTitles = sections.map(s => `"${s.title}"`).join(', ');
   const countryName = country === 'nigeria' ? 'Nigerian' : 'Cameroonian';
@@ -113,6 +113,10 @@ export const generateLessonPlan = async (
     ? 'LANGUAGE REQUIREMENT: Generate the entire lesson plan in French. All content, activities, instructions, and objectives must be written in French.'
     : language === 'pidgin'
     ? 'LANGUAGE REQUIREMENT: Generate the entire lesson plan in English Pidgin (Cameroonian/Nigerian Pidgin English). Use common pidgin expressions and phrasing that teachers and students in Cameroon/Nigeria would naturally use and understand.'
+    : language === 'hausa'
+    ? 'LANGUAGE REQUIREMENT: Generate the entire lesson plan in Hausa. All content, activities, instructions, and objectives must be written in Hausa.'
+    : language === 'yoruba'
+    ? 'LANGUAGE REQUIREMENT: Generate the entire lesson plan in Yoruba. All content, activities, instructions, and objectives must be written in Yoruba.'
     : 'LANGUAGE REQUIREMENT: Generate the entire lesson plan in English.';
 
   // Include curriculum context if provided
@@ -298,38 +302,6 @@ export const exportToPDF = async (
 
     onProgress?.('Building your PDF document...');
 
-    // --- LOAD LOGOS ---
-    const logoUrls = [
-      '/logos/ebase_africa.svg',
-      '/logos/Daara-logo-1024x547.png'
-    ];
-    const logoHeight = 8;
-    const logoPadding = 4;
-
-    const logoPromises = logoUrls.map(url =>
-      new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => {
-          const aspectRatio = img.width / img.height;
-          const width = logoHeight * aspectRatio;
-          resolve({ img, width, height: logoHeight });
-          if (url.endsWith('.svg')) URL.revokeObjectURL(img.src);
-        };
-        img.onerror = reject;
-        if (url.endsWith('.svg')) {
-          fetch(url).then(r => r.text()).then(svgText => {
-            const blob = new Blob([svgText], { type: 'image/svg+xml' });
-            img.src = URL.createObjectURL(blob);
-          }).catch(reject);
-        } else {
-          img.src = url;
-        }
-      })
-    );
-    const successfulLogos = (await Promise.allSettled(logoPromises))
-      .filter(r => r.status === 'fulfilled')
-      .map(r => (r as PromiseFulfilledResult<any>).value);
-
     // --- HELPER: Add page header/footer (repeating) ---
     const addHeaderAndFooter = (data: any) => {
       doc.setFillColor(primaryColor);
@@ -366,30 +338,7 @@ export const exportToPDF = async (
     doc.setTextColor('#FFFFFF');
     doc.text('Mother of Math | Lesson Plan', pageWidth / 2, 14, { align: 'center' });
 
-    let yPos = 30;
-
-    // Logos
-    if (successfulLogos.length > 0) {
-      const totalLogoWidth = successfulLogos.reduce((sum: number, logo: any) => sum + logo.width, 0) + (successfulLogos.length - 1) * logoPadding;
-      let currentX = (pageWidth - totalLogoWidth) / 2;
-      for (const logo of successfulLogos) {
-        const canvas = document.createElement('canvas');
-        const scaleFactor = 5;
-        canvas.width = logo.width * scaleFactor;
-        canvas.height = logo.height * scaleFactor;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.imageSmoothingEnabled = false;
-          ctx.drawImage(logo.img, 0, 0, canvas.width, canvas.height);
-          const dataUrl = canvas.toDataURL('image/png');
-          doc.addImage(dataUrl, 'PNG', currentX, yPos, logo.width, logo.height, undefined, 'NONE');
-          currentX += logo.width + logoPadding;
-        }
-      }
-      yPos += logoHeight + 6;
-    } else {
-      yPos = 32;
-    }
+    let yPos = 32;
 
     // Title
     doc.setFont('helvetica', 'bold');

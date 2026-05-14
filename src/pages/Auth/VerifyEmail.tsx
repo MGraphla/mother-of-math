@@ -1,23 +1,45 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { useAuth, getDashboardPath } from "@/context/AuthContext";
-import { BookHeart, Mail, CheckCircle2, Loader2, RotateCcw, ShieldCheck } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { BookHeart, Mail, CheckCircle2, Loader2, RotateCcw, ShieldCheck, Send } from "lucide-react";
+import { maskE164 } from "@/lib/phone";
+
+type VerificationChannel = "email" | "sms";
 
 const VerifyEmail = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { verifyOtp, resendOtp, profile } = useAuth();
+  const {
+    verifyOtp,
+    verifySignupPhoneOtp,
+    resendOtp,
+    resendSignupPhoneOtp,
+    profile,
+  } = useAuth();
 
-  // Email passed via navigation state from SignUp, fallback to sessionStorage
-  const email: string = (location.state as any)?.email ?? sessionStorage.getItem('verify_email') ?? "";
+  const navState = location.state as {
+    email?: string;
+    verificationChannel?: VerificationChannel;
+    password?: string;
+    maskedDestination?: string;
+  } | null;
 
-  // Persist email to sessionStorage so page refresh doesn't lose it
+  const email: string =
+    navState?.email ?? sessionStorage.getItem("verify_email") ?? "";
+
+  const verificationChannel: VerificationChannel =
+    navState?.verificationChannel ??
+    (sessionStorage.getItem("verify_channel") as VerificationChannel) ??
+    "email";
+
   useEffect(() => {
-    if (email) sessionStorage.setItem('verify_email', email);
-  }, [email]);
+    if (email) sessionStorage.setItem("verify_email", email);
+    sessionStorage.setItem("verify_channel", verificationChannel);
+  }, [email, verificationChannel]);
 
   const [token, setToken] = useState("");
+  const [loginPassword, setLoginPassword] = useState(navState?.password ?? "");
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [error, setError] = useState("");
@@ -25,25 +47,48 @@ const VerifyEmail = () => {
   const [resendCooldown, setResendCooldown] = useState(0);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
 
-  // If there's no email, redirect back to signup
   useEffect(() => {
     if (!email) navigate("/sign-up", { replace: true });
   }, [email, navigate]);
 
-  // Countdown for resend cooldown
   useEffect(() => {
     if (resendCooldown <= 0) return;
     const id = setInterval(() => setResendCooldown((c) => c - 1), 1000);
     return () => clearInterval(id);
   }, [resendCooldown]);
 
-  // Focus input on mount
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  // ── Verify ───────────────────────────────────────────
+  const masked =
+    navState?.maskedDestination ??
+    (sessionStorage.getItem("verify_dest_e164")
+      ? maskE164(sessionStorage.getItem("verify_dest_e164")!)
+      : "");
+
+  const headline =
+    verificationChannel === "email" ? "Check your email" : "Check your text messages";
+
+  const subline =
+    verificationChannel === "email"
+      ? "We sent a verification code to"
+      : "We sent a verification code via SMS to";
+
+  const channelIcon =
+    verificationChannel === "email" ? (
+      <Mail className="h-7 w-7 text-white" />
+    ) : (
+      <Send className="h-7 w-7 text-white" />
+    );
+
+  const hintBelowCode =
+    verificationChannel === "email"
+      ? "Paste the full code from your email"
+      : "Enter the code from your SMS";
+
   const handleVerify = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const trimmed = token.trim();
@@ -52,38 +97,55 @@ const VerifyEmail = () => {
       return;
     }
 
+    if (verificationChannel !== "email") {
+      if (!loginPassword) {
+        setError("Enter the password you used when creating your account to finish signing in.");
+        passwordRef.current?.focus();
+        return;
+      }
+    }
+
     setIsVerifying(true);
     setError("");
     try {
-      // verifyOtp now returns quickly — profile creation happens in background
-      await verifyOtp(email, trimmed);
+      if (verificationChannel === "email") {
+        await verifyOtp(email, trimmed);
+      } else {
+        await verifySignupPhoneOtp(email, trimmed, loginPassword);
+      }
 
-      // Verification succeeded! Show success state.
       setSuccess(true);
-      sessionStorage.removeItem('verify_email');
+      sessionStorage.removeItem("verify_email");
+      sessionStorage.removeItem("verify_channel");
+      sessionStorage.removeItem("verify_country");
+      sessionStorage.removeItem("verify_dest_e164");
 
-      // Determine the correct dashboard from pending_profile (sessionStorage)
-      // since the profile state hasn't propagated yet.
-      const pendingRaw = sessionStorage.getItem('pending_profile');
+      const pendingRaw = sessionStorage.getItem("pending_profile");
       let role: string | null = null;
       if (pendingRaw) {
-        try { role = JSON.parse(pendingRaw).role; } catch {}
+        try {
+          role = JSON.parse(pendingRaw).role;
+        } catch {
+          /* ignore */
+        }
       }
       if (!role) {
         role = profile?.role ?? null;
       }
 
-      const dashPath = role === 'student' ? '/student'
-        : role === 'parent' ? '/parent-dashboard'
-        : '/dashboard';
+      const dashPath =
+        role === "student"
+          ? "/student"
+          : role === "parent"
+            ? "/parent-dashboard"
+            : "/dashboard";
 
-      // Small delay for the success animation, then navigate
       setTimeout(() => {
         navigate(dashPath, { replace: true });
       }, 1800);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("OTP verification error:", err);
-      setError(err.message || "Invalid or expired code. Please try again.");
+      setError(err instanceof Error ? err.message : "Invalid or expired code. Please try again.");
       setToken("");
       inputRef.current?.focus();
     } finally {
@@ -91,25 +153,36 @@ const VerifyEmail = () => {
     }
   };
 
-  // ── Resend ───────────────────────────────────────────
   const handleResend = async () => {
     if (resendCooldown > 0) return;
     setIsResending(true);
     setError("");
     try {
-      await resendOtp(email);
+      if (verificationChannel === "email") {
+        await resendOtp(email);
+      } else {
+        const country = sessionStorage.getItem("verify_country") ?? "Cameroon";
+        const dest = sessionStorage.getItem("verify_dest_e164") ?? "";
+        if (!dest) {
+          throw new Error("Missing phone destination. Go back to sign-up and try again.");
+        }
+        await resendSignupPhoneOtp(
+          email,
+          "sms",
+          dest,
+          country,
+        );
+      }
       setResendCooldown(60);
-    } catch (err: any) {
-      setError(err.message || "Failed to resend code.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to resend code.");
     } finally {
       setIsResending(false);
     }
   };
 
-  // ── Render ───────────────────────────────────────────
   return (
     <div className="relative flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-50 via-green-50/30 to-emerald-50/40 p-4 overflow-hidden">
-      {/* Decorative blobs */}
       <div className="absolute top-20 -left-20 h-72 w-72 rounded-full bg-green-200/40 blur-3xl pointer-events-none" />
       <div className="absolute bottom-20 -right-20 h-72 w-72 rounded-full bg-emerald-200/40 blur-3xl pointer-events-none" />
 
@@ -120,7 +193,6 @@ const VerifyEmail = () => {
         className="relative z-10 w-full max-w-md"
       >
         <div className="border border-white/60 bg-white/80 backdrop-blur-xl shadow-2xl rounded-3xl overflow-hidden">
-          {/* Header */}
           <div className="text-center pb-2 bg-gradient-to-b from-green-50/80 to-transparent pt-8 px-6">
             <Link to="/" className="inline-flex items-center justify-center gap-2 mb-4">
               <div className="bg-gradient-to-br from-green-500 to-emerald-600 p-2 rounded-xl shadow-lg shadow-green-500/20">
@@ -142,7 +214,7 @@ const VerifyEmail = () => {
                   <div className="h-16 w-16 rounded-full bg-green-100 flex items-center justify-center ring-4 ring-green-200">
                     <CheckCircle2 className="h-8 w-8 text-green-600" />
                   </div>
-                  <h2 className="text-2xl font-bold text-gray-900">Email Verified!</h2>
+                  <h2 className="text-2xl font-bold text-gray-900">You&apos;re verified!</h2>
                   <p className="text-gray-500 text-sm">
                     Your account is ready. Redirecting to your dashboard...
                   </p>
@@ -151,13 +223,13 @@ const VerifyEmail = () => {
               ) : (
                 <motion.div key="form" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                   <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-green-500 to-emerald-600 shadow-lg shadow-green-500/20">
-                    <Mail className="h-7 w-7 text-white" />
+                    {channelIcon}
                   </div>
-                  <h2 className="text-2xl font-bold text-gray-900">Check your email</h2>
-                  <p className="text-gray-500 text-sm mt-1 mb-1">
-                    We sent a verification code to
+                  <h2 className="text-2xl font-bold text-gray-900">{headline}</h2>
+                  <p className="text-gray-500 text-sm mt-1 mb-1">{subline}</p>
+                  <p className="font-semibold text-gray-800 text-sm">
+                    {verificationChannel === "email" ? email : masked || "your number"}
                   </p>
-                  <p className="font-semibold text-gray-800 text-sm">{email}</p>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -166,7 +238,6 @@ const VerifyEmail = () => {
           {!success && (
             <div className="px-6 pb-8 pt-4 space-y-5">
               <form onSubmit={handleVerify} className="space-y-5">
-                {/* Token Input */}
                 <div className="space-y-2">
                   <label htmlFor="verification-code" className="block text-sm font-medium text-gray-700 text-center">
                     Enter verification code
@@ -193,11 +264,37 @@ const VerifyEmail = () => {
                   />
                   <div className="flex items-center justify-center gap-1.5 text-xs text-gray-400">
                     <ShieldCheck className="h-3.5 w-3.5" />
-                    <span>Paste the full code from your email</span>
+                    <span>{hintBelowCode}</span>
                   </div>
                 </div>
 
-                {/* Error */}
+                {verificationChannel !== "email" && (
+                  <div className="space-y-2">
+                    <label htmlFor="verify-password" className="block text-sm font-medium text-gray-700 text-center">
+                      Your password
+                    </label>
+                    <input
+                      ref={passwordRef}
+                      id="verify-password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={loginPassword}
+                      onChange={(e) => {
+                        setLoginPassword(e.target.value);
+                        setError("");
+                      }}
+                      placeholder="Same password as on sign-up"
+                      className={`w-full h-12 text-center rounded-xl border-2 transition-all duration-200 outline-none bg-white/70 px-3 text-sm
+                        ${loginPassword ? "border-green-400 bg-green-50/30" : "border-gray-200"}
+                        focus:border-green-500 focus:ring-4 focus:ring-green-500/20`}
+                    />
+                    <p className="text-xs text-gray-400 text-center">
+                      We use this only to sign you in after the code is confirmed. If you refreshed the page, enter it
+                      again here.
+                    </p>
+                  </div>
+                )}
+
                 <AnimatePresence>
                   {error && (
                     <motion.p
@@ -211,10 +308,13 @@ const VerifyEmail = () => {
                   )}
                 </AnimatePresence>
 
-                {/* Verify button */}
                 <button
                   type="submit"
-                  disabled={isVerifying || token.length < 6}
+                  disabled={
+                    isVerifying ||
+                    token.length < 6 ||
+                    (verificationChannel !== "email" && !loginPassword)
+                  }
                   className="w-full h-12 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold text-base
                     shadow-lg shadow-green-600/25 hover:shadow-green-600/40
                     transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0
@@ -227,15 +327,15 @@ const VerifyEmail = () => {
                       <span className="text-white">Verifying...</span>
                     </>
                   ) : (
-                    <span className="text-white">Verify Email</span>
+                    <span className="text-white">Verify account</span>
                   )}
                 </button>
               </form>
 
-              {/* Resend */}
               <div className="text-center space-y-2 pt-1">
-                <p className="text-sm text-gray-500">Didn't receive the code?</p>
+                <p className="text-sm text-gray-500">Didn&apos;t receive the code?</p>
                 <button
+                  type="button"
                   onClick={handleResend}
                   disabled={isResending || resendCooldown > 0}
                   className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm
@@ -256,10 +356,18 @@ const VerifyEmail = () => {
               </div>
 
               <p className="text-xs text-gray-400 text-center">
-                Check your spam/junk folder if you don't see the email.{" "}
-                <Link to="/sign-up" className="text-green-600 hover:underline font-medium">
-                  Try different email
-                </Link>
+                {verificationChannel === "email" ? (
+                  <>
+                    Check your spam/junk folder if you don&apos;t see the email.{" "}
+                    <Link to="/sign-up" className="text-green-600 hover:underline font-medium">
+                      Try different email
+                    </Link>
+                  </>
+                ) : (
+                  <Link to="/sign-up" className="text-green-600 hover:underline font-medium">
+                    Back to sign-up
+                  </Link>
+                )}
               </p>
             </div>
           )}

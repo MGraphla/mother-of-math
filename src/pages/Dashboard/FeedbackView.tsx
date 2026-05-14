@@ -29,7 +29,7 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import {
-  Student, StudentAssignment, AssignmentSubmission,
+  Learner, StudentAssignment, AssignmentSubmission,
   getAssignmentById, getAssignmentStudents, getSubmissionsForAssignment,
   getStudentsByTeacher, gradeSubmission, returnSubmission,
 } from "@/services/studentService";
@@ -37,7 +37,7 @@ import {
 // ── Types ──────────────────────────────────────────────
 
 interface SubmissionWithStudent extends AssignmentSubmission {
-  student: Student | null;
+  student: Learner | null;
 }
 
 // ── Component ──────────────────────────────────────────
@@ -51,7 +51,7 @@ const FeedbackView = () => {
   const [assignment, setAssignment] = useState<StudentAssignment | null>(null);
   const [submissions, setSubmissions] = useState<SubmissionWithStudent[]>([]);
   const [assignedStudentIds, setAssignedStudentIds] = useState<string[]>([]);
-  const [allStudents, setAllStudents] = useState<Student[]>([]);
+  const [allStudents, setAllStudents] = useState<Learner[]>([]);
   const [loading, setLoading] = useState(true);
 
   // UI state
@@ -130,7 +130,7 @@ const FeedbackView = () => {
 
   // ── Derived Data ───────────────────────────────────
 
-  const getStudentName = (id: string) => allStudents.find((s) => s.id === id)?.full_name || "Unknown Student";
+  const getStudentName = (id: string) => allStudents.find((s) => s.id === id)?.full_name || "Unknown Learner";
 
   const submittedStudentIds = new Set(submissions.map((s) => s.student_id));
   const assignedStudents = allStudents.filter((s) => assignedStudentIds.includes(s.id));
@@ -218,16 +218,16 @@ const FeedbackView = () => {
 
   return (
     <TooltipProvider>
-      <div className="container max-w-7xl py-6 space-y-6">
+      <div className="container max-w-7xl py-4 sm:py-6 space-y-3 sm:space-y-6 px-2 sm:px-4">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-          <div className="flex items-start gap-3">
-            <Button variant="outline" size="icon" onClick={() => navigate("/dashboard/assignments")} className="shrink-0 mt-1">
+        <div className="flex flex-col sm:flex-row justify-between items-start gap-2 sm:gap-4">
+          <div className="flex items-start gap-2 sm:gap-3 min-w-0">
+            <Button variant="outline" size="icon" onClick={() => navigate("/dashboard/assignments")} className="shrink-0 mt-0.5 sm:mt-1 h-9 w-9">
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{assignment.title}</h1>
-              <div className="flex items-center flex-wrap gap-3 text-sm text-muted-foreground mt-1">
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-2xl md:text-3xl font-bold tracking-tight leading-tight break-words">{assignment.title}</h1>
+              <div className="flex items-center flex-wrap gap-2 sm:gap-3 text-xs sm:text-sm text-muted-foreground mt-1">
                 <span className="flex items-center gap-1">
                   <GraduationCap className="h-3.5 w-3.5" />
                   {assignment.grade_level}
@@ -241,14 +241,28 @@ const FeedbackView = () => {
                 )}
               </div>
               {assignment.description && (
-                <p className="text-sm text-muted-foreground mt-2 max-w-2xl">{assignment.description}</p>
+                <p className="text-xs sm:text-sm text-muted-foreground mt-1 sm:mt-2 max-w-2xl line-clamp-4 sm:line-clamp-none">{assignment.description}</p>
               )}
             </div>
           </div>
         </div>
 
-        {/* Stats Row */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {/* Stats — compact row on mobile */}
+        <div className="sm:hidden rounded-lg border divide-x divide-border bg-muted/30 flex text-center text-[9px]">
+          {[
+            ["Asgn", assignedStudentIds.length],
+            ["Sub", submissions.length],
+            ["Grd", gradedCount],
+            ["Pend", pendingCount],
+            ["Avg", averageScore !== null ? averageScore : "—"],
+          ].map(([l, v]) => (
+            <div key={String(l)} className="flex-1 min-w-0 py-1.5 px-0.5">
+              <p className="text-muted-foreground font-medium leading-none">{l}</p>
+              <p className="text-xs font-bold tabular-nums mt-0.5 leading-none">{v}</p>
+            </div>
+          ))}
+        </div>
+        <div className="hidden sm:grid grid-cols-2 md:grid-cols-5 gap-3">
           <StatCard icon={<Users className="h-5 w-5" />} label="Assigned" value={assignedStudentIds.length} color="text-primary" bg="bg-primary/10" />
           <StatCard icon={<FileText className="h-5 w-5" />} label="Submitted" value={submissions.length} color="text-primary" bg="bg-primary/5" />
           <StatCard icon={<CheckCircle2 className="h-5 w-5" />} label="Graded" value={gradedCount} color="text-emerald-600" bg="bg-emerald-50 dark:bg-emerald-950" />
@@ -277,7 +291,7 @@ const FeedbackView = () => {
                   <FileText className="h-10 w-10 text-muted-foreground/40 mb-3" />
                   <p className="font-medium">No submissions yet</p>
                   <p className="text-sm text-muted-foreground">
-                    {activeTab === "submitted" ? "All submissions have been graded." : "Students haven't submitted work yet."}
+                    {activeTab === "submitted" ? "All submissions have been graded." : "Learner haven't submitted work yet."}
                   </p>
                 </CardContent>
               </Card>
@@ -302,7 +316,7 @@ const FeedbackView = () => {
                           </div>
                           <div className="min-w-0">
                             <CardTitle className="text-base truncate">
-                              {sub.student?.full_name || "Unknown Student"}
+                              {sub.student?.full_name || "Unknown Learner"}
                             </CardTitle>
                             <CardDescription className="text-xs">
                               Submitted {format(new Date(sub.submitted_at), "MMM d, yyyy 'at' h:mm a")}
@@ -323,7 +337,7 @@ const FeedbackView = () => {
                     <CardContent className="pt-0 pb-3">
                       {sub.notes && (
                         <div className="bg-muted/50 p-2.5 rounded-md text-sm mb-2">
-                          <p className="text-xs font-medium text-muted-foreground mb-0.5">Student Notes:</p>
+                          <p className="text-xs font-medium text-muted-foreground mb-0.5">Learner Notes:</p>
                           <p className="line-clamp-2">{sub.notes}</p>
                         </div>
                       )}
@@ -358,7 +372,7 @@ const FeedbackView = () => {
             )}
           </div>
 
-          {/* Missing Students Sidebar */}
+          {/* Missing Learner Sidebar */}
           <div className="space-y-4">
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-500" />
@@ -419,7 +433,7 @@ const FeedbackView = () => {
             <DialogContent className="sm:max-w-[550px]">
               <DialogHeader>
                 <DialogTitle className="text-xl">
-                  Grade Submission — {selectedSubmission.student?.full_name || "Student"}
+                  Grade Submission — {selectedSubmission.student?.full_name || "Learner"}
                 </DialogTitle>
                 <DialogDescription>
                   Submitted on {format(new Date(selectedSubmission.submitted_at), "MMMM d, yyyy 'at' h:mm a")}
@@ -427,10 +441,10 @@ const FeedbackView = () => {
               </DialogHeader>
 
               <div className="space-y-4 py-2">
-                {/* Student notes */}
+                {/* Learner notes */}
                 {selectedSubmission.notes && (
                   <div className="bg-muted/50 p-3 rounded-md">
-                    <Label className="text-xs text-muted-foreground uppercase tracking-wider">Student Notes</Label>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wider">Learner Notes</Label>
                     <p className="text-sm mt-1">{selectedSubmission.notes}</p>
                   </div>
                 )}
@@ -499,7 +513,7 @@ const FeedbackView = () => {
                 <Button onClick={handleReturn} disabled={actionLoading}>
                   {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   <Send className="h-4 w-4 mr-1.5" />
-                  Grade & Return to Student
+                  Grade & Return to Learner
                 </Button>
               </DialogFooter>
             </DialogContent>

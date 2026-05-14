@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
+import { normalizePhoneToE164, maskE164 } from "@/lib/phone";
 import { useLanguage } from "@/context/LanguageContext";
 import GoogleIcon from "@/components/icons/GoogleIcon";
 import {
@@ -19,13 +20,15 @@ import {
   GraduationCap,
   Users,
   Globe,
-  MessageCircle,
   ChevronRight,
   ChevronLeft,
   Check,
   Eye,
   EyeOff,
   Sparkles,
+  ShieldCheck,
+  Send,
+  type LucideIcon,
 } from "lucide-react";
 
 // ── Country list ──────────────────────────────────────────
@@ -79,7 +82,10 @@ const STEPS = [
   { id: 2, title: "Personal", icon: User },
   { id: 3, title: "School", icon: School },
   { id: 4, title: "Contact", icon: Phone },
+  { id: 5, title: "Verify", icon: ShieldCheck },
 ];
+
+type VerificationDelivery = "email" | "sms";
 
 // ── Animations ────────────────────────────────────────────
 const stepVariants = {
@@ -90,7 +96,7 @@ const stepVariants = {
 
 const SignUp = () => {
   const navigate = useNavigate();
-  const { signUp, signInWithGoogle } = useAuth();
+  const { signUp, signUpWithPhoneVerification, signInWithGoogle } = useAuth();
   const { t } = useLanguage();
 
   // Form state
@@ -121,6 +127,7 @@ const SignUp = () => {
   const [schoolAddress, setSchoolAddress] = useState("");
   const [schoolType, setSchoolType] = useState("");
   const [numberOfStudents, setNumberOfStudents] = useState("");
+  const [numberOfClasses, setNumberOfClasses] = useState("");
   const [subjectsTaught, setSubjectsTaught] = useState("");
   const [gradeLevels, setGradeLevels] = useState("");
   const [yearsOfExperience, setYearsOfExperience] = useState("");
@@ -128,13 +135,16 @@ const SignUp = () => {
 
   // Step 4 – Contact
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [whatsappNumber, setWhatsappNumber] = useState("");
+
+  // Step 5 – Where to receive verification code
+  const [verificationChannel, setVerificationChannel] =
+    useState<VerificationDelivery>("email");
 
   // ── Navigation ────────────────────────────────────────
   const goNext = () => {
     if (!validateStep()) return;
     setDirection(1);
-    setStep((s) => Math.min(s + 1, 4));
+    setStep((s) => Math.min(s + 1, 5));
   };
   const goBack = () => {
     setDirection(-1);
@@ -198,21 +208,6 @@ const SignUp = () => {
           }
         }
       }
-      if (whatsappNumber) {
-        if (country === "Cameroon") {
-          const cameroonRegex = /^(?:\+237|237)?\s*?[26]\d{8}$/;
-          if (!cameroonRegex.test(whatsappNumber.replace(/\s+/g, ''))) {
-            setErrorMessage(t('auth.error.invalidWhatsappCameroon') || "Please enter a valid Cameroon WhatsApp number.");
-            return false;
-          }
-        } else if (country === "Nigeria") {
-          const nigeriaRegex = /^(?:\+234|234)?\s*?[789][01]\d{8}$|^0[789][01]\d{8}$/;
-          if (!nigeriaRegex.test(whatsappNumber.replace(/\s+/g, ''))) {
-            setErrorMessage(t('auth.error.invalidWhatsappNigeria') || "Please enter a valid Nigeria WhatsApp number.");
-            return false;
-          }
-        }
-      }
     }
     return true;
   };
@@ -222,29 +217,59 @@ const SignUp = () => {
     if (!validateStep()) return;
     setIsSubmitting(true);
     setErrorMessage("");
+    const profilePayload = {
+      full_name: fullName,
+      role,
+      date_of_birth: dateOfBirth || null,
+      gender: gender || null,
+      country: country || null,
+      city: city || null,
+      school_name: schoolName || null,
+      school_address: schoolAddress || null,
+      school_type: schoolType || null,
+      number_of_students: numberOfStudents ? parseInt(numberOfStudents) : null,
+      number_of_classes: numberOfClasses ? parseInt(numberOfClasses) : null,
+      subjects_taught: subjectsTaught || null,
+      grade_levels: gradeLevels || null,
+      years_of_experience: yearsOfExperience ? parseInt(yearsOfExperience) : null,
+      education_level: educationLevel || null,
+      phone_number: phoneNumber || null,
+      whatsapp_number: null,
+      bio: bio || null,
+      preferred_language: preferredLanguage || null,
+    };
     try {
-      await signUp(email, password, {
-        full_name: fullName,
-        role,
-        date_of_birth: dateOfBirth || null,
-        gender: gender || null,
-        country: country || null,
-        city: city || null,
-        school_name: schoolName || null,
-        school_address: schoolAddress || null,
-        school_type: schoolType || null,
-        number_of_students: numberOfStudents ? parseInt(numberOfStudents) : null,
-        subjects_taught: subjectsTaught || null,
-        grade_levels: gradeLevels || null,
-        years_of_experience: yearsOfExperience ? parseInt(yearsOfExperience) : null,
-        education_level: educationLevel || null,
-        phone_number: phoneNumber || null,
-        whatsapp_number: whatsappNumber || null,
-        bio: bio || null,
-        preferred_language: preferredLanguage || null,
+      sessionStorage.setItem("verify_email", email);
+      sessionStorage.setItem("verify_channel", verificationChannel);
+
+      if (verificationChannel === "email") {
+        await signUp(email, password, profilePayload);
+        navigate("/verify-email", { state: { email, verificationChannel: "email" as const } });
+        return;
+      }
+
+      const destinationRaw = phoneNumber.trim();
+      const destE164 = normalizePhoneToE164(destinationRaw, country);
+      sessionStorage.setItem("verify_country", country);
+      sessionStorage.setItem("verify_dest_e164", destE164);
+
+      await signUpWithPhoneVerification(
+        email,
+        password,
+        profilePayload,
+        verificationChannel,
+        destinationRaw,
+        country,
+      );
+
+      navigate("/verify-email", {
+        state: {
+          email,
+          verificationChannel,
+          password,
+          maskedDestination: maskE164(destE164),
+        },
       });
-      // Navigate to the OTP verification screen with the email
-      navigate("/verify-email", { state: { email } });
     } catch (error: any) {
       setErrorMessage(error.message || "Failed to create account.");
     } finally {
@@ -497,7 +522,7 @@ const SignUp = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="schoolType" className={labelClass}>School type</Label>
                 <select
@@ -513,18 +538,40 @@ const SignUp = () => {
                 </select>
               </div>
               <div className="space-y-1.5">
+                <Label htmlFor="numberOfClasses" className={labelClass}>
+                  <Briefcase className="h-3.5 w-3.5 text-green-600" /> No. of classes
+                </Label>
+                <select
+                  id="numberOfClasses"
+                  value={numberOfClasses}
+                  onChange={(e) => setNumberOfClasses(e.target.value)}
+                  className={selectClass}
+                >
+                  <option value="">Select...</option>
+                  <option value="1">1 class</option>
+                  <option value="2">2 classes</option>
+                  <option value="3">3 classes</option>
+                  <option value="4">4 classes</option>
+                  <option value="5">5+ classes</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
                 <Label htmlFor="numberOfStudents" className={labelClass}>
                   <Users className="h-3.5 w-3.5 text-green-600" /> No. of students
                 </Label>
-                <Input
+                <select
                   id="numberOfStudents"
-                  type="number"
-                  placeholder="e.g. 150"
                   value={numberOfStudents}
                   onChange={(e) => setNumberOfStudents(e.target.value)}
-                  className={inputClass}
-                  min="0"
-                />
+                  className={selectClass}
+                >
+                  <option value="">Select...</option>
+                  <option value="20">1-20 students</option>
+                  <option value="50">21-50 students</option>
+                  <option value="100">51-100 students</option>
+                  <option value="200">101-200 students</option>
+                  <option value="500">200+ students</option>
+                </select>
               </div>
             </div>
 
@@ -607,21 +654,6 @@ const SignUp = () => {
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="whatsappNumber" className={labelClass}>
-                <MessageCircle className="h-3.5 w-3.5 text-green-600" /> WhatsApp number
-              </Label>
-              <Input
-                id="whatsappNumber"
-                type="tel"
-                placeholder={country === "Nigeria" ? "+234 8XX XXX XXXX" : "+237 6XX XXX XXX"}
-                value={whatsappNumber}
-                onChange={(e) => setWhatsappNumber(e.target.value)}
-                className={inputClass}
-              />
-              <p className="text-xs text-gray-400">We use WhatsApp for important notifications &amp; community updates.</p>
-            </div>
-
             {/* Summary preview */}
             <div className="mt-4 rounded-xl bg-gradient-to-br from-green-50 to-emerald-50 border border-green-100 p-4 space-y-2">
               <h4 className="text-sm font-semibold text-green-800 flex items-center gap-1.5">
@@ -650,6 +682,70 @@ const SignUp = () => {
             </p>
           </div>
         );
+
+      case 5: {
+        const channelCard = (
+          ch: VerificationDelivery,
+          Icon: LucideIcon,
+          title: string,
+          desc: string,
+        ) => {
+          const active = verificationChannel === ch;
+          return (
+            <button
+              key={ch}
+              type="button"
+              onClick={() => setVerificationChannel(ch)}
+              className={`w-full text-left rounded-xl border-2 p-4 transition-all duration-200 flex gap-3 items-start
+                ${
+                  active
+                    ? "border-green-500 bg-green-50/80 shadow-md shadow-green-500/10"
+                    : "border-gray-200 bg-white/60 hover:border-green-200 hover:bg-green-50/30"
+                }`}
+            >
+              <div
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+                  active ? "bg-green-600 text-white" : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                <Icon className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="font-semibold text-gray-900">{title}</div>
+                <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{desc}</p>
+              </div>
+            </button>
+          );
+        };
+
+        return (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Choose how you want to receive your <span className="font-medium">one-time verification code</span> to
+              activate your account.
+            </p>
+            <div className="space-y-3">
+              {channelCard(
+                "email",
+                Mail,
+                "Email",
+                `We will send the code to ${email || "your email address"}.`,
+              )}
+              {channelCard(
+                "sms",
+                Send,
+                "Text message (SMS)",
+                `Uses your mobile number: ${phoneNumber || "—"}.`,
+              )}
+            </div>
+            {verificationChannel === "sms" && (
+              <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+                Standard message rates may apply. Your code will arrive within a few seconds.
+              </p>
+            )}
+          </div>
+        );
+      }
 
       default:
         return null;
@@ -852,7 +948,7 @@ const SignUp = () => {
                 <div />
               )}
 
-              {step < 4 ? (
+              {step < 5 ? (
                 <Button
                   type="button"
                   onClick={goNext}

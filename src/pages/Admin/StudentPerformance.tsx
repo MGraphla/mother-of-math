@@ -262,7 +262,7 @@ const StudentPerformanceAnalytics: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white">Student Performance</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-white">Learner Performance</h1>
           <p className="text-gray-400">
             Analyze student engagement and academic performance across all teachers
           </p>
@@ -279,7 +279,7 @@ const StudentPerformanceAnalytics: React.FC = () => {
       {/* KPI Cards */}
       <KPIGrid columns={4}>
         <KPICard
-          title="Total Students"
+          title="Total Learner"
           value={stats.totalStudents}
           icon={<GraduationCap className="h-5 w-5" />}
         />
@@ -312,7 +312,7 @@ const StudentPerformanceAnalytics: React.FC = () => {
               Performance Distribution
             </CardTitle>
             <CardDescription className="text-gray-400">
-              Student performance levels breakdown
+              Learner performance levels breakdown
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -351,7 +351,7 @@ const StudentPerformanceAnalytics: React.FC = () => {
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <GraduationCap className="h-5 w-5 text-emerald-400" />
-              Students by Grade Level
+              Learner by Grade Level
             </CardTitle>
             <CardDescription className="text-gray-400">
               Distribution of students across grade levels
@@ -466,7 +466,7 @@ const StudentPerformanceAnalytics: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Students Table */}
+      {/* Learner Table */}
       <Card className="bg-gray-900/50 border-gray-800">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -474,7 +474,7 @@ const StudentPerformanceAnalytics: React.FC = () => {
               <TableHeader>
                 <TableRow className="border-gray-800 hover:bg-transparent">
                   <TableHead className="text-gray-400">Rank</TableHead>
-                  <TableHead className="text-gray-400">Student</TableHead>
+                  <TableHead className="text-gray-400">Learner</TableHead>
                   <TableHead className="text-gray-400">Grade</TableHead>
                   <TableHead className="text-gray-400">Teacher</TableHead>
                   <TableHead className="text-gray-400 text-center">Score</TableHead>

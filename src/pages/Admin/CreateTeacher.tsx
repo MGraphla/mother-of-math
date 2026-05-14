@@ -116,6 +116,7 @@ const CreateTeacher = () => {
   const [schoolAddress, setSchoolAddress]     = useState('');
   const [schoolType, setSchoolType]           = useState('');
   const [numStudents, setNumStudents]         = useState('');
+  const [numClasses, setNumClasses]           = useState('');
   const [subjects, setSubjects]               = useState('');
   const [gradeLevels, setGradeLevels]         = useState('');
   const [yearsExp, setYearsExp]               = useState('');
@@ -178,6 +179,7 @@ const CreateTeacher = () => {
         school_address:       schoolAddress || undefined,
         school_type:          schoolType || undefined,
         number_of_students:   numStudents ? parseInt(numStudents) : undefined,
+        number_of_classes:    numClasses ? parseInt(numClasses) : undefined,
         subjects_taught:      subjects || undefined,
         grade_levels:         gradeLevels || undefined,
         years_of_experience:  yearsExp ? parseInt(yearsExp) : undefined,
@@ -193,7 +195,7 @@ const CreateTeacher = () => {
         setFullName(''); setDateOfBirth(''); setGender(''); setCountry('Cameroon'); setCity('');
         setPreferredLang('English'); setBio('');
         setSchoolName(''); setSchoolAddress(''); setSchoolType('');
-        setNumStudents(''); setSubjects(''); setGradeLevels(''); setYearsExp(''); setEduLevel('');
+        setNumStudents(''); setNumClasses(''); setSubjects(''); setGradeLevels(''); setYearsExp(''); setEduLevel('');
         setPhone(''); setWhatsapp('');
       } else {
         setError(result.error || 'Failed to create teacher account.');
@@ -425,15 +427,34 @@ const CreateTeacher = () => {
                   placeholder="Street, town, region" className={iCls} />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {/* Number of Students */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                {/* Number of Classes */}
+                <div>
+                  <Label htmlFor="numClasses" className={lCls}>
+                    <Briefcase className="h-3.5 w-3.5" /> No. of Classes
+                  </Label>
+                  <select id="numClasses" value={numClasses} onChange={e => setNumClasses(e.target.value)} className={iCls}>
+                    <option value="">Select...</option>
+                    <option value="1">1 class</option>
+                    <option value="2">2 classes</option>
+                    <option value="3">3 classes</option>
+                    <option value="4">4 classes</option>
+                    <option value="5">5+ classes</option>
+                  </select>
+                </div>
+                {/* Number of Learner */}
                 <div>
                   <Label htmlFor="numStudents" className={lCls}>
-                    <Users className="h-3.5 w-3.5" /> No. of Students
+                    <Users className="h-3.5 w-3.5" /> No. of Learner
                   </Label>
-                  <Input id="numStudents" type="number" min="0" value={numStudents}
-                    onChange={e => setNumStudents(e.target.value)}
-                    placeholder="e.g. 45" className={iCls} />
+                  <select id="numStudents" value={numStudents} onChange={e => setNumStudents(e.target.value)} className={iCls}>
+                    <option value="">Select...</option>
+                    <option value="20">1-20 students</option>
+                    <option value="50">21-50 students</option>
+                    <option value="100">51-100 students</option>
+                    <option value="200">101-200 students</option>
+                    <option value="500">200+ students</option>
+                  </select>
                 </div>
                 {/* Years of Experience */}
                 <div>

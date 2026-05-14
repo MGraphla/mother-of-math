@@ -28,7 +28,7 @@ export default function Overview() {
       try {
         setLoading(true);
 
-        // 1. Fetch Total Students
+        // 1. Fetch Total Learner
         const { count: studentsCount, error: studentsError } = await supabase
           .from('students')
           .select('*', { count: 'exact', head: true })
@@ -49,7 +49,7 @@ export default function Overview() {
         let totalScore = 0;
         let scoreCount = 0;
         let submissionsData: any[] = [];
-        let monthlyData: Record<string, { total: number, count: number }> = {};
+        let monthlyData: Record<string, { total: number; count: number }> = {};
 
         if (assignments && assignments.length > 0) {
           const assignmentIds = assignments.map(a => a.id);
@@ -64,7 +64,7 @@ export default function Overview() {
               submitted_at,
               graded_at,
               students ( full_name ),
-              assignments ( title )
+              assignments ( title, max_score )
             `)
             .in('assignment_id', assignmentIds)
             .order('submitted_at', { ascending: false });
@@ -72,29 +72,41 @@ export default function Overview() {
           if (submissionsError) throw submissionsError;
 
           if (submissions) {
+            const scoreToPercentage = (rawScore: number, maxScore: unknown): number => {
+              const n = Number(rawScore);
+              if (!Number.isFinite(n)) return 0;
+              const max =
+                maxScore != null && Number(maxScore) > 0 ? Number(maxScore) : 10;
+              return Math.min(100, Math.max(0, (n / max) * 100));
+            };
+
             // Process submissions for stats
-            submissions.forEach(sub => {
+            submissions.forEach((sub: any) => {
               if (sub.status === 'graded') {
                 gradedCount++;
-                if (sub.score !== null) {
-                  totalScore += Number(sub.score);
+                if (sub.score !== null && sub.score !== undefined) {
+                  const max = sub.assignments?.max_score;
+                  const pct = scoreToPercentage(Number(sub.score), max);
+                  totalScore += pct;
                   scoreCount++;
-                  
-                  // Process for chart (group by month)
+
+                  // Chart buckets: YYYY-MM (locale-agnostic — avoids "Jan" vs "janv." mismatch)
                   const date = new Date(sub.graded_at || sub.submitted_at);
-                  const month = date.toLocaleString('default', { month: 'short' });
-                  if (!monthlyData[month]) {
-                    monthlyData[month] = { total: 0, count: 0 };
+                  const y = date.getFullYear();
+                  const m = date.getMonth();
+                  const key = `${y}-${String(m + 1).padStart(2, '0')}`;
+                  if (!monthlyData[key]) {
+                    monthlyData[key] = { total: 0, count: 0 };
                   }
-                  monthlyData[month].total += Number(sub.score);
-                  monthlyData[month].count++;
+                  monthlyData[key].total += pct;
+                  monthlyData[key].count++;
                 }
               }
             });
 
             // Format recent submissions
             submissionsData = submissions.slice(0, 5).map(sub => ({
-              student: sub.students?.full_name || 'Unknown Student',
+              student: sub.students?.full_name || 'Unknown Learner',
               assignment: sub.assignments?.title || 'Unknown Assignment',
               status: sub.status === 'graded' ? 'Graded' : sub.status === 'returned' ? 'Returned' : 'Pending',
               score: sub.score !== null ? `${sub.score}/10` : '-' // Assuming max score is 10 for display, adjust if needed
@@ -110,32 +122,35 @@ export default function Overview() {
 
         if (lessonPlansError) console.warn("Error fetching lesson plans:", lessonPlansError);
 
-        // Format chart data
+        // Format chart data — last 6 calendar months, keys aligned with aggregation
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const currentMonthIndex = new Date().getMonth();
-        const chartDataFormatted = [];
-        
-        // Show last 6 months
+        const now = new Date();
+        const chartDataFormatted: { name: string; score: number; ym: string }[] = [];
+
         for (let i = 5; i >= 0; i--) {
-          let monthIndex = currentMonthIndex - i;
-          if (monthIndex < 0) monthIndex += 12;
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const y = d.getFullYear();
+          const monthIndex = d.getMonth();
+          const ym = `${y}-${String(monthIndex + 1).padStart(2, '0')}`;
           const monthName = months[monthIndex];
-          
-          const monthStats = monthlyData[monthName];
-          const avgScore = monthStats && monthStats.count > 0 
-            ? Math.round((monthStats.total / monthStats.count) * 10) // Convert to percentage assuming score is out of 10
-            : 0;
-            
+          const monthStats = monthlyData[ym];
+          const avgPct =
+            monthStats && monthStats.count > 0
+              ? Math.round(monthStats.total / monthStats.count)
+              : 0;
+
           chartDataFormatted.push({
             name: monthName,
-            score: avgScore
+            score: avgPct,
+            ym,
           });
         }
 
         setStats({
           totalStudents: studentsCount || 0,
           assignmentsGraded: gradedCount,
-          averageScore: scoreCount > 0 ? Number((totalScore / scoreCount).toFixed(1)) : 0,
+          averageScore:
+            scoreCount > 0 ? Number((totalScore / scoreCount).toFixed(1)) : 0,
           lessonPlansCreated: lessonPlansCount || 0,
         });
         setChartData(chartDataFormatted);
@@ -154,7 +169,7 @@ export default function Overview() {
   const kpiData = [
     { title: t('dashboard.totalStudents'), value: stats.totalStudents.toString(), icon: <Users className="w-8 h-8 text-primary" />, color: "text-primary" },
     { title: t('dashboard.assignmentsGraded'), value: stats.assignmentsGraded.toString(), icon: <ClipboardCheck className="w-8 h-8 text-green-500" />, color: "text-green-500" },
-    { title: t('dashboard.averageScore'), value: `${stats.averageScore}/10`, icon: <Star className="w-8 h-8 text-yellow-500" />, color: "text-yellow-500" },
+    { title: t('dashboard.averageScore'), value: `${Math.round(stats.averageScore)}%`, icon: <Star className="w-8 h-8 text-yellow-500" />, color: "text-yellow-500" },
     { title: t('dashboard.lessonPlansCreated'), value: stats.lessonPlansCreated.toString(), icon: <BookOpen className="w-8 h-8 text-blue-500" />, color: "text-blue-500" },
   ];
 
@@ -163,43 +178,71 @@ export default function Overview() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-5 md:space-y-6 px-1 sm:px-0">
       <div>
-        <h1 className="text-4xl font-bold text-gray-800">{t('dashboard.welcomeBack')}, {profile?.full_name || 'User'}!</h1>
-        <p className="text-lg text-gray-500 mt-1">{t('dashboard.snapshot')}</p>
+        <h1 className="text-xl sm:text-3xl md:text-4xl font-bold text-gray-800 leading-tight">
+          {t('dashboard.welcomeBack')}, {profile?.full_name || 'User'}!
+        </h1>
+        <p className="text-sm sm:text-lg text-gray-500 mt-0.5 sm:mt-1 hidden sm:block">{t('dashboard.snapshot')}</p>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      {/* KPI — compact strip on mobile */}
+      <div className="md:hidden rounded-lg border border-gray-200 bg-muted/40 divide-x divide-border overflow-hidden flex text-center">
+        {kpiData.map((kpi, index) => (
+          <div key={index} className="flex-1 min-w-0 py-2 px-1">
+            <p className="text-[9px] font-medium text-gray-500 leading-none line-clamp-2">{kpi.title}</p>
+            <p className="text-sm font-bold text-gray-800 tabular-nums mt-1 leading-none">{kpi.value}</p>
+          </div>
+        ))}
+      </div>
+      <div className="hidden md:grid gap-4 lg:gap-6 md:grid-cols-2 lg:grid-cols-4">
         {kpiData.map((kpi, index) => (
           <Card key={index} className="shadow-lg hover:shadow-xl transition-shadow duration-300 border-l-4 border-primary">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className={`text-sm font-medium ${kpi.color}`}>{kpi.title}</CardTitle>
-              {kpi.icon}
+              <span className="scale-90 sm:scale-100 [&_svg]:w-7 [&_svg]:h-7 sm:[&_svg]:w-8 sm:[&_svg]:h-8">{kpi.icon}</span>
             </CardHeader>
             <CardContent>
-              <div className="text-4xl font-bold text-gray-800">{kpi.value}</div>
+              <div className="text-2xl lg:text-4xl font-bold text-gray-800">{kpi.value}</div>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
+      <div className="grid gap-3 sm:gap-6 md:grid-cols-2 lg:grid-cols-7">
         {/* Performance Chart */}
         <Card className="lg:col-span-4 shadow-lg">
           <CardHeader>
             <CardTitle className="text-xl font-bold text-gray-800">{t('dashboard.performanceTrend')}</CardTitle>
           </CardHeader>
           <CardContent className="pl-2">
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="name" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#888888" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `${value}%`} />
-                <Tooltip cursor={{fill: 'rgba(34, 197, 94, 0.1)'}}/>
-                <Bar dataKey="score" fill="#22C55E" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {chartData.some((d) => d.score > 0) ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="name" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis
+                    stroke="#888888"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                    domain={[0, 100]}
+                    tickFormatter={(value) => `${value}%`}
+                  />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(34, 197, 94, 0.1)' }}
+                    formatter={(value: number) => [`${value}%`, t('dashboard.averageScore')]}
+                  />
+                  <Bar dataKey="score" fill="#22C55E" radius={[4, 4, 0, 0]} maxBarSize={48} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[300px] flex-col items-center justify-center px-4 text-center text-sm text-muted-foreground">
+                <p className="max-w-md text-xs leading-relaxed">
+                  {t('dashboard.noPerformanceTrendData')}
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 

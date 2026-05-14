@@ -132,6 +132,7 @@ const Settings = () => {
     school_address: "",
     school_type: "",
     number_of_students: "",
+    number_of_classes: "",
     subjects_taught: "",
     grade_levels: "",
     years_of_experience: "",
@@ -165,6 +166,7 @@ const Settings = () => {
   const [profileSaved, setProfileSaved] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   // Populate form from profile or user metadata
   useEffect(() => {
@@ -181,8 +183,7 @@ const Settings = () => {
         school_name: profile.school_name ?? "",
         school_address: profile.school_address ?? "",
         school_type: profile.school_type ?? "",
-        number_of_students: profile.number_of_students?.toString() ?? "",
-        subjects_taught: profile.subjects_taught ?? "",
+        number_of_students: profile.number_of_students?.toString() ?? "",          number_of_classes: (profile as any).number_of_classes?.toString() ?? "",        subjects_taught: profile.subjects_taught ?? "",
         grade_levels: profile.grade_levels ?? "",
         years_of_experience: profile.years_of_experience?.toString() ?? "",
         education_level: profile.education_level ?? "",
@@ -272,8 +273,7 @@ const Settings = () => {
         school_name: form.school_name || null,
         school_address: form.school_address || null,
         school_type: form.school_type || null,
-        number_of_students: form.number_of_students ? parseInt(form.number_of_students) : null,
-        subjects_taught: form.subjects_taught || null,
+        number_of_students: form.number_of_students ? parseInt(form.number_of_students) : null,          number_of_classes: form.number_of_classes ? parseInt(form.number_of_classes) : null,        subjects_taught: form.subjects_taught || null,
         grade_levels: form.grade_levels || null,
         years_of_experience: form.years_of_experience ? parseInt(form.years_of_experience) : null,
         education_level: form.education_level || null,
@@ -331,6 +331,10 @@ const Settings = () => {
       setConfirmDelete(true);
       return;
     }
+    if (deleteConfirmText !== "DELETE") {
+      toast({ title: "Verification failed", description: "Please type DELETE to confirm.", variant: "destructive" });
+      return;
+    }
     setDeletingAccount(true);
     try {
       if (user) {
@@ -343,6 +347,7 @@ const Settings = () => {
     } finally {
       setDeletingAccount(false);
       setConfirmDelete(false);
+      setDeleteConfirmText("");
     }
   };
 
@@ -385,7 +390,7 @@ const Settings = () => {
   return (
     <div className="min-h-screen bg-neutral-50/50 pb-20 lg:pb-0">
       {/* Mobile Sticky Navigation Header (Creative Professional View) */}
-      <div className="lg:hidden sticky top-0 z-50 px-4 py-3 bg-white/90 backdrop-blur-md border-b border-gray-100 shadow-sm transition-all duration-300">
+      <div className="lg:hidden sticky top-0 z-50 px-3 py-2 sm:px-4 sm:py-3 bg-white/90 backdrop-blur-md border-b border-gray-100 shadow-sm transition-all duration-300">
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-3" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
               <div className="p-2 bg-green-100 text-green-700 rounded-xl">
@@ -453,7 +458,7 @@ const Settings = () => {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex gap-6">
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 py-4 sm:py-6 flex gap-4 sm:gap-6">
         {/* Side navigation (Desktop Only) */}
         <nav className="hidden lg:block w-64 shrink-0">
           <div className="sticky top-24 space-y-1">
@@ -484,7 +489,7 @@ const Settings = () => {
         {/* Mobile section tabs REMOVED - using top nav instead */}
 
         {/* Main content */}
-        <main className="flex-1 space-y-6 pb-24 lg:pb-6">
+        <main className="flex-1 space-y-4 sm:space-y-6 pb-24 lg:pb-6">
           {/* PROFILE SECTION */}
           <section id="section-profile" className={sectionCardClass}>
             <div className="flex flex-col sm:flex-row items-center gap-6">
@@ -735,10 +740,31 @@ const Settings = () => {
               </div>
 
               <div className="space-y-1.5">
+                <Label htmlFor="number_of_classes" className={labelClass}>
+                  <Briefcase className="h-3.5 w-3.5 text-green-600" /> Number of classes
+                </Label>
+                <select id="number_of_classes" name="number_of_classes" value={form.number_of_classes} onChange={handleChange} className={selectClass}>
+                  <option value="">Select...</option>
+                  <option value="1">1 class</option>
+                  <option value="2">2 classes</option>
+                  <option value="3">3 classes</option>
+                  <option value="4">4 classes</option>
+                  <option value="5">5+ classes</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
                 <Label htmlFor="number_of_students" className={labelClass}>
                   <Users className="h-3.5 w-3.5 text-green-600" /> Number of students
                 </Label>
-                <Input id="number_of_students" name="number_of_students" type="number" placeholder="e.g. 150" value={form.number_of_students} onChange={handleChange} className={inputClass} min="0" />
+                <select id="number_of_students" name="number_of_students" value={form.number_of_students} onChange={handleChange} className={selectClass}>
+                  <option value="">Select...</option>
+                  <option value="20">1-20 students</option>
+                  <option value="50">21-50 students</option>
+                  <option value="100">51-100 students</option>
+                  <option value="200">101-200 students</option>
+                  <option value="500">200+ students</option>
+                </select>
               </div>
 
               <div className="space-y-1.5">
@@ -955,16 +981,34 @@ const Settings = () => {
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0 }}
-                      className="flex items-center gap-2"
+                      className="flex flex-col gap-2 w-full sm:w-auto"
                     >
-                      <span className="text-xs text-red-600 font-medium">Are you sure?</span>
-                      <Button variant="destructive" size="sm" onClick={handleDeleteAccount} disabled={deletingAccount} className="rounded-xl">
-                        {deletingAccount ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Trash2 className="h-4 w-4 mr-1" />}
-                        Yes, delete
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => setConfirmDelete(false)} className="rounded-xl">
-                        Cancel
-                      </Button>
+                      <div className="flex items-center gap-2 mb-1">
+                        <Input 
+                          placeholder="Type DELETE to confirm" 
+                          value={deleteConfirmText}
+                          onChange={(e) => setDeleteConfirmText(e.target.value)}
+                          className="h-8 max-w-[170px]"
+                        />
+                      </div>
+                      <div className="flex gap-2 justify-end sm:justify-start">
+                        <Button 
+                          variant="destructive" 
+                          size="sm" 
+                          onClick={handleDeleteAccount} 
+                          disabled={deletingAccount || deleteConfirmText !== "DELETE"} 
+                          className="rounded-xl"
+                        >
+                          {deletingAccount ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Trash2 className="h-4 w-4 mr-1" />}
+                          Confirm Delete
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => {
+                          setConfirmDelete(false);
+                          setDeleteConfirmText("");
+                        }} className="rounded-xl">
+                          Cancel
+                        </Button>
+                      </div>
                     </motion.div>
                   ) : (
                     <motion.div key="initial" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>

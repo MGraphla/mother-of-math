@@ -1,10 +1,10 @@
 // src/services/api.ts
 
-const FALLBACK_API_KEY =
-  "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";
+import { checkRateLimit } from '@/lib/rateLimit';
+
 const FALLBACK_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-const OPENROUTER_MODEL = "anthropic/claude-sonnet-4-5";
+const OPENROUTER_MODEL = "anthropic/claude-sonnet-4.6";
 
 const cleanJsonResponse = (content: string): string => {
   const trimmed = content.trim();
@@ -29,7 +29,7 @@ const cleanJsonResponse = (content: string): string => {
 
 // Function to get API key with validation
 export const getApiKey = (): string | undefined => {
-  const key = import.meta.env.VITE_OPENROUTER_API_KEY || FALLBACK_API_KEY;
+  const key = import.meta.env.VITE_OPENROUTER_API_KEY;
   if (!key) {
     console.error('API key is missing. Please check your .env file.');
     return undefined;
@@ -43,15 +43,24 @@ export const getApiKey = (): string | undefined => {
 
 // Function to check if API key is set
 export const hasApiKey = (): boolean => {
-  return !!(import.meta.env.VITE_OPENROUTER_API_KEY || FALLBACK_API_KEY);
+  return !!import.meta.env.VITE_OPENROUTER_API_KEY;
 };
+
+/** When an image is sent: student homework analysis vs describing a teacher sketch for image generation. */
+export type VisionImagePurpose = 'student-work' | 'sketch-to-image';
 
 // Main function to send messages to the AI
 export const sendMessage = async (
   message: string,
   imageBase64?: string,
-  responseType: 'json' | 'text' = 'text'
+  responseType: 'json' | 'text' = 'text',
+  visionPurpose: VisionImagePurpose = 'student-work',
 ): Promise<any> => {
+  // Rate limit: max 20 AI requests per minute
+  if (!checkRateLimit('ai-api', 20, 60 * 1000)) {
+    throw new Error('Too many requests. Please wait a moment before trying again.');
+  }
+
   const apiKey = getApiKey();
   const apiUrl = import.meta.env.VITE_OPENROUTER_API_URL || FALLBACK_API_URL;
 
@@ -73,16 +82,33 @@ export const sendMessage = async (
 
   // Switch to a vision-capable model if an image is provided
   if (imageBase64) {
-    requestBody.model = "anthropic/claude-sonnet-4-5"; // Vision-capable model for image analysis
+    requestBody.model = "anthropic/claude-sonnet-4.6"; // Vision-capable model for image analysis
+    if (visionPurpose === 'sketch-to-image') {
+      requestBody.temperature = 0.2;
+    }
   }
 
   if (imageBase64) {
-    systemPrompt = `You are an AI assistant for "Mothers for Mathematics", a project helping teachers and parents in Cameroon with mathematics education. You specialize in providing feedback on student work using Math Error Analysis principles. When analyzing student work, identify:
+    if (visionPurpose === 'sketch-to-image') {
+      systemPrompt = `You help teachers turn rough hand-drawn sketches into polished illustrations. The image is a TEACHER'S quick sketch on paper (lines, shapes, doodles)—not graded student homework.
+
+Your only task: write a single flowing description another AI will use to generate a final picture that MATCHES THE SKETCH.
+
+Strict rules:
+- Output plain prose only. No markdown, no headings, no bullet lists, no "error analysis", no remediation, no comments about student mistakes.
+- Describe exactly what is drawn: shapes, lines, symbols, figures, their relative positions (left/center/right, foreground/background), proportions, and what each part likely represents.
+- Preserve layout and composition; do not invent major new subjects that are not implied by the drawing.
+- If something is ambiguous, describe the strokes literally (e.g. "a circle with three radiating lines") rather than guessing a unrelated scene.
+- 4–10 sentences, dense visual detail, suitable as an image-generation prompt.
+- Educational tone is fine only as general context; do not turn the sketch into a lesson plan—stay visual.`;
+    } else {
+      systemPrompt = `You are an AI assistant for "Mothers for Mathematics", a project helping teachers and parents in Cameroon with mathematics education. You specialize in providing feedback on student work using Math Error Analysis principles. When analyzing student work, identify:
 - Specific error types (e.g., incorrect counting, mixed grouping, etc.)
 - Root causes of mathematical misunderstandings
 - Practical remediation strategies that parents or teachers can implement
 
 Always be encouraging, use simple language, and provide actionable advice. Use markdown formatting, including headings, to structure the analysis and make it easy to read. The user has uploaded an image of student work. Analyze it for mathematical errors, providing specific feedback on what the student did correctly and incorrectly. Suggest practical remediation activities.`;
+    }
     userMessageContent = [
       { type: "text", text: message },
       { type: "image_url", image_url: { url: imageBase64, detail: "high" } }

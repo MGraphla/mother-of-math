@@ -1,0 +1,15 @@
+# https://supabase.com/docs/guides/cli/config
+
+[api]
+enabled = true
+
+[functions.signup-verification]
+verify_jwt = false
+
+[functions.send-sms-notification]
+verify_jwt = false
+
+# JWT is verified inside the function (auth.getUser). Gateway verify_jwt breaks
+# browser CORS preflight (OPTIONS has no Bearer token → non-2xx → CORS error).
+[functions.student-work-feedback-audio]
+verify_jwt = false

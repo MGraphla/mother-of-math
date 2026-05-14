@@ -10,7 +10,7 @@ import {
   School, GraduationCap, FileText, Shield, Camera, Upload, Edit2, CheckCircle2
 } from "lucide-react";
 import {
-  Student,
+  Learner,
   getStudentSession,
   refreshStudentSession,
   uploadProfilePhoto,
@@ -28,7 +28,7 @@ const StudentProfile = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [student, setStudent] = useState<Student | null>(null);
+  const [student, setStudent] = useState<Learner | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -83,9 +83,9 @@ const StudentProfile = () => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-3 text-muted-foreground">Loading profile...</span>
+      <div className="flex min-h-[50dvh] flex-wrap items-center justify-center gap-3 px-4 text-muted-foreground">
+        <Loader2 className="h-8 w-8 shrink-0 animate-spin text-primary" />
+        <span className="text-sm sm:text-base">Loading profile...</span>
       </div>
     );
   }
@@ -123,7 +123,7 @@ const StudentProfile = () => {
         { label: "School Name", value: student.school_name, icon: <School className="h-4 w-4" /> },
         { label: "Grade Level", value: student.grade_level, icon: <GraduationCap className="h-4 w-4" /> },
         { label: "Class Name", value: student.class_name },
-        { label: "Student ID", value: student.student_code || student.admission_number },
+        { label: "Learner ID", value: student.student_code || student.admission_number },
         { label: "Academic Year", value: student.academic_year },
       ],
     },
@@ -141,18 +141,18 @@ const StudentProfile = () => {
   ];
 
   return (
-    <div className="flex flex-col min-h-[calc(100vh-4rem)] bg-muted/30 pb-10">
+    <div className="flex min-h-0 w-full min-w-0 max-w-[100vw] flex-1 flex-col overflow-x-hidden bg-muted/30 pb-6">
       {/* Header Banner */}
-      <div className="h-48 bg-primary w-full relative overflow-hidden">
+      <div className="relative h-40 w-full overflow-hidden bg-primary sm:h-48">
         <div className="absolute inset-0 bg-white/10 opacity-20 pattern-dots" />
         <div className="absolute -bottom-10 -right-10 w-64 h-64 bg-white/10 rounded-full blur-3xl animate-blob" />
         <div className="absolute top-10 left-10 w-32 h-32 bg-white/10 rounded-full blur-2xl animate-blob animation-delay-2000" />
       </div>
 
-      <div className="container max-w-5xl px-4 mx-auto -mt-20 relative z-10">
-        <Card className="border-none shadow-xl overflow-hidden bg-background/95 backdrop-blur-sm">
+      <div className="relative z-10 mx-auto -mt-14 w-full min-w-0 max-w-5xl px-2 sm:-mt-20 sm:px-4">
+        <Card className="overflow-hidden border-none bg-background/95 shadow-xl backdrop-blur-sm">
           <CardContent className="p-0">
-            <div className="flex flex-col md:flex-row gap-8 p-8 items-center md:items-start text-center md:text-left">
+            <div className="flex flex-col items-center gap-6 p-4 text-center sm:gap-8 sm:p-6 md:flex-row md:items-start md:p-8 md:text-left">
               {/* Profile Photo Section */}
               <div className="relative group shrink-0">
                 <div className="w-32 h-32 sm:w-40 sm:h-40 rounded-full border-4 border-background shadow-lg overflow-hidden relative bg-muted flex items-center justify-center group-hover:shadow-xl transition-all duration-300">
@@ -195,7 +195,7 @@ const StudentProfile = () => {
               <div className="flex-1 pt-2 md:pt-4 min-w-0 w-full">
                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-4">
                   <div>
-                    <h1 className="text-3xl sm:text-4xl font-bold truncate text-foreground tracking-tight mb-2">
+                    <h1 className="mb-1 sm:mb-2 break-words text-xl font-bold tracking-tight text-foreground sm:text-3xl md:text-4xl leading-tight">
                       {student.full_name}
                     </h1>
                     <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 text-muted-foreground">
@@ -239,7 +239,7 @@ const StudentProfile = () => {
               </div>
             </div>
             
-            <div className="bg-muted/30 border-t px-8 py-5 flex flex-wrap gap-x-12 gap-y-4 text-sm text-muted-foreground justify-center md:justify-start">
+            <div className="flex flex-wrap justify-center gap-x-6 gap-y-3 border-t bg-muted/30 px-4 py-4 text-sm text-muted-foreground sm:gap-x-12 sm:px-6 sm:py-5 md:justify-start md:px-8">
               <span className="flex items-center gap-2.5 bg-background px-3 py-1.5 rounded-full border shadow-sm">
                 <Calendar className="h-4 w-4 text-primary" /> 
                 <span className="font-medium">Joined {new Date().getFullYear()}</span>
@@ -257,10 +257,10 @@ const StudentProfile = () => {
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:mt-8 sm:gap-6 md:grid-cols-2">
           {sections.map((section, idx) => (
             <Card key={idx} className="overflow-hidden hover:shadow-lg transition-all duration-300 border-none shadow-sm group">
-              <CardHeader className="border-b py-4 px-6 flex flex-row items-center gap-3 bg-muted/20">
+              <CardHeader className="flex flex-row items-center gap-3 border-b bg-muted/20 px-4 py-3 sm:px-6 sm:py-4">
                 <div className="p-2 rounded-lg shadow-sm bg-white text-primary">
                   {section.icon}
                 </div>
@@ -271,7 +271,7 @@ const StudentProfile = () => {
               <CardContent className="p-0">
                 <ul className="divide-y divide-border/50">
                   {section.items.map((item, i) => (
-                    <li key={i} className="flex flex-col sm:flex-row sm:items-center px-6 py-4 hover:bg-muted/20 transition-colors group-hover:bg-muted/5">
+                    <li key={i} className="flex flex-col px-4 py-3 transition-colors hover:bg-muted/20 group-hover:bg-muted/5 sm:flex-row sm:items-center sm:px-6 sm:py-4">
                       <span className="w-full sm:w-1/3 text-sm font-medium text-muted-foreground flex items-center gap-2.5 mb-1 sm:mb-0">
                         <div className="p-1 rounded bg-muted/50 text-muted-foreground/70">
                           {item.icon}

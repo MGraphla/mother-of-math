@@ -41,9 +41,14 @@ import {
   TrendingUp,
   FileDown,
   ZoomIn,
-  Keyboard,
+  Keyboard, HelpCircle, Camera,
+  Volume2,
 } from "lucide-react";
 import { fileToBase64 } from "@/services/api";
+import {
+  dataUrlToPreparedVisionDataUrl,
+  fileToDataUrlForVisionApi,
+} from "@/lib/visionImagePrep";
 import ReactMarkdown from "react-markdown";
 import AnimatedBorder from "@/components/ui/AnimatedBorder";
 import { Input } from "@/components/ui/input";
@@ -78,6 +83,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import {
   type StudentWork,
+  supabase,
   uploadStudentWorkFile,
   createStudentWork,
   getStudentWorks,
@@ -85,17 +91,24 @@ import {
   deleteStudentWork,
   deleteStudentWorkFile,
 } from "@/lib/supabase";
+import { requestStudentWorkFeedbackAudio } from "@/services/studentWorkFeedbackAudio";
 import {
-  type Student,
+  buildAccessLink,
+  getStudentById,
   getStudentsByTeacher,
+  type Learner,
 } from "@/services/studentService";
+import { sendParentStudentWorkAiSummarySms } from "@/services/smsNotificationService";
+import { resolveSmsDialCountry } from "@/lib/phone";
+import {
+  buildStudentWorkParentReportPlain,
+  buildStudentWorkVoiceScriptForUpload,
+} from "@/lib/studentFeedbackNarrative";
 import jsPDF from "jspdf";
 
 /* ─── Direct API helper (uses fallback key for reliability) ─── */
 
-const OPENROUTER_KEY =
-  import.meta.env.VITE_OPENROUTER_API_KEY ||
-  "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";
+const OPENROUTER_KEY = import.meta.env.VITE_OPENROUTER_API_KEY || '';
 const OPENROUTER_URL =
   import.meta.env.VITE_OPENROUTER_API_URL ||
   "https://openrouter.ai/api/v1/chat/completions";
@@ -118,24 +131,36 @@ const analyzeStudentImage = async (
         {
           role: "system",
           content:
-            "You are MAMA, an expert mathematics education specialist for Cameroon primary schools. When analyzing student work, pay extremely close attention to HOW each number and letter is written — not just whether the answer is numerically correct. Flag reversed, mirrored, inverted, or malformed characters. Describe exactly what each written character looks like. Use Markdown headings for clear formatting.",
+            "You are MAMA, an expert mathematics education specialist for Cameroon primary schools. When analyzing student work, pay extremely close attention to HOW each number and letter is written — not just whether the answer is numerically correct. Flag reversed, mirrored, inverted, or malformed characters. Describe exactly what each written character looks like. Use Markdown headings for clear formatting. For the overall score, report **correct final answers / total questions** (integers only), not partial marks out of an arbitrary total.",
         },
         {
           role: "user",
           content: [
             { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: imageBase64, detail: "high" } },
+            {
+              type: "image_url",
+              // After client-side resize, "auto" avoids oversized high-res tile
+              // charges; full-size photos used to trigger "Provider returned error".
+              image_url: { url: imageBase64, detail: "auto" },
+            },
           ],
         },
       ],
       temperature: 0.2,
-      max_tokens: 1500,
+      // Needs room for ## Analysis + ## Error Type + ## Grade + ## Remediation;
+      // 1500 tokens often cut off after Analysis so sections never appear in the UI.
+      max_tokens: 4096,
     }),
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `API error: ${res.status}`);
+    const err = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const nested = err.error as { message?: string } | undefined;
+    const msg =
+      (typeof nested?.message === "string" && nested.message) ||
+      (typeof err.message === "string" && err.message) ||
+      `API error: ${res.status}`;
+    throw new Error(msg);
   }
 
   const data = await res.json();
@@ -143,6 +168,30 @@ const analyzeStudentImage = async (
     data.choices?.[0]?.message?.content?.trim() || "No analysis returned."
   );
 };
+
+/* ─── Parent SMS (AI work summary) ─── */
+
+function notifyParentOfAiWorkSummary(args: {
+  student: Learner;
+  teacherCountry?: string | null;
+  /** Short plain report for SMS (no error-type jargon). */
+  parentReportHint?: string;
+}) {
+  const phone = args.student.parent_phone?.trim();
+  if (!phone) return;
+  const country = resolveSmsDialCountry(args.student.nationality || args.teacherCountry);
+  const portalUrl =
+    typeof window !== "undefined" && args.student.access_token
+      ? buildAccessLink(args.student.access_token)
+      : undefined;
+  sendParentStudentWorkAiSummarySms(
+    phone,
+    args.student.full_name,
+    country,
+    portalUrl,
+    args.parentReportHint,
+  );
+}
 
 /* ─── Types ─── */
 
@@ -167,15 +216,19 @@ interface UploadedFile {
   subject: string;
   grade: string;
   studentId?: string;   // linked student record id
+  feedback_audio_url?: string | null;
+  feedback_audio_status?: string | null;
 }
 
 /* ─── Component ─── */
 
+import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
+
 const Upload = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [historyFiles, setHistoryFiles] = useState<UploadedFile[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
+  const [students, setStudents] = useState<Learner[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
@@ -209,6 +262,7 @@ const Upload = () => {
     null | "clearAll" | "deleteSelected"
   >(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
   const [showBatchMetadata, setShowBatchMetadata] = useState(false);
   const [batchMeta, setBatchMeta] = useState({
     studentName: "",
@@ -255,6 +309,8 @@ const Upload = () => {
           subject: sw.subject || "",
           grade: sw.grade || "",
           studentId: sw.student_id || undefined,
+          feedback_audio_url: sw.feedback_audio_url || undefined,
+          feedback_audio_status: sw.feedback_audio_status || undefined,
         }));
         setHistoryFiles(loaded);
       } catch (e) {
@@ -313,16 +369,6 @@ const Upload = () => {
 
   /* ─── Parsing helpers ─── */
 
-  const extractErrorType = (text: string): string | undefined => {
-    const m = text.match(/##\s*Error Type[\s\S]*?\n([\s\S]*?)(?=##\s|$)/i);
-    return m ? m[1].trim() : undefined;
-  };
-
-  const extractRemediation = (text: string): string | undefined => {
-    const m = text.match(/##\s*Remediation[\s\S]*?\n([\s\S]*?)(?=##\s|$)/i);
-    return m ? m[1].trim() : undefined;
-  };
-
   /* Strip markdown symbols from text */
   const stripMd = (text: string) =>
     text
@@ -332,43 +378,206 @@ const Upload = () => {
       .replace(/^#{1,6}\s*/gm, '')
       .trim();
 
-  /* Parse AI feedback into structured sections */
+  /**
+   * Split markdown ## sections reliably. Case-insensitive; allows #–###; tolerates
+   * "Error type" / "ERROR TYPE"; avoids missing sections when the model varies heading style.
+   */
   const parseAiFeedback = (text: string) => {
-    const sections: { analysis: string; error_type: string; grade: string; remediation: string } = {
-      analysis: '', error_type: '', grade: '', remediation: '',
+    const sections: {
+      analysis: string;
+      error_type: string;
+      grade: string;
+      remediation: string;
+    } = {
+      analysis: '',
+      error_type: '',
+      grade: '',
+      remediation: '',
     };
-    const regex = /##\s*(Analysis|Error Type|Grade|Remediation)\s*\n([\s\S]*?)(?=##\s|$)/gi;
-    let match;
-    while ((match = regex.exec(text)) !== null) {
-      const key = match[1].toLowerCase();
-      const value = stripMd(match[2].trim());
-      if (key === 'analysis') sections.analysis = value;
-      else if (key === 'error type') sections.error_type = value;
-      else if (key === 'grade') sections.grade = value;
-      else if (key === 'remediation') sections.remediation = value;
+    if (!text?.trim()) return sections;
+
+    const headerRe =
+      /^#{1,3}\s*(Analysis|Error\s*Type|Grade|Remediation)\b\s*:?[^\S\r\n]*/gim;
+    const headers: { title: string; index: number; bodyStart: number }[] = [];
+    let hm: RegExpExecArray | null;
+    const re = new RegExp(headerRe.source, headerRe.flags);
+    while ((hm = re.exec(text)) !== null) {
+      headers.push({
+        title: hm[1],
+        index: hm.index,
+        bodyStart: hm.index + hm[0].length,
+      });
     }
+
+    for (let i = 0; i < headers.length; i++) {
+      const { title, bodyStart } = headers[i];
+      const nextStart =
+        i + 1 < headers.length ? headers[i + 1].index : text.length;
+      const raw = text.slice(bodyStart, nextStart).trim();
+      const val = stripMd(raw);
+      const key = title.toLowerCase().replace(/\s+/g, ' ');
+      if (key === 'analysis') sections.analysis = val;
+      else if (key === 'error type') sections.error_type = val;
+      else if (key === 'grade') sections.grade = val;
+      else if (key === 'remediation') sections.remediation = val;
+    }
+
+    // Fallback: intro before first heading when model starts with "## Error Type" etc.
+    if (!sections.analysis.trim()) {
+      if (headers.length > 0 && headers[0].title.toLowerCase().replace(/\s+/g, ' ') !== 'analysis') {
+        const intro = text.slice(0, headers[0].index).trim();
+        if (intro) sections.analysis = stripMd(intro);
+      } else if (headers.length === 0 && text.trim()) {
+        sections.analysis = stripMd(text.trim());
+      }
+    }
+
     return sections;
   };
 
-  /* Feature 6: Extract grade percentage from analysis text */
-  const extractGradeValue = (text: string): number | null => {
+  const extractErrorType = (text: string): string | undefined => {
+    const s = parseAiFeedback(text);
+    return s.error_type?.trim() || undefined;
+  };
+
+  const extractRemediation = (text: string): string | undefined => {
+    const s = parseAiFeedback(text);
+    return s.remediation?.trim() || undefined;
+  };
+
+  /**
+   * Count questions scored in ## Analysis: lines with Qn: and a terminal verdict.
+   * Deduplicates by question number (last line for each Qn wins) so double lines or
+   * section headers do not inflate total; strips light markdown so **Q12:** still parses.
+   */
+  const extractCorrectTotalFromAnalysis = (
+    analysis: string
+  ): { correct: number; total: number } | null => {
+    if (!analysis?.trim()) return null;
+    const verdicts = new Map<number, "c" | "i" | "p">();
+
+    for (const raw of analysis.split(/\r?\n/)) {
+      let line = raw.trim();
+      if (!line) continue;
+      line = line.replace(/^#{1,6}\s+/, "").replace(/^\s*[-*•]\s+/, "");
+      line = line.replace(/^\*+/, "").replace(/\*+$/, "").trim();
+      const qm = line.match(/^Q\s*(\d+)\s*:/i);
+      if (!qm) continue;
+      const qn = parseInt(qm[1], 10);
+      if (qn < 1 || qn > 200) continue;
+
+      const tail = line.replace(/\s+$/, "");
+      const isCorrect = /Final answer is\s+Correct\.?\s*$/i.test(tail);
+      const isIncorrect = /Final answer is\s+Incorrect\.?\s*$/i.test(tail);
+      const isPartial = /Final answer is\s+Partial\.?\s*$/i.test(tail);
+      if (!isCorrect && !isIncorrect && !isPartial) continue;
+
+      let v: "c" | "i" | "p";
+      if (isCorrect) v = "c";
+      else if (isPartial) v = "p";
+      else v = "i";
+      verdicts.set(qn, v);
+    }
+
+    if (verdicts.size === 0) return null;
+    const keys = [...verdicts.keys()].sort((a, b) => a - b);
+    const total = keys.length;
+    const correct = keys.filter((k) => verdicts.get(k) === "c").length;
+    return { correct, total };
+  };
+
+  /**
+   * Score = correct final answers / total questions (integers). Prefer counts parsed from
+   * ## Analysis lines; else read C/T from ## Grade when both are whole numbers and C ≤ T.
+   */
+  const extractGradeFraction = (
+    text: string
+  ): { label: string; percent: number } | null => {
+    const s = parseAiFeedback(text);
+    const fromLines = extractCorrectTotalFromAnalysis(s.analysis);
+    if (fromLines) {
+      const { correct, total } = fromLines;
+      return {
+        label: `${correct}/${total}`,
+        percent: Math.min(100, Math.round((correct / total) * 100)),
+      };
+    }
+
+    const gradeBlob = (s.grade || '').trim();
+    if (gradeBlob) {
+      const lines = gradeBlob
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].replace(/^[*\-•\s]+/, '').replace(/\*+/g, '').trim();
+        const m = line.match(/^(\d+)\s*\/\s*(\d+)\s*$/);
+        if (m) {
+          const num = parseInt(m[1], 10);
+          const den = parseInt(m[2], 10);
+          if (den > 0 && den <= 100 && num >= 0 && num <= den) {
+            return {
+              label: `${num}/${den}`,
+              percent: Math.min(100, Math.round((num / den) * 100)),
+            };
+          }
+        }
+      }
+      const loose = gradeBlob.match(/\b(\d+)\s*\/\s*(\d+)\b/);
+      if (loose) {
+        const num = parseInt(loose[1], 10);
+        const den = parseInt(loose[2], 10);
+        if (den > 0 && den <= 100 && num >= 0 && num <= den) {
+          return {
+            label: `${num}/${den}`,
+            percent: Math.min(100, Math.round((num / den) * 100)),
+          };
+        }
+      }
+    }
+
     const pctMatch = text.match(/(\d{1,3})\s*%/);
     if (pctMatch) {
-      const val = parseInt(pctMatch[1]);
-      if (val >= 0 && val <= 100) return val;
+      const val = parseInt(pctMatch[1], 10);
+      if (val >= 0 && val <= 100) return { label: `${val}%`, percent: val };
     }
-    const fracMatch = text.match(/(\d{1,3})\s*\/\s*100/);
-    if (fracMatch) {
-      const val = parseInt(fracMatch[1]);
-      if (val >= 0 && val <= 100) return val;
-    }
-    const outOfMatch = text.match(/(\d{1,2})\s*\/\s*(\d{1,2})/);
-    if (outOfMatch) {
-      const num = parseInt(outOfMatch[1]);
-      const den = parseInt(outOfMatch[2]);
-      if (den > 0) return Math.round((num / den) * 100);
+    const frac100 = text.match(/(\d{1,3})\s*\/\s*100\b/);
+    if (frac100) {
+      const val = parseInt(frac100[1], 10);
+      if (val >= 0 && val <= 100) return { label: `${val}/100`, percent: val };
     }
     return null;
+  };
+
+  const extractGradeValue = (text: string): number | null =>
+    extractGradeFraction(text)?.percent ?? null;
+
+  const extractGradeFractionLabel = (text: string): string | null =>
+    extractGradeFraction(text)?.label ?? null;
+
+  /** Panels for UI + DB fallbacks when markdown sections are missing or truncated. */
+  const getFeedbackPanels = (
+    text: string,
+    stored?: { errorType?: string; remediation?: string }
+  ) => {
+    const s = parseAiFeedback(text);
+    const frac = extractGradeFraction(text);
+    const err =
+      (s.error_type || stored?.errorType || '').trim() ||
+      'None listed — if the work is strong, use category "None"; otherwise see Analysis.';
+    const rem =
+      (s.remediation || stored?.remediation || '').trim() ||
+      'No separate remediation block — use the bullet ideas in Analysis if present.';
+    return {
+      analysis: s.analysis,
+      error_type: s.error_type,
+      gradeSection: s.grade,
+      remediation: s.remediation,
+      displayError: err,
+      displayRemediation: rem,
+      scoreLabel: frac?.label ?? null,
+      scorePercent: frac?.percent ?? null,
+    };
   };
 
   const getGradeBadgeClasses = (grade: number) => {
@@ -391,43 +600,70 @@ const Upload = () => {
 
       let base64: string;
       if (fileObj.file) {
-        base64 = await fileToBase64(fileObj.file);
+        base64 = fileObj.file.type.startsWith("image/")
+          ? await fileToDataUrlForVisionApi(fileObj.file)
+          : await fileToBase64(fileObj.file);
       } else if (fileObj.preview && fileObj.preview.startsWith("data:")) {
-        base64 = fileObj.preview;
+        base64 = fileObj.fileType.startsWith("image/")
+          ? await dataUrlToPreparedVisionDataUrl(fileObj.preview)
+          : fileObj.preview;
       } else if (fileObj.preview) {
         const resp = await fetch(fileObj.preview);
         const blob = await resp.blob();
-        base64 = await fileToBase64(
-          new window.File([blob], fileObj.fileName, { type: blob.type })
-        );
+        const reopened = new window.File([blob], fileObj.fileName, {
+          type: blob.type || fileObj.fileType || "image/jpeg",
+        });
+        base64 = reopened.type.startsWith("image/")
+          ? await fileToDataUrlForVisionApi(reopened)
+          : await fileToBase64(reopened);
       } else {
         throw new Error("No image data available for analysis");
       }
 
       const prompt = `Analyze this student's math work. Be very brief and direct. Follow this format exactly:
 
-ABSOLUTE RULE — NO EXCEPTIONS:
-Look at EVERY single digit the student wrote. If ANY digit is mirrored, reversed, inverted, backwards, flipped, poorly formed, or written in the wrong direction, that ENTIRE answer is WRONG (✗). This includes common cases like:
-- A "4" written as a mirror image / facing the wrong direction → WRONG
-- A "3" reversed or facing left instead of right → WRONG
-- A "9" that looks like a "6" or vice versa → WRONG
-- Digits joined together so "10" looks like "e" → WRONG
-- Any digit that is ambiguous or could be misread → WRONG
-The ONLY way an answer gets ✓ is if the number value is correct AND every digit is clearly and correctly formed. Do NOT give ✓ to a mirrored or reversed digit.
+SCORING (for the summary score only):
+1) Count **questions** you can identify on the page (call this T). Each numbered item or clearly separate exercise = one question.
+2) For each question, decide only whether the learner's **final answer is mathematically correct** (yes/no). If the value is right but digits are messy/mirrored, still count as **correct**.
+3) Let C = number of questions whose final answer is correct. The score shown to the teacher must be **C/T** (whole numbers only), e.g. 7/10 means 7 correct out of 10 questions.
+4) You may still describe steps/working/handwriting in ## Analysis for teaching detail, but **## Grade must be only C/T integers**, not marks out of 40, not decimals like 3.5/5.
+
+You are analysing primary school mathematics work. For each question identify:
+- what the learner intended,
+- whether working/method is reasonable,
+- whether the **final answer** is mathematically correct,
+- what error type exists (if any),
+- and the best simple remediation.
 
 ## Analysis
-[One sentence per question. Mark ✓ ONLY if correct value AND correct writing. Mark ✗ if wrong value OR any digit is mirrored/reversed/malformed, then state what is wrong. Example: "Q1: 2+2=? Wrote '4' ✗ — the 4 is mirrored/reversed." Maximum 1 line per question, 6 lines total.]
+[One short line per question you analysed, max 40 lines if needed. Use this exact pattern so the app can count scores:
+"Q1: … — Final answer is Correct." OR "Q1: … — Final answer is Incorrect."
+Use consecutive numbers Q1, Q2, … matching the order on the page. Every line must end with exactly "Final answer is Correct." or "Final answer is Incorrect." (full stop at end).
+Use **exactly one line per question number** (do not repeat the same Qn); only the last line for each Qn is counted if you slip.]
 
 ## Error Type
-[Name each specific error with question number and digit. Example: "Mirrored '4' in Q1, reversed '3' in Q3." Choose from: Mirroring, Reversal, Number formation, Number recognition, Number discrimination, Place value, Simple operations, Patterns and sequencing. If none: 'None Found'. Maximum 2 lines.]
+[List specific issues by question. Include both academic and handwriting categories when relevant.
+Use categories like: Factual error, Procedural error, Conceptual error, Counting error, Place value, Simple operations, Patterns and sequencing, Mirroring, Reversal, Number formation, Number recognition, Number discrimination, None.
+If final answer is correct but writing is mirrored/reversed/malformed, explicitly say:
+"Answer correct, notation issue: <type>." ]
 
 ## Grade
-[Just the percentage, e.g. "25%". No explanation.]
+[Write ONLY two non-negative integers: how many questions have a **correct final answer**, then slash, then **total questions analysed**.
+Format exactly: C/T with no spaces inside the fraction (example: 7/10). No words, no percentage, no decimals, no other lines.]
 
 ## Remediation
-[2-3 brief bullet points addressing the specific errors found. Include handwriting practice for each mirrored/reversed digit. Maximum 3 lines.]
+[2-4 brief bullet points.
+- Include at least one method/working remediation when steps are weak.
+- Include handwriting/number-formation remediation when mirrored/reversed/malformed symbols are found.
+- Keep language simple for primary teachers.]
 
-No extra text or introductions. Use simple language for primary school teachers.
+CRITICAL — formatting (required for the app to show results):
+- End your reply with EXACTLY these four markdown headings in this order, each on its own line: ## Analysis, ## Error Type, ## Grade, ## Remediation.
+- Do not skip any section. If there are no identifiable errors, under ## Error Type write the single word: None (or "None — work meets expectations.").
+- Under ## Grade write ONLY C/T as defined above (correct final answers / total questions). Never use mark totals like 25/40.
+- Under ## Remediation always write at least two short bullet points (use "- "), even if work is perfect (e.g. "- Keep practising neat number formation." "- Continue current study habits.").
+
+No text before ## Analysis. No extra sections after ## Remediation. Use very simple language for primary school teachers.
 `;
 
       const responseText = await analyzeStudentImage(prompt, base64);
@@ -463,6 +699,29 @@ No extra text or introductions. Use simple language for primary school teachers.
             : f
         )
       );
+      // Keep lightbox in sync if the user opened preview before analysis finished
+      setLightboxFile((prev) =>
+        prev?.id === fileObj.id
+          ? {
+              ...prev,
+              status: "success" as const,
+              analysis,
+              subject: prev.subject || fileObj.subject || "Mathematics",
+            }
+          : prev
+      );
+      setHistoryFiles((prev) =>
+        prev.map((f) =>
+          f.id === fileObj.id
+            ? {
+                ...f,
+                status: "success" as const,
+                analysis,
+                subject: f.subject || fileObj.subject || "Mathematics",
+              }
+            : f
+        )
+      );
 
       // Persist auto-filled subject if it was empty
       const currentFile = files.find((f) => f.id === fileObj.id);
@@ -475,6 +734,58 @@ No extra text or introductions. Use simple language for primary school teachers.
       }
 
       toast.success("Analysis completed successfully");
+
+      if (fileObj.dbId) {
+        const { data: row } = await supabase
+          .from("student_works")
+          .select("student_id, feedback, student_name")
+          .eq("id", fileObj.dbId)
+          .maybeSingle();
+        if (row?.student_id && row?.feedback?.trim()) {
+          const linked = await getStudentById(row.student_id);
+          const studentNameForSummary =
+            linked?.full_name?.trim() ||
+            (row as { student_name?: string }).student_name?.trim() ||
+            fileObj.studentName?.trim() ||
+            "";
+          const summaryArgs = {
+            studentName: studentNameForSummary,
+            subject: fileObj.subject || "Mathematics",
+            feedback: analysis.text,
+            errorType: analysis.errorType,
+            remediation: analysis.remediation,
+          };
+          const parentReportPlain = buildStudentWorkParentReportPlain(summaryArgs);
+          if (linked) {
+            notifyParentOfAiWorkSummary({
+              student: linked,
+              teacherCountry: profile?.country ?? null,
+              parentReportHint: parentReportPlain,
+            });
+          }
+          const voiceScript = buildStudentWorkVoiceScriptForUpload(summaryArgs);
+          setFiles((prev) =>
+            prev.map((f) =>
+              f.id === fileObj.id ? { ...f, feedback_audio_status: "pending" } : f
+            )
+          );
+          const audioRes = await requestStudentWorkFeedbackAudio(
+            fileObj.dbId,
+            voiceScript || undefined,
+          );
+          if (audioRes.ok) {
+            toast.message(
+              "Voice summary is generating for the assigned student — available on their analysis page shortly."
+            );
+          } else {
+            setFiles((prev) =>
+              prev.map((f) =>
+                f.id === fileObj.id ? { ...f, feedback_audio_status: undefined } : f
+              )
+            );
+          }
+        }
+      }
     } catch (error) {
       console.error("Analysis error:", error);
       const errMsg =
@@ -493,7 +804,7 @@ No extra text or introductions. Use simple language for primary school teachers.
       }
       toast.error("Failed to analyze student work");
     }
-  }, []);
+  }, [profile?.country]);
 
   const analyzeAllFiles = useCallback(async () => {
     const toAnalyze = files.filter(
@@ -505,9 +816,7 @@ No extra text or introductions. Use simple language for primary school teachers.
       return;
     }
     toast.info(`Analyzing ${toAnalyze.length} file(s)…`);
-    for (const file of toAnalyze) {
-      await analyzeFile(file);
-    }
+    await Promise.all(toAnalyze.map((file) => analyzeFile(file)));
   }, [files, analyzeFile]);
 
   /* ─── Download analysis (text) ─── */
@@ -515,10 +824,10 @@ No extra text or introductions. Use simple language for primary school teachers.
   const downloadAnalysis = (file: UploadedFile) => {
     if (!file.analysis) return;
     const content = [
-      "Student Work Analysis",
+      "Learner Work Analysis",
       "====================",
       `File: ${file.fileName}`,
-      `Student: ${file.studentName || "N/A"}`,
+      `Learner: ${file.studentName || "N/A"}`,
       `Subject: ${file.subject || "N/A"}`,
       `Grade Level: ${file.grade || "N/A"}`,
       `Date: ${file.uploadDate.toLocaleDateString()}`,
@@ -567,91 +876,260 @@ No extra text or introductions. Use simple language for primary school teachers.
     }
 
     const doc = new jsPDF();
-    let y = 20;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 15;
+    const contentWidth = pageWidth - margin * 2;
 
-    // Title
-    doc.setFontSize(20);
-    doc.setFont("helvetica", "bold");
-    doc.text("Student Work Analysis Report", 20, y);
-    y += 10;
+    // --- Brand Palette ---
+    const colors = {
+      primary: [16, 185, 129] as [number, number, number], // Emerald 500
+      primaryDark: [6, 95, 70] as [number, number, number], // Emerald 800
+      primaryLight: [209, 250, 229] as [number, number, number], // Emerald 100
+      textDark: [17, 24, 39], // Gray 900
+      textMedium: [55, 65, 81], // Gray 700
+      textLight: [107, 114, 128], // Gray 500
+      bgCard: [249, 250, 251], // Gray 50
+      border: [229, 231, 235], // Gray 200
+      accentRed: [185, 28, 28], // Red 700
+    };
 
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Generated: ${new Date().toLocaleString()}`, 20, y);
-    y += 5;
-    doc.text(`Total analyzed files: ${analyzed.length}`, 20, y);
-    y += 5;
+    let y = margin;
 
-    // Average grade
-    const grades = analyzed
-      .map((f) => extractGradeValue(f.analysis!.text))
-      .filter((g): g is number => g !== null);
-    if (grades.length > 0) {
-      const avg = Math.round(
-        grades.reduce((a, b) => a + b, 0) / grades.length
+    // --- Helper: Add New Page ---
+    const addNewPage = () => {
+      doc.addPage();
+      y = margin;
+    };
+
+    // --- Cover Page ---
+    const drawCover = () => {
+      // Full background accent
+      doc.setFillColor(...colors.primary);
+      doc.rect(0, 0, pageWidth, pageHeight, "F");
+
+      // White Card
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(
+        margin,
+        margin * 2,
+        contentWidth,
+        pageHeight - margin * 4,
+        6,
+        6,
+        "F"
       );
-      doc.text(`Average grade: ${avg}%`, 20, y);
-      y += 5;
-    }
 
-    y += 5;
-    doc.setDrawColor(200);
-    doc.line(20, y, 190, y);
-    y += 10;
+      let cy = margin * 6;
 
-    for (const file of analyzed) {
-      if (y > 250) {
-        doc.addPage();
-        y = 20;
-      }
-
-      doc.setFontSize(13);
+      // Logo/Brand Circle
+      doc.setFillColor(...colors.primaryDark);
+      doc.circle(pageWidth / 2, cy, 18, "F");
+      doc.setFontSize(22);
+      doc.setTextColor(255, 255, 255);
       doc.setFont("helvetica", "bold");
-      doc.text(file.fileName, 20, y);
-      y += 7;
+      doc.text("M", pageWidth / 2, cy + 8, { align: "center" });
 
-      doc.setFontSize(9);
+      cy += 35;
+
+      // Title
+      doc.setFontSize(36);
+      doc.setTextColor(...colors.textDark);
+      doc.text("Learner Analysis", pageWidth / 2, cy, { align: "center" });
+      cy += 14;
+      doc.text("Report", pageWidth / 2, cy, { align: "center" });
+
+      cy += 30;
+
+      // Date
+      doc.setFontSize(14);
       doc.setFont("helvetica", "normal");
-      const meta = [
-        `Student: ${file.studentName || "N/A"}`,
-        `Subject: ${file.subject || "N/A"}`,
-        `Grade Level: ${file.grade || "N/A"}`,
-        `Date: ${file.uploadDate.toLocaleDateString()}`,
-      ].join("  |  ");
-      doc.text(meta, 20, y);
-      y += 6;
+      doc.setTextColor(...colors.textLight);
+      const dateStr = new Date().toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+      doc.text(dateStr, pageWidth / 2, cy, { align: "center" });
 
-      const gradeVal = extractGradeValue(file.analysis!.text);
-      if (gradeVal !== null) {
-        doc.setFont("helvetica", "bold");
-        doc.text(`Score: ${gradeVal}%`, 20, y);
-        doc.setFont("helvetica", "normal");
-        y += 6;
+      cy += 30;
+
+      // Boxed Summary
+      doc.setDrawColor(...colors.border);
+      doc.setFillColor(255, 255, 255);
+      const boxW = 120;
+      const boxH = 25;
+      const boxX = (pageWidth - boxW) / 2;
+      doc.roundedRect(boxX, cy, boxW, boxH, 2, 2, "D");
+      
+      const grades = analyzed
+        .map((f) => extractGradeValue(f.analysis!.text))
+        .filter((g): g is number => g !== null);
+      const avg =
+        grades.length > 0
+          ? Math.round(grades.reduce((a, b) => a + b, 0) / grades.length)
+          : 0;
+
+      doc.setFontSize(12);
+      doc.setTextColor(...colors.textMedium);
+      doc.text(
+        `${analyzed.length} Files Analyzed   |   ${avg}% Average`,
+        pageWidth / 2,
+        cy + 16,
+        { align: "center" }
+      );
+
+      addNewPage();
+    };
+
+    drawCover();
+
+    // --- Content Pages ---
+    
+    analyzed.forEach((file, index) => {
+      // 1. Prepare Content & Strings
+      const info = parseAiFeedback(file.analysis!.text);
+      const panels = getFeedbackPanels(file.analysis!.text, file.analysis!);
+
+      // Strict cleanup to fix garbled text issues
+      // Replace all whitespace/newlines with single space to prevent jsPDF encoding errors
+      const clean = (s: string) => {
+          if (!s) return "";
+          return String(s)
+            .replace(/[*#`_]/g, "") // Remove Markdown
+            .replace(/\s+/g, " ")   // Collapse whitespace/newlines
+            .trim();
+      };
+      
+      const analysisTxt = clean(info.analysis || file.analysis!.text);
+      const errorTxt = clean(panels.displayError);
+      const remTxt = clean(panels.displayRemediation);
+
+      const colWidth = contentWidth - 10; // Padding inside card
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+
+      // Use splitTextToSize now that text is sanitized
+      const analysisLines = doc.splitTextToSize(analysisTxt, colWidth);
+      const errorLines = errorTxt ? doc.splitTextToSize(errorTxt, colWidth) : [];
+      const remLines = remTxt ? doc.splitTextToSize(remTxt, colWidth) : [];
+
+      // 2. Calculate Block Height
+      let cardH = 20; // Header(12) + spacing
+      if (analysisLines.length) cardH += analysisLines.length * 5 + 10;
+      if (errorLines.length) cardH += errorLines.length * 5 + 10;
+      if (remLines.length) cardH += remLines.length * 5 + 10;
+      
+      // Page Break Check
+      if (y + cardH > pageHeight - margin) {
+        addNewPage();
       }
 
-      // Analysis text (strip markdown)
-      const cleanText = file
-        .analysis!.text.replace(/#{1,6}\s*/g, "")
-        .replace(/\*{1,2}([^*]+)\*{1,2}/g, "$1")
-        .replace(/`([^`]+)`/g, "$1");
-      const lines = doc.splitTextToSize(cleanText, 170);
-      for (const line of lines) {
-        if (y > 275) {
-          doc.addPage();
-          y = 20;
-        }
-        doc.text(line, 20, y);
-        y += 4.5;
+      const startY = y;
+      const cardInnerX = margin + 5;
+
+      // 3. Draw Card Header
+      doc.setFillColor(...colors.primaryLight);
+      doc.setDrawColor(...colors.primaryLight);
+      // Header rect
+      doc.roundedRect(margin, y, contentWidth, 12, 2, 2, "F");
+      doc.rect(margin, y + 8, contentWidth, 4, "F"); // Flatten bottom corners
+
+      // Header Text
+      let headerY = y + 8;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(...colors.textDark);
+      doc.text(
+        `${index + 1}. ${file.studentName || "Learner"}`,
+        cardInnerX,
+        headerY
+      );
+
+      // Meta (Right aligned)
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...colors.textMedium);
+      const metaStr = `${file.subject || "Math"} | ${file.grade || ""}`;
+      doc.text(metaStr, pageWidth - margin - 5, headerY, { align: "right" });
+
+      y += 12; // Move past header
+
+      // 4. Body Content Helper
+      const printBlock = (title: string, lines: string[], titleColor: number[]) => {
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(9);
+          doc.setTextColor(...titleColor);
+          doc.text(title.toUpperCase(), cardInnerX, y + 5);
+          y += 6; // title height + gap
+
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(9);
+          doc.setTextColor(55, 65, 81); // #374151
+          
+          lines.forEach((line) => {
+              // Safety check for page break inside card (unlikely with earlier check, but safe)
+              if (y > pageHeight - margin) {
+                  doc.addPage();
+                  y = margin + 10;
+              }
+              doc.text(line, cardInnerX, y + 4);
+              y += 5; // Line height
+          });
+          
+          y += 4; // Padding after block
+      };
+
+      if (analysisLines.length > 0) printBlock("Analysis", analysisLines, colors.textLight);
+      if (errorLines.length > 0) printBlock("Identified Errors", errorLines, colors.accentRed);
+      if (remLines.length > 0) printBlock("Remediation", remLines, colors.primary);
+
+      // 5. Grade Badge (Floating in Body)
+      const gVal = extractGradeValue(file.analysis!.text);
+      if (gVal !== null) {
+          const circX = pageWidth - margin - 20;
+          // Position relative to start of body
+          const circY = startY + 28; 
+          const radius = 9;
+          
+          // Draw white circle with colored border, only if it fits
+          if (y > circY + radius) {
+            doc.setFillColor(255, 255, 255);
+            doc.setDrawColor(...(gVal >= 50 ? colors.primary : colors.accentRed));
+            doc.setLineWidth(1.5);
+            doc.circle(circX, circY, radius, "FD");
+            
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10);
+            doc.setTextColor(...colors.textDark);
+            doc.text(`${gVal}%`, circX, circY + 3.5, { align: "center" });
+          }
       }
 
-      y += 5;
-      doc.setDrawColor(230);
-      doc.line(20, y, 190, y);
-      y += 8;
+      // 6. Draw Border around the full card area
+      // Ensure y covers the content
+      // Redraw Y if badge extended it? No badge is floating inside.
+      const finalCardH = Math.max(y - startY, 20);
+      
+      doc.setDrawColor(...colors.border);
+      doc.setLineWidth(0.5);
+      doc.roundedRect(margin, startY, contentWidth, finalCardH, 2, 2, "S");
+
+      y += 8; // Margin between cards
+    });
+
+    // Page Numbers
+    const pageCount = doc.getNumberOfPages();
+    for(let i=1; i<=pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(...colors.textLight);
+        doc.text(`Page ${i} of ${pageCount} - Mother of Mathematics`, pageWidth/2, pageHeight - 10, {align: 'center'});
     }
 
-    doc.save("student-work-report.pdf");
-    toast.success("PDF report exported successfully");
+    doc.save("Learner_Reports_Professional.pdf");
+    toast.success("Advanced PDF report exported!");
   }, [files, historyFiles]);
 
   /* ─── Delete helpers ─── */
@@ -719,9 +1197,7 @@ No extra text or introductions. Use simple language for primary school teachers.
       return;
     }
     toast.info(`Analyzing ${toAnalyze.length} file(s)…`);
-    for (const file of toAnalyze) {
-      await analyzeFile(file);
-    }
+    await Promise.all(toAnalyze.map((file) => analyzeFile(file)));
     setSelectedFiles([]);
   }, [selectedFiles, files, analyzeFile]);
 
@@ -768,7 +1244,7 @@ No extra text or introductions. Use simple language for primary school teachers.
   const handleSelectStudent = async (
     fileId: string,
     dbId: string | undefined,
-    student: Student
+    student: Learner
   ) => {
     // Update local state
     setFiles((prev) =>
@@ -791,8 +1267,50 @@ No extra text or introductions. Use simple language for primary school teachers.
           grade: student.grade_level,
           student_id: student.id,
         });
+        const { data: row } = await supabase
+          .from("student_works")
+          .select("feedback, error_type, remediation, subject")
+          .eq("id", dbId)
+          .maybeSingle();
+        if (row?.feedback?.trim()) {
+          const summaryArgs = {
+            studentName: student.full_name,
+            subject: (row.subject && String(row.subject).trim()) || "Mathematics",
+            feedback: row.feedback,
+            errorType: row.error_type,
+            remediation: row.remediation,
+          };
+          const parentReportPlain = buildStudentWorkParentReportPlain(summaryArgs);
+          notifyParentOfAiWorkSummary({
+            student,
+            teacherCountry: profile?.country ?? null,
+            parentReportHint: parentReportPlain,
+          });
+          const voiceScript = buildStudentWorkVoiceScriptForUpload(summaryArgs);
+          setFiles((prev) =>
+            prev.map((f) =>
+              f.id === fileId ? { ...f, feedback_audio_status: "pending" } : f
+            )
+          );
+          const audioRes = await requestStudentWorkFeedbackAudio(
+            dbId,
+            voiceScript || undefined,
+          );
+          if (audioRes.ok) {
+            toast.success(
+              "Student assigned. A voice summary is generating — they will hear it on My performance."
+            );
+          } else {
+            toast.warning(audioRes.error || "Could not start voice feedback");
+            setFiles((prev) =>
+              prev.map((f) =>
+                f.id === fileId ? { ...f, feedback_audio_status: undefined } : f
+              )
+            );
+          }
+        }
       } catch (e) {
-        console.error("Student link save error:", e);
+        console.error("Learner link save error:", e);
       }
     }
   };
@@ -955,7 +1473,7 @@ No extra text or introductions. Use simple language for primary school teachers.
             progress: 100,
             status: "success",
           };
-          await analyzeFile(forAnalysis);
+          analyzeFile(forAnalysis).catch(e => console.error('Background analysis error:', e)); // Run asynchronously in the background
         }
       } catch (error) {
         console.error("Upload error:", error);
@@ -986,9 +1504,7 @@ No extra text or introductions. Use simple language for primary school teachers.
         return;
       }
       setIsUploading(true);
-      for (const file of acceptedFiles) {
-        await processUpload(file);
-      }
+      await Promise.all(acceptedFiles.map((file) => processUpload(file)));
       setIsUploading(false);
     },
     [user?.id, processUpload]
@@ -1297,8 +1813,12 @@ No extra text or introductions. Use simple language for primary school teachers.
                         "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border",
                         getGradeBadgeClasses(gradeVal)
                       )}
+                      title="Overall score for this piece of work"
                     >
-                      {gradeVal}%
+                      {(() => {
+                        const lbl = extractGradeFractionLabel(file.analysis!.text);
+                        return lbl ? `${lbl} · ${gradeVal}%` : `${gradeVal}%`;
+                      })()}
                     </span>
                   )}
                 </div>
@@ -1376,7 +1896,7 @@ No extra text or introductions. Use simple language for primary school teachers.
 
               {/* Metadata inputs */}
               <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-2">
-                {/* Student dropdown — populated from teacher's class */}
+                {/* Learner dropdown — populated from teacher's class */}
                 <Select
                   value={file.studentId || "__manual__"}
                   onValueChange={(val) => {
@@ -1407,6 +1927,25 @@ No extra text or introductions. Use simple language for primary school teachers.
                     )}
                   </SelectContent>
                 </Select>
+                {file.studentId && file.analysis && (
+                  <>
+                    {file.feedback_audio_status === "ready" && file.feedback_audio_url ? (
+                      <Badge variant="secondary" className="h-7 gap-1 text-[10px] shrink-0">
+                        <Volume2 className="h-3 w-3" />
+                        Voice ready
+                      </Badge>
+                    ) : file.feedback_audio_status === "pending" ? (
+                      <Badge variant="outline" className="h-7 gap-1 text-[10px] shrink-0 animate-pulse">
+                        <Volume2 className="h-3 w-3" />
+                        Voice…
+                      </Badge>
+                    ) : file.feedback_audio_status === "error" ? (
+                      <Badge variant="destructive" className="h-7 text-[10px] shrink-0">
+                        Voice failed
+                      </Badge>
+                    ) : null}
+                  </>
+                )}
                 <Input
                   placeholder="Subject"
                   value={file.subject}
@@ -1448,7 +1987,7 @@ No extra text or introductions. Use simple language for primary school teachers.
                   </div>
                 )}
 
-                {/* Feature 3: Collapsible analysis */}
+                {/* Feature 3: Collapsible full analysis narrative */}
                 {file.status === "success" && file.analysis && (
                   <div className="mt-3">
                     <button
@@ -1463,8 +2002,8 @@ No extra text or introductions. Use simple language for primary school teachers.
                       <Brain className="h-4 w-4 text-green-600" />
                       <span>
                         {isAnalysisExpanded
-                          ? "Hide Analysis"
-                          : "Show Analysis"}
+                          ? "Hide full analysis"
+                          : "Show full analysis"}
                       </span>
                     </button>
                     <AnimatePresence>
@@ -1478,38 +2017,64 @@ No extra text or introductions. Use simple language for primary school teachers.
                         >
                           <div className="mt-2 pl-6">
                             {(() => {
-                              const s = parseAiFeedback(file.analysis!.text);
-                              const gradeVal = extractGradeValue(file.analysis!.text);
-                              const pctColor = 'text-primary';
+                              const p = getFeedbackPanels(
+                                file.analysis!.text,
+                                file.analysis!
+                              );
+                              const gradeVal = p.scorePercent;
+                              const pctColor = "text-primary";
                               return (
                                 <div className="space-y-2">
-                                  {gradeVal !== null && (
-                                    <div className={`text-2xl font-extrabold ${pctColor}`}>{gradeVal}%</div>
-                                  )}
-                                  {s.analysis && (
+                                  {p.analysis && (
                                     <div className="rounded-lg bg-primary/5 dark:bg-primary/10 border border-primary/20 p-3">
-                                      <p className="text-[10px] font-extrabold text-primary uppercase tracking-widest mb-1">Analysis</p>
-                                      <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">{s.analysis}</p>
+                                      <p className="text-[10px] font-extrabold text-primary uppercase tracking-widest mb-1">
+                                        Analysis
+                                      </p>
+                                      <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">
+                                        {p.analysis}
+                                      </p>
                                     </div>
                                   )}
-                                  {s.error_type && (
-                                    <div className="rounded-lg bg-primary/5 dark:bg-primary/10 border border-primary/20 p-3">
-                                      <p className="text-[10px] font-extrabold text-primary uppercase tracking-widest mb-1">Error Type</p>
-                                      <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">{s.error_type}</p>
+                                  {(gradeVal !== null || p.scoreLabel) && (
+                                    <div className="flex flex-wrap items-baseline gap-2">
+                                      {p.scoreLabel && (
+                                        <span className="text-lg font-bold tabular-nums text-primary">
+                                          {p.scoreLabel}
+                                        </span>
+                                      )}
+                                      {gradeVal !== null && (
+                                        <span className={`text-2xl font-extrabold ${pctColor}`}>
+                                          {gradeVal}%
+                                        </span>
+                                      )}
                                     </div>
                                   )}
-                                  {s.grade && (
+                                  <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-3">
+                                    <p className="text-[10px] font-extrabold text-amber-800 dark:text-amber-200 uppercase tracking-widest mb-1">
+                                      Error type
+                                    </p>
+                                    <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">
+                                      {p.displayError}
+                                    </p>
+                                  </div>
+                                  {p.gradeSection ? (
                                     <div className="rounded-lg bg-primary/5 dark:bg-primary/10 border border-primary/20 p-3">
-                                      <p className="text-[10px] font-extrabold text-primary uppercase tracking-widest mb-1">Grade</p>
-                                      <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">{s.grade}</p>
+                                      <p className="text-[10px] font-extrabold text-primary uppercase tracking-widest mb-1">
+                                        Grade (from model)
+                                      </p>
+                                      <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">
+                                        {p.gradeSection}
+                                      </p>
                                     </div>
-                                  )}
-                                  {s.remediation && (
-                                    <div className="rounded-lg bg-primary/5 dark:bg-primary/10 border border-primary/20 p-3">
-                                      <p className="text-[10px] font-extrabold text-primary uppercase tracking-widest mb-1">Remediation</p>
-                                      <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">{s.remediation}</p>
-                                    </div>
-                                  )}
+                                  ) : null}
+                                  <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-3">
+                                    <p className="text-[10px] font-extrabold text-emerald-800 dark:text-emerald-200 uppercase tracking-widest mb-1">
+                                      Remediation
+                                    </p>
+                                    <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">
+                                      {p.displayRemediation}
+                                    </p>
+                                  </div>
                                 </div>
                               );
                             })()}
@@ -1618,15 +2183,19 @@ No extra text or introductions. Use simple language for primary school teachers.
               </Badge>
             </div>
             {/* Grade badge */}
-            {gradeVal !== null && (
+            {gradeVal !== null && file.analysis && (
               <div className="absolute bottom-2 right-2">
                 <span
                   className={cn(
                     "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border shadow-sm",
                     getGradeBadgeClasses(gradeVal)
                   )}
+                  title="Overall score for this work"
                 >
-                  {gradeVal}%
+                  {(() => {
+                    const lbl = extractGradeFractionLabel(file.analysis!.text);
+                    return lbl ? `${lbl} · ${gradeVal}%` : `${gradeVal}%`;
+                  })()}
                 </span>
               </div>
             )}
@@ -1694,7 +2263,7 @@ No extra text or introductions. Use simple language for primary school teachers.
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-green-600" />
+        <LoadingAnimation message="Loading workspace..." />
       </div>
     );
   }
@@ -1702,39 +2271,92 @@ No extra text or introductions. Use simple language for primary school teachers.
   /* ─── Render ─── */
 
   return (
-    <div className="space-y-4 sm:space-y-6 px-1 sm:px-0">
-      {/* Header */}
-      <div className="flex flex-col gap-3 mb-1">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-            Student Work Upload
-          </h1>
-          <p className="text-muted-foreground text-sm sm:text-base mt-1">
-            Upload and analyze student work for detailed feedback
-          </p>
-        </div>
+    <div className="space-y-2 sm:space-y-4 md:space-y-6 px-1 sm:px-0">
+        {/* Header — compact on phones */}
+        <div className="flex flex-col gap-2 sm:gap-3 mb-0">
+          <div className="flex items-start justify-between gap-2 sm:items-center sm:gap-3">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg sm:text-2xl md:text-3xl font-bold tracking-tight leading-tight">
+                Learner Work Upload
+              </h1>
+              <p className="text-muted-foreground text-xs sm:text-sm md:text-base mt-0.5 sm:mt-1 line-clamp-2 sm:line-clamp-none leading-snug hidden sm:block">
+                Upload and analyze student work for detailed feedback
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowInstructions(!showInstructions)}
+              className={cn(
+                "flex items-center gap-1 sm:gap-2 rounded-full shadow-sm shrink-0 h-8 sm:h-9 px-2.5 sm:px-3",
+                "dark:bg-muted/50 dark:hover:bg-primary/20 dark:text-primary dark:border-primary/20",
+                "border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors",
+              )}
+              aria-expanded={showInstructions}
+            >
+              <HelpCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+              <span className="sm:hidden text-[11px] font-medium">Tips</span>
+              <span className="hidden sm:inline text-xs sm:text-sm">Photo Guidelines</span>
+              {showInstructions ? <ChevronUp className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />}
+            </Button>
+          </div>
 
+          <AnimatePresence>
+            {showInstructions && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 sm:p-5 my-0.5 sm:my-1">
+                  <h3 className="font-semibold flex items-center gap-2 text-primary mb-3">
+                    <Camera className="h-5 w-5" />
+                    How to Take Pictures for Best Analysis
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+                    <div className="space-y-1.5 p-3 rounded-lg bg-background/60 shadow-sm border border-border/50">
+                      <div className="font-medium text-foreground flex items-center gap-2"><span>1.</span> Good Lighting</div>
+                      <p className="text-muted-foreground text-xs leading-relaxed">Ensure the page is well-lit. Avoid shadows falling across the text or harsh glare from flashes.</p>
+                    </div>
+                    <div className="space-y-1.5 p-3 rounded-lg bg-background/60 shadow-sm border border-border/50">
+                      <div className="font-medium text-foreground flex items-center gap-2"><span>2.</span> Keep it Flat & Straight</div>
+                      <p className="text-muted-foreground text-xs leading-relaxed">Hold your camera directly parallel above the page. Avoid taking the picture from a tilted angle.</p>
+                    </div>
+                    <div className="space-y-1.5 p-3 rounded-lg bg-background/60 shadow-sm border border-border/50">
+                      <div className="font-medium text-foreground flex items-center gap-2"><span>3.</span> Fill the Frame</div>
+                      <p className="text-muted-foreground text-xs leading-relaxed">Capture the entire page or specific problem, keeping margins minimal while ensuring nothing is cut off.</p>
+                    </div>
+                    <div className="space-y-1.5 p-3 rounded-lg bg-background/60 shadow-sm border border-border/50">
+                      <div className="font-medium text-foreground flex items-center gap-2"><span>4.</span> Focus and Clarity</div>
+                      <p className="text-muted-foreground text-xs leading-relaxed">Tap your screen to focus before shooting. Blurry formulas are very difficult for the AI to interpret.</p>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         {/* Action bar — scrollable on mobile */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+        <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar pb-0.5 sm:pb-1 px-0.5 sm:px-0">
           {/* View toggle */}
           <div className="flex items-center border rounded-lg overflow-hidden shrink-0">
             <Button
               variant={viewMode === "list" ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setViewMode("list")}
-              className="rounded-none h-8 px-2"
+              className="rounded-none h-7 px-2 sm:h-8"
               title="List view"
             >
-              <List className="h-4 w-4" />
+              <List className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </Button>
             <Button
               variant={viewMode === "grid" ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setViewMode("grid")}
-              className="rounded-none h-8 px-2"
+              className="rounded-none h-7 px-2 sm:h-8"
               title="Grid view"
             >
-              <LayoutGrid className="h-4 w-4" />
+              <LayoutGrid className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </Button>
           </div>
 
@@ -1754,10 +2376,11 @@ No extra text or introductions. Use simple language for primary school teachers.
             <Button
               size="sm"
               onClick={exportPDF}
-              className="flex items-center gap-1.5 shrink-0 bg-primary/90 hover:bg-primary text-primary-foreground"
+              className="flex items-center gap-1 sm:gap-1.5 shrink-0 h-7 sm:h-9 px-2 sm:px-3 text-xs sm:text-sm bg-primary/90 hover:bg-primary text-primary-foreground"
             >
-              <FileDown className="h-4 w-4" />
-              <span className="hidden sm:inline">Export</span> PDF
+              <FileDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              <span className="hidden sm:inline">Export</span>
+              <span>PDF</span>
             </Button>
           )}
 
@@ -1766,12 +2389,12 @@ No extra text or introductions. Use simple language for primary school teachers.
             <Button
               size="sm"
               onClick={analyzeAllFiles}
-              className="flex items-center gap-1.5 shrink-0 bg-primary hover:bg-primary/90 text-primary-foreground"
+              className="flex items-center gap-1 sm:gap-1.5 shrink-0 h-7 sm:h-9 px-2 sm:px-3 text-xs sm:text-sm bg-primary hover:bg-primary/90 text-primary-foreground"
             >
-              <Brain className="h-4 w-4" />
+              <Brain className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               <span className="hidden sm:inline">Analyze All</span>
               <span className="sm:hidden">Analyze</span>
-              <Badge variant="secondary" className="ml-0.5 h-5 px-1.5 text-[10px] bg-white/20 text-white border-0">
+              <Badge variant="secondary" className="ml-0.5 h-4 sm:h-5 px-1 sm:px-1.5 text-[9px] sm:text-[10px] bg-white/20 text-white border-0">
                 {needsAnalysis}
               </Badge>
             </Button>
@@ -1784,12 +2407,12 @@ No extra text or introductions. Use simple language for primary school teachers.
             onClick={() =>
               setSortOrder(sortOrder === "asc" ? "desc" : "asc")
             }
-            className="flex items-center gap-1.5 shrink-0"
+            className="flex items-center gap-1 sm:gap-1.5 shrink-0 h-7 sm:h-9 px-2 sm:px-3"
           >
             {sortOrder === "asc" ? (
-              <SortAsc className="h-4 w-4" />
+              <SortAsc className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             ) : (
-              <SortDesc className="h-4 w-4" />
+              <SortDesc className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             )}
             <span className="hidden sm:inline">Sort</span>
           </Button>
@@ -1800,7 +2423,7 @@ No extra text or introductions. Use simple language for primary school teachers.
               <Button
                 size="sm"
                 onClick={() => setShowBatchMetadata(true)}
-                className="flex items-center gap-1.5 shrink-0 bg-primary hover:bg-primary/90 text-primary-foreground"
+                className="flex items-center gap-1 sm:gap-1.5 shrink-0 h-7 sm:h-9 px-2 sm:px-3 text-xs sm:text-sm bg-primary hover:bg-primary/90 text-primary-foreground"
               >
                 <Pencil className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Apply Info</span>
@@ -1811,7 +2434,7 @@ No extra text or introductions. Use simple language for primary school teachers.
               <Button
                 size="sm"
                 onClick={analyzeSelected}
-                className="flex items-center gap-1.5 shrink-0 bg-primary/80 hover:bg-primary/90 text-primary-foreground"
+                className="flex items-center gap-1 sm:gap-1.5 shrink-0 h-7 sm:h-9 px-2 sm:px-3 text-xs sm:text-sm bg-primary/80 hover:bg-primary/90 text-primary-foreground"
               >
                 <Brain className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Analyze</span> ({selectedFiles.length})
@@ -1820,7 +2443,7 @@ No extra text or introductions. Use simple language for primary school teachers.
               <Button
                 size="sm"
                 onClick={() => setConfirmAction("deleteSelected")}
-                className="flex items-center gap-1.5 shrink-0 bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                className="flex items-center gap-1 sm:gap-1.5 shrink-0 h-7 sm:h-9 px-2 sm:px-3 text-xs sm:text-sm bg-destructive hover:bg-destructive/90 text-destructive-foreground"
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Delete</span> ({selectedFiles.length})
@@ -1833,96 +2456,115 @@ No extra text or introductions. Use simple language for primary school teachers.
             variant="outline"
             size="sm"
             onClick={() => setConfirmAction("clearAll")}
-            className="flex items-center gap-1.5 shrink-0 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            className="flex items-center gap-1 sm:gap-1.5 shrink-0 h-7 sm:h-9 px-2 sm:px-3 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
             disabled={files.length === 0}
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             <span className="hidden sm:inline">Clear All</span>
-            <span className="sm:hidden">Clear</span>
+            <span className="sm:hidden text-xs">Clear</span>
           </Button>
         </div>
       </div>
 
-      {/* Feature 1: Stats Summary Cards */}
+      {/* Stats — one slim row on mobile; full cards from md */}
       {totalFiles > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-          <Card>
-            <CardContent className="p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
-              <div className="p-2 sm:p-2.5 rounded-lg bg-primary/10 shrink-0">
-                <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] sm:text-xs text-muted-foreground truncate">Total Files</p>
-                <p className="text-xl sm:text-2xl font-bold">{totalFiles}</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
-              <div className="p-2 sm:p-2.5 rounded-lg bg-primary/10 shrink-0">
-                <Brain className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] sm:text-xs text-muted-foreground truncate">Analyzed</p>
-                <p className="text-xl sm:text-2xl font-bold">{analyzedCount}</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
-              <div className="p-2 sm:p-2.5 rounded-lg bg-destructive/10 shrink-0">
-                <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 text-destructive" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] sm:text-xs text-muted-foreground truncate">Errors</p>
-                <p className="text-xl sm:text-2xl font-bold">{errorCount}</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
-              <div
-                className={cn(
-                  "p-2 sm:p-2.5 rounded-lg shrink-0",
-                  avgGrade !== null && avgGrade >= 70
-                    ? "bg-primary/10"
-                    : avgGrade !== null && avgGrade >= 50
-                    ? "bg-primary/5"
-                    : "bg-muted"
-                )}
-              >
-                <TrendingUp
+        <>
+          <div className="flex md:hidden rounded-lg border border-border/80 bg-muted/30 divide-x divide-border/60 overflow-hidden text-center">
+            <div className="flex-1 min-w-0 py-1.5 px-1">
+              <p className="text-[9px] text-muted-foreground font-medium leading-none">Files</p>
+              <p className="text-sm font-bold tabular-nums leading-tight mt-0.5">{totalFiles}</p>
+            </div>
+            <div className="flex-1 min-w-0 py-1.5 px-1">
+              <p className="text-[9px] text-muted-foreground font-medium leading-none">Analyzed</p>
+              <p className="text-sm font-bold tabular-nums leading-tight mt-0.5">{analyzedCount}</p>
+            </div>
+            <div className="flex-1 min-w-0 py-1.5 px-1">
+              <p className="text-[9px] text-muted-foreground font-medium leading-none">Errors</p>
+              <p className="text-sm font-bold tabular-nums leading-tight mt-0.5">{errorCount}</p>
+            </div>
+            <div className="flex-1 min-w-0 py-1.5 px-1">
+              <p className="text-[9px] text-muted-foreground font-medium leading-none">Avg</p>
+              <p className="text-sm font-bold tabular-nums leading-tight mt-0.5">{avgGrade !== null ? `${avgGrade}%` : "—"}</p>
+            </div>
+          </div>
+          <div className="hidden md:grid md:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="p-2.5 rounded-lg bg-primary/10 shrink-0">
+                  <FileText className="h-5 w-5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground truncate">Total Files</p>
+                  <p className="text-2xl font-bold">{totalFiles}</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="p-2.5 rounded-lg bg-primary/10 shrink-0">
+                  <Brain className="h-5 w-5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground truncate">Analyzed</p>
+                  <p className="text-2xl font-bold">{analyzedCount}</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="p-2.5 rounded-lg bg-destructive/10 shrink-0">
+                  <AlertCircle className="h-5 w-5 text-destructive" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground truncate">Errors</p>
+                  <p className="text-2xl font-bold">{errorCount}</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 flex items-center gap-3">
+                <div
                   className={cn(
-                    "h-4 w-4 sm:h-5 sm:w-5",
+                    "p-2.5 rounded-lg shrink-0",
                     avgGrade !== null && avgGrade >= 70
-                      ? "text-primary"
+                      ? "bg-primary/10"
                       : avgGrade !== null && avgGrade >= 50
-                      ? "text-primary/70"
-                      : "text-muted-foreground"
+                      ? "bg-primary/5"
+                      : "bg-muted"
                   )}
-                />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] sm:text-xs text-muted-foreground truncate">Avg Grade</p>
-                <p className="text-xl sm:text-2xl font-bold">
-                  {avgGrade !== null ? `${avgGrade}%` : "—"}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+                >
+                  <TrendingUp
+                    className={cn(
+                      "h-5 w-5",
+                      avgGrade !== null && avgGrade >= 70
+                        ? "text-primary"
+                        : avgGrade !== null && avgGrade >= 50
+                        ? "text-primary/70"
+                        : "text-muted-foreground"
+                    )}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground truncate">Avg Grade</p>
+                  <p className="text-2xl font-bold">
+                    {avgGrade !== null ? `${avgGrade}%` : "—"}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </>
       )}
 
       {/* Tabs */}
       <Tabs
         defaultValue="all"
-        className="space-y-4"
+        className="space-y-3 sm:space-y-4"
         onValueChange={setActiveTab}
       >
-        <TabsList className="grid w-full grid-cols-4 h-auto">
-          <TabsTrigger value="all" className="text-xs sm:text-sm px-1 sm:px-3">
-            <span className="hidden sm:inline">Upload</span>
-            <span className="sm:hidden">Upload</span>
+        <TabsList className="grid w-full grid-cols-4 h-9 sm:h-auto py-0.5 px-0.5 sm:p-1 gap-0.5 sm:gap-0">
+          <TabsTrigger value="all" className="text-[11px] sm:text-sm px-1 sm:px-3 py-1.5 sm:py-2 data-[state=active]:shadow-none">
+            <span>Upload</span>
             {currentSessionCount > 0 && (
               <Badge
                 variant="secondary"
@@ -1932,7 +2574,7 @@ No extra text or introductions. Use simple language for primary school teachers.
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="analyzed" className="text-xs sm:text-sm px-1 sm:px-3">
+          <TabsTrigger value="analyzed" className="text-[11px] sm:text-sm px-1 sm:px-3 py-1.5 sm:py-2 data-[state=active]:shadow-none">
             <span className="hidden sm:inline">Analyzed</span>
             <span className="sm:hidden">History</span>
             {analyzedCount > 0 && (
@@ -1944,7 +2586,7 @@ No extra text or introductions. Use simple language for primary school teachers.
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="pending" className="text-xs sm:text-sm px-1 sm:px-3">
+          <TabsTrigger value="pending" className="text-[11px] sm:text-sm px-1 sm:px-3 py-1.5 sm:py-2 data-[state=active]:shadow-none">
             Pending
             {pendingCount > 0 && (
               <Badge
@@ -1955,7 +2597,7 @@ No extra text or introductions. Use simple language for primary school teachers.
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="errors" className="text-xs sm:text-sm px-1 sm:px-3">
+          <TabsTrigger value="errors" className="text-[11px] sm:text-sm px-1 sm:px-3 py-1.5 sm:py-2 data-[state=active]:shadow-none">
             Errors
             {errorCount > 0 && (
               <Badge
@@ -1975,7 +2617,7 @@ No extra text or introductions. Use simple language for primary school teachers.
             <div
               {...getRootProps()}
               className={cn(
-                "relative p-5 sm:p-8 text-center cursor-pointer transition-colors",
+                "relative p-4 sm:p-8 text-center cursor-pointer transition-colors",
                 isDragActive && "bg-primary/5",
                 isUploading && "opacity-50 cursor-not-allowed"
               )}
@@ -2168,11 +2810,19 @@ No extra text or introductions. Use simple language for primary school teachers.
                         animate={{ opacity: 1, y: 0 }}
                         className="border rounded-xl overflow-hidden"
                       >
-                        {/* Batch header — always visible */}
-                        <button
+                        {/* Batch header — div+role=button so inner <Button>s are valid (no nested <button>) */}
+                        <div
+                          role="button"
+                          tabIndex={0}
                           onClick={() => toggleBatch(dateKey)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              toggleBatch(dateKey);
+                            }
+                          }}
                           className={cn(
-                            "group/batch w-full flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-3 sm:py-4 text-left transition-colors hover:bg-muted/50",
+                            "group/batch w-full flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-3 sm:py-4 text-left transition-colors hover:bg-muted/50 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                             isExpanded && "bg-muted/30 border-b"
                           )}
                         >
@@ -2300,7 +2950,7 @@ No extra text or introductions. Use simple language for primary school teachers.
                           >
                             {batchFiles.length}
                           </Badge>
-                        </button>
+                        </div>
 
                         {/* Expanded content — the file cards */}
                         <AnimatePresence>
@@ -2366,7 +3016,7 @@ No extra text or introductions. Use simple language for primary school teachers.
             </DialogTitle>
             <DialogDescription>
               {lightboxFile?.studentName &&
-                `Student: ${lightboxFile.studentName}`}
+                `Learner: ${lightboxFile.studentName}`}
               {lightboxFile?.subject &&
                 ` · Subject: ${lightboxFile.subject}`}
               {lightboxFile?.grade &&
@@ -2398,45 +3048,54 @@ No extra text or introductions. Use simple language for primary school teachers.
               {lightboxFile?.analysis ? (
                 <>
                   {(() => {
-                    const s = parseAiFeedback(lightboxFile.analysis!.text);
-                    const g = extractGradeValue(lightboxFile.analysis!.text);
-                    const pctColor = 'text-primary';
-                    const barColor = 'bg-primary';
+                    const p = getFeedbackPanels(
+                      lightboxFile.analysis!.text,
+                      lightboxFile.analysis!
+                    );
+                    const g = p.scorePercent;
+                    const pctColor = "text-primary";
+                    const barColor = "bg-primary";
                     return (
                       <div className="space-y-3">
-                        {/* Grade header */}
-                        {g !== null && (
-                          <div className="flex items-center gap-3">
-                            <span className={`text-3xl font-extrabold ${pctColor}`}>{g}%</span>
-                            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                              <div className={`h-full rounded-full ${barColor}`} style={{ width: `${g}%` }} />
-                            </div>
-                          </div>
-                        )}
-                        {s.analysis && (
+                        {p.analysis && (
                           <div className="rounded-lg bg-primary/5 dark:bg-primary/10 border border-primary/20 p-3">
                             <p className="text-[10px] font-extrabold text-primary uppercase tracking-widest mb-1">Analysis</p>
-                            <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">{s.analysis}</p>
+                            <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">{p.analysis}</p>
                           </div>
                         )}
-                        {s.error_type && (
+                        {(g !== null || p.scoreLabel) && (
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-3 flex-wrap">
+                              {p.scoreLabel && (
+                                <span className="text-xl font-bold tabular-nums text-primary">{p.scoreLabel}</span>
+                              )}
+                              {g !== null && (
+                                <span className={`text-3xl font-extrabold ${pctColor}`}>{g}%</span>
+                              )}
+                            </div>
+                            {g !== null && (
+                              <div className="flex items-center gap-3">
+                                <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                                  <div className={`h-full rounded-full ${barColor}`} style={{ width: `${g}%` }} />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-3">
+                          <p className="text-[10px] font-extrabold text-amber-800 dark:text-amber-200 uppercase tracking-widest mb-1">Error type</p>
+                          <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">{p.displayError}</p>
+                        </div>
+                        {p.gradeSection ? (
                           <div className="rounded-lg bg-primary/5 dark:bg-primary/10 border border-primary/20 p-3">
-                            <p className="text-[10px] font-extrabold text-primary uppercase tracking-widest mb-1">Error Type</p>
-                            <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">{s.error_type}</p>
+                            <p className="text-[10px] font-extrabold text-primary uppercase tracking-widest mb-1">Grade (from model)</p>
+                            <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">{p.gradeSection}</p>
                           </div>
-                        )}
-                        {s.grade && (
-                          <div className="rounded-lg bg-primary/5 dark:bg-primary/10 border border-primary/20 p-3">
-                            <p className="text-[10px] font-extrabold text-primary uppercase tracking-widest mb-1">Grade</p>
-                            <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">{s.grade}</p>
-                          </div>
-                        )}
-                        {s.remediation && (
-                          <div className="rounded-lg bg-primary/5 dark:bg-primary/10 border border-primary/20 p-3">
-                            <p className="text-[10px] font-extrabold text-primary uppercase tracking-widest mb-1">Remediation</p>
-                            <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">{s.remediation}</p>
-                          </div>
-                        )}
+                        ) : null}
+                        <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-3">
+                          <p className="text-[10px] font-extrabold text-emerald-800 dark:text-emerald-200 uppercase tracking-widest mb-1">Remediation</p>
+                          <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">{p.displayRemediation}</p>
+                        </div>
                       </div>
                     );
                   })()}
@@ -2525,7 +3184,7 @@ No extra text or introductions. Use simple language for primary school teachers.
           <div className="space-y-3 py-2">
             <div>
               <label className="text-sm font-medium mb-1 block">
-                Student Name
+                Learner Name
               </label>
               {students.length > 0 ? (
                 <Select
@@ -2663,3 +3322,4 @@ No extra text or introductions. Use simple language for primary school teachers.
 };
 
 export default Upload;
+

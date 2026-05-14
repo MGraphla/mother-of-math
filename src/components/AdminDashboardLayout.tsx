@@ -1,24 +1,46 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useNavigate, Link } from "react-router-dom";
-import { isAdminAuthenticated } from "@/services/adminAuth";
+import { isAdminAuthenticated, verifyAdminRole, clearAdminSession, createAdminSession } from "@/services/adminAuth";
+import { supabase } from "@/lib/supabase";
 import AdminSidebar from "./AdminSidebar";
 import AdminNotificationBell from "./admin/AdminNotificationBell";
 import { AdminDateRangeProvider } from "@/context/AdminDateRangeContext";
 import { Search } from "lucide-react";
-import { Input } from "@/components/ui/input";
-
+import { Input } from "@/components/ui/input";import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
 const AdminDashboardLayout = () => {
   const navigate = useNavigate();
+  const [verified, setVerified] = useState(false);
 
-  // Check admin authentication
   useEffect(() => {
-    if (!isAdminAuthenticated()) {
-      navigate("/admin/login", { replace: true });
-    }
+    const checkAdmin = async () => {
+      // Quick client-side check first
+      if (!isAdminAuthenticated()) {
+        // If local admin session is missing but Supabase still has a valid admin user,
+        // restore the admin session instead of forcing a re-login.
+        const { data: { user } } = await supabase.auth.getUser();
+        const isAdmin = await verifyAdminRole();
+        if (user && isAdmin) {
+          createAdminSession(user.id);
+          setVerified(true);
+          return;
+        }
+        navigate("/admin/login", { replace: true });
+        return;
+      }
+      // Then verify role against Supabase
+      const isAdmin = await verifyAdminRole();
+      if (!isAdmin) {
+        clearAdminSession();
+        navigate("/admin/login", { replace: true });
+        return;
+      }
+      setVerified(true);
+    };
+    checkAdmin();
   }, [navigate]);
 
-  if (!isAdminAuthenticated()) {
-    return null;
+  if (!verified) {
+    return <LoadingAnimation fullScreen message="Verifying admin access..." />;
   }
 
   return (

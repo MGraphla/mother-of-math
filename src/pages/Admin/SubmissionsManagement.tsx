@@ -58,7 +58,7 @@ const SubmissionsManagement = () => {
   }, [searchQuery, submissions]);
 
   const exportToCSV = () => {
-    const headers = ['Assignment', 'Student', 'Teacher', 'Status', 'Score', 'AI Score', 'Submitted', 'Graded'];
+    const headers = ['Assignment', 'Learner', 'Teacher', 'Status', 'Score', 'AI Score', 'Submitted', 'Graded'];
     const csvData = filteredSubmissions.map(s => [
       s.assignment_title?.replace(/,/g, ';') || '',
       s.student_name || '',
@@ -211,7 +211,7 @@ const SubmissionsManagement = () => {
               <TableHeader>
                 <TableRow className="border-gray-800 hover:bg-transparent">
                   <TableHead className="text-gray-400">Assignment</TableHead>
-                  <TableHead className="text-gray-400">Student</TableHead>
+                  <TableHead className="text-gray-400">Learner</TableHead>
                   <TableHead className="text-gray-400">Teacher</TableHead>
                   <TableHead className="text-gray-400">Status</TableHead>
                   <TableHead className="text-gray-400 text-center">Score</TableHead>

@@ -29,7 +29,7 @@ const AdminLogin = () => {
     setErrorMessage("");
 
     try {
-      const result = adminLogin(username, password);
+      const result = await adminLogin(username, password);
       
       if (result.success) {
         navigate("/admin/dashboard", { replace: true });

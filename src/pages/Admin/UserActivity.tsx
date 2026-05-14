@@ -61,7 +61,7 @@ const UserActivity = () => {
       case 'teacher_signup':
         return <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">Sign Up</Badge>;
       case 'student_created':
-        return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Student</Badge>;
+        return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Learner</Badge>;
       case 'lesson_plan':
         return <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30">Lesson</Badge>;
       case 'assignment':

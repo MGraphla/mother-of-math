@@ -984,7 +984,7 @@ const Chatbot: React.FC = () => {
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <Button variant="ghost" size="icon" className={cn("h-9 w-9 rounded-xl shrink-0", darkMode ? "text-gray-400 hover:text-green-400 hover:bg-gray-800" : "text-gray-500 hover:text-green-600 hover:bg-green-50")}
                 onClick={() => setSidebarOpen(!sidebarOpen)} title={t(language, "sidebar.history")}>
-                <PanelLeft className="w-5 h-5" />
+                <History className="w-5 h-5" />
               </Button>
               <div className="w-10 h-10 rounded-xl overflow-hidden shadow-md shadow-green-600/20 shrink-0">
                 <img src="/mama%20math.svg" alt="MAMA" className="w-full h-full object-cover" />
@@ -1039,27 +1039,27 @@ const Chatbot: React.FC = () => {
 
               {/* Language toggle */}
               <Button variant="ghost" size="icon" onClick={() => setLanguage((l) => l === "en" ? "fr" : "en")}
-                className={cn("h-8 w-8 rounded-xl text-xs font-bold", darkMode ? "text-gray-400 hover:text-green-400 hover:bg-gray-800" : "text-gray-400 hover:text-green-600 hover:bg-green-50")}
+                className={cn("h-8 w-8 rounded-xl text-xs font-bold", darkMode ? "text-gray-400 hover:text-green-400 hover:bg-gray-800" : "text-gray-500 hover:text-green-700 hover:bg-green-50")}
                 title={t(language, "lang.label")}>
                 <Globe className="w-4 h-4" />
               </Button>
 
               {/* Dark mode toggle */}
               <Button variant="ghost" size="icon" onClick={() => setDarkMode((d) => !d)}
-                className={cn("h-8 w-8 rounded-xl", darkMode ? "text-amber-400 hover:text-amber-300 hover:bg-gray-800" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100")}
+                className={cn("h-8 w-8 rounded-xl", darkMode ? "text-amber-400 hover:text-amber-300 hover:bg-gray-800" : "text-gray-600 hover:text-gray-800 hover:bg-gray-100")}
                 title={darkMode ? t(language, "action.lightMode") : t(language, "action.darkMode")}>
                 {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </Button>
 
               {/* PDF export */}
               {hasMessages && (
-                <Button variant="ghost" size="icon" className={cn("h-8 w-8 rounded-xl", darkMode ? "text-gray-400 hover:text-green-400 hover:bg-gray-800" : "text-gray-400 hover:text-green-600 hover:bg-green-50")} onClick={handleExportPdf} title={t(language, "action.exportPdf")}>
+                <Button variant="ghost" size="icon" className={cn("h-8 w-8 rounded-xl", darkMode ? "text-gray-400 hover:text-green-400 hover:bg-gray-800" : "text-gray-500 hover:text-green-700 hover:bg-green-50")} onClick={handleExportPdf} title={t(language, "action.exportPdf")}>
                   <FileText className="w-4 h-4" />
                 </Button>
               )}
 
               {/* New chat */}
-              <Button variant="ghost" size="icon" className={cn("h-8 w-8 rounded-xl", darkMode ? "text-gray-400 hover:text-green-400 hover:bg-gray-800" : "text-gray-400 hover:text-green-600 hover:bg-green-50")} onClick={handleNewChat} title={t(language, "action.newChat")}>
+              <Button variant="ghost" size="icon" className={cn("h-8 w-8 rounded-xl", darkMode ? "text-gray-400 hover:text-green-400 hover:bg-gray-800" : "text-gray-500 hover:text-green-700 hover:bg-green-50")} onClick={handleNewChat} title={t(language, "action.newChat")}>
                 <MessageSquarePlus className="w-4 h-4" />
               </Button>
             </div>
@@ -1073,17 +1073,17 @@ const Chatbot: React.FC = () => {
               {!hasMessages ? (
                 /*  Welcome Screen  */
                 <motion.div key="welcome" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-                  className="flex flex-col items-center justify-center min-h-[55vh] text-center px-2">
+                  className="flex flex-col items-center justify-center min-h-[38vh] sm:min-h-[55vh] text-center px-1 sm:px-2">
                   <motion.div animate={{ scale: [1, 1.05, 1] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                    className="w-40 h-40 sm:w-48 sm:h-48 mb-6 flex items-center justify-center relative">
+                    className="w-28 h-28 xs:w-36 xs:h-36 sm:w-48 sm:h-48 mb-3 sm:mb-6 flex items-center justify-center relative">
                     <img
                       src="/mama%20math.svg"
                       alt="Mama Math"
                       className="w-full h-full object-contain drop-shadow-2xl"
                     />
                   </motion.div>
-                  <h2 className={cn("text-2xl sm:text-3xl font-bold mb-2 leading-tight", darkMode ? "text-gray-100" : "text-gray-900")}>{t(language, "welcome.hello")} {userName.split(" ")[0]}!</h2>
-                  <p className={cn("text-sm sm:text-base max-w-md mb-8 leading-relaxed", darkMode ? "text-gray-400" : "text-gray-500")}>
+                  <h2 className={cn("text-lg sm:text-2xl md:text-3xl font-bold mb-1 sm:mb-2 leading-tight px-1", darkMode ? "text-gray-100" : "text-gray-900")}>{t(language, "welcome.hello")} {userName.split(" ")[0]}!</h2>
+                  <p className={cn("text-xs sm:text-sm md:text-base max-w-md mb-4 sm:mb-8 leading-relaxed line-clamp-4 sm:line-clamp-none px-1", darkMode ? "text-gray-400" : "text-gray-500")}>
                     {t(language, "welcome.intro")} <strong className="text-green-600">{t(language, "welcome.name")}</strong>{t(language, "welcome.description")}
                     {!selectedGrade && <span className="block mt-2 text-amber-500 font-medium">{t(language, "welcome.selectGrade")}</span>}
                   </p>
@@ -1091,11 +1091,11 @@ const Chatbot: React.FC = () => {
                   {selectedGrade && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-lg">
                       <p className={cn("text-xs font-semibold uppercase tracking-wider mb-3", darkMode ? "text-gray-500" : "text-gray-400")}>{t(language, "welcome.exploreTopic")}</p>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 gap-2 sm:gap-3">
                         {TOPIC_KEYS.map((topic) => (
                           <motion.button key={topic.titleKey} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                             onClick={() => handleSendMessage(`${language === "fr" ? "Parlez-moi de" : "Tell me about"} ${language === "fr" ? topic.queryFr : topic.query} ${language === "fr" ? "pour le Primaire" : "for Primary"} ${selectedGrade}`)}
-                            className="relative overflow-hidden rounded-2xl p-4 text-left text-white shadow-lg hover:shadow-xl transition-shadow">
+                            className="relative overflow-hidden rounded-xl sm:rounded-2xl p-3 sm:p-4 text-left text-white shadow-lg hover:shadow-xl transition-shadow">
                             <div className={cn("absolute inset-0 bg-gradient-to-br", topic.color)} />
                             <div className="relative z-10">
                               <topic.icon className="w-7 h-7 mb-2 opacity-90" />
@@ -1209,11 +1209,11 @@ const Chatbot: React.FC = () => {
             )}
 
             <div className={cn("relative flex items-end gap-2 rounded-2xl border transition-all px-3 sm:px-4 py-2",
-              darkMode ? "bg-gray-800 border-gray-700 focus-within:border-green-600 focus-within:ring-2 focus-within:ring-green-900/50" : "bg-gray-50 border-gray-200 focus-within:border-green-400 focus-within:ring-2 focus-within:ring-green-100"
+              darkMode ? "bg-gray-800 border-gray-700 focus-within:border-green-600 focus-within:ring-2 focus-within:ring-green-900/50" : "bg-primary border-primary-foreground/20 focus-within:ring-2 focus-within:ring-green-300"
             )}>
               {/* Image upload */}
               <button onClick={() => imageInputRef.current?.click()} disabled={!selectedGrade || isLoading}
-                className={cn("shrink-0 p-2 rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed", darkMode ? "text-gray-500 hover:text-green-400 hover:bg-gray-700" : "text-gray-400 hover:text-green-600 hover:bg-green-50")}
+                className={cn("shrink-0 p-2 rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed", darkMode ? "text-gray-500 hover:text-green-400 hover:bg-gray-700" : "text-white hover:text-gray-100 hover:bg-white/10")}
                 title={language === "fr" ? "T�l�charger une image" : "Upload image"}>
                 <ImageIcon className="w-5 h-5" />
               </button>
@@ -1222,15 +1222,15 @@ const Chatbot: React.FC = () => {
               <textarea ref={textareaRef} value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyDown={handleKeyDown}
                 placeholder={selectedGrade ? t(language, "input.placeholder") : t(language, "input.selectFirst")}
                 disabled={!selectedGrade || isLoading} rows={1}
-                className={cn("flex-1 bg-transparent resize-none border-none outline-none text-sm sm:text-base max-h-40 py-1.5 leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed placeholder:text-gray-400",
-                  darkMode ? "text-gray-100 placeholder:text-gray-500" : "text-gray-800"
+                className={cn("flex-1 bg-transparent resize-none border-none outline-none text-sm sm:text-base max-h-40 py-1.5 leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed placeholder:font-medium placeholder:text-gray-100",
+                  darkMode ? "text-gray-100 placeholder:text-gray-500" : "text-white"
                 )} />
 
               <div className="flex items-center gap-1.5 shrink-0 pb-0.5">
                 {/* Voice */}
                 <button onClick={toggleVoice} disabled={!selectedGrade || isLoading}
                   className={cn("p-2 rounded-xl transition-all",
-                    isListening ? "bg-red-100 text-red-600 animate-pulse" : cn("disabled:opacity-40 disabled:cursor-not-allowed", darkMode ? "text-gray-500 hover:text-green-400 hover:bg-gray-700" : "text-gray-400 hover:text-green-600 hover:bg-green-50")
+                    isListening ? "bg-red-100 text-red-600 animate-pulse" : cn("disabled:opacity-40 disabled:cursor-not-allowed", darkMode ? "text-gray-500 hover:text-green-400 hover:bg-gray-700" : "text-white hover:text-gray-100 hover:bg-white/10")
                   )} title={isListening ? "Stop" : "Voice"}>
                   {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                 </button>
@@ -1240,8 +1240,8 @@ const Chatbot: React.FC = () => {
                   size="icon"
                   className={cn("h-9 w-9 rounded-xl transition-all duration-200 shadow-md",
                     (inputMessage.trim() || pendingImage) && selectedGrade && !isLoading
-                      ? "bg-gradient-to-br from-green-600 to-emerald-700 hover:from-green-700 hover:to-emerald-800 shadow-green-600/30 scale-100"
-                      : darkMode ? "bg-gray-700 text-gray-500 shadow-none scale-95" : "bg-gray-200 text-gray-400 shadow-none scale-95"
+                      ? "bg-white text-green-700 hover:bg-gray-100 shadow-xl scale-100"
+                      : darkMode ? "bg-gray-700 text-gray-500 shadow-none scale-95" : "bg-white text-green-700 shadow-none scale-95"
                   )}>
                   {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 </Button>

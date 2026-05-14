@@ -5,7 +5,9 @@ import { getApiKey } from './api';
 import { AssignmentSubmission, StudentAssignment } from './studentService';
 import { supabase } from '@/lib/supabase';
 
-const GRADING_MODEL = 'google/gemini-3.1-pro-preview';
+/** Prefer env override; default matches vision model used elsewhere (api.ts). */
+const GRADING_MODEL =
+  import.meta.env.VITE_AI_GRADING_MODEL || 'anthropic/claude-sonnet-4.6';
 const FALLBACK_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const REQUEST_TIMEOUT_MS = 120_000; // Increased timeout for detailed analysis
 const MAX_RETRIES = 2;
@@ -63,6 +65,102 @@ export const verifyImageUrl = async (url: string): Promise<boolean> => {
  */
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+/** Strip query/hash then check extension — vision APIs need raster images, not PDF/DOC. */
+export function submissionFileSupportsAiVision(fileUrl: string): {
+  ok: boolean;
+  reason?: string;
+} {
+  const path = fileUrl.split(/[?#]/)[0].toLowerCase();
+  if (/\.pdf$/i.test(path)) {
+    return {
+      ok: false,
+      reason:
+        'AI grading only supports images (e.g. JPG, PNG). This submission looks like a PDF — ask the learner to upload a photo or screenshot of their work.',
+    };
+  }
+  if (/\.(doc|docx|ppt|pptx|xls|xlsx|zip)$/i.test(path)) {
+    return {
+      ok: false,
+      reason:
+        'AI grading only supports image files. Please use a picture of the completed work.',
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Pull a 0–100 percentage from the model reply. Handles many formats the strict
+ * `/## Grade…(\d+)%/` regex missed (markdown bullets, "75 percent", "7.5/10", plain "72").
+ */
+export function parseGradePercentageFromAiContent(content: string, maxScore: number): number | null {
+  const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+  const tryParseFloat = (s: string) => {
+    const x = parseFloat(s);
+    return Number.isFinite(x) ? x : NaN;
+  };
+
+  const gradeBlock =
+    content.match(/##\s*Grade\s*([\s\S]*?)(?=\n##\s+[^\n#]|\n##\s*$|$)/i)?.[1] ?? '';
+  const inGrade = gradeBlock.trim();
+  const section = inGrade ? gradeBlock : content;
+
+  let m: RegExpMatchArray | null;
+
+  // "75%" or "75 %" — safe in full doc when no heading (percent is unambiguous)
+  m = section.match(/(\d{1,3}(?:\.\d+)?)\s*%/);
+  if (m) return clamp(tryParseFloat(m[1]));
+
+  // "75 percent"
+  m = section.match(/(\d{1,3}(?:\.\d+)?)\s*(?:percent|pct)\b/i);
+  if (m) return clamp(tryParseFloat(m[1]));
+
+  // "12/20" or "7.5/10" — only inside ## Grade to avoid picking "3/4" from analysis
+  if (inGrade) {
+    m = gradeBlock.match(/\b(\d{1,3}(?:\.\d+)?)\s*\/\s*(\d{1,3}(?:\.\d+)?)\b/);
+    if (m) {
+      const num = tryParseFloat(m[1]);
+      const den = tryParseFloat(m[2]);
+      if (den > 0 && num >= 0 && num <= den * 1.25) {
+        return clamp((num / den) * 100);
+      }
+    }
+  }
+
+  if (inGrade) {
+    const singleLine = gradeBlock
+      .replace(/\*\*/g, '')
+      .split(/\n/)
+      .map((l) => l.trim())
+      .find((l) => /^\d{1,3}(?:\.\d+)?$/);
+    if (singleLine && maxScore > 0) {
+      const pts = tryParseFloat(singleLine);
+      if (pts >= 0 && pts <= maxScore * 1.01) {
+        return clamp((pts / maxScore) * 100);
+      }
+    }
+  }
+
+  if (inGrade) {
+    m = gradeBlock.match(
+      /\b(?:score|grade|mark)\s*[:.\-–]?\s*(\d{1,3}(?:\.\d+)?)(?!\s*\/)/i,
+    );
+    if (m) {
+      const v = tryParseFloat(m[1]);
+      if (v <= maxScore && maxScore > 0) return clamp((v / maxScore) * 100);
+      if (v <= 100) return clamp(v);
+    }
+
+    m = gradeBlock.match(/(\d{1,3}(?:\.\d+)?)\s*%?/);
+    if (m) {
+      const v = tryParseFloat(m[1]);
+      if (v >= 0 && v <= maxScore && maxScore > 0) return clamp((v / maxScore) * 100);
+      if (v >= 0 && v <= 100) return clamp(v);
+    }
+  }
+
+  return null;
+}
+
 /**
  * Determine if an error is retryable (network issues, rate limits)
  */
@@ -75,7 +173,7 @@ const isRetryableError = (error: any, status?: number): boolean => {
 // ── Core Grading Function ──────────────────────────────
 
 /**
- * Send a student's submitted image to Gemini for analysis and grading.
+ * Send a student's submitted image to a vision model (OpenRouter) for analysis and grading.
  * Returns an AI-generated score and detailed feedback.
  */
 export const gradeSubmissionWithAI = async (
@@ -92,6 +190,16 @@ export const gradeSubmissionWithAI = async (
 
   if (!submission.file_url) {
     return { score: 0, feedback: '', success: false, error: 'No file attached to this submission.' };
+  }
+
+  const visionCheck = submissionFileSupportsAiVision(submission.file_url);
+  if (!visionCheck.ok) {
+    return {
+      score: 0,
+      feedback: '',
+      success: false,
+      error: visionCheck.reason || 'This file type cannot be analyzed by AI.',
+    };
   }
 
   const maxScore = assignment.max_score || 100;
@@ -112,7 +220,7 @@ Your response must be direct and concise. Follow this format exactly:
 [Categorize the error using one or more of these: Number recognition, Number discrimination, Place value, Simple operations, Patterns and sequencing. If none, write 'None Found'. Maximum 4 lines.]
 
 ## Grade
-[Give a percentage score only, e.g. 75%. Maximum 4 lines.]
+[Give the learner's result as a percentage only, e.g. 75% or 75 percent. One line.]
 
 ## Remediation
 [Suggest one specific, simple remediation step for the teacher to use. Maximum 4 lines.]
@@ -187,13 +295,19 @@ Do not add any extra text, introductions, or explanations. Use simple, non-techn
       return { score: 0, feedback: '', success: false, error: 'AI returned empty response.' };
     }
 
-    // Extract the percentage from the ## Grade section
-    const gradeMatch = content.match(/##\s*Grade[\s\S]*?(\d{1,3})\s*%/i);
-    const percentage = gradeMatch ? Math.max(0, Math.min(100, Number(gradeMatch[1]))) : 0;
-    // Convert percentage to the assignment's max score
+    const percentage = parseGradePercentageFromAiContent(content, maxScore);
+    if (percentage === null) {
+      return {
+        score: 0,
+        feedback: content.trim(),
+        success: false,
+        error:
+          'AI returned feedback but no readable grade (need a percentage like 75% in the ## Grade section). Try re-running AI grade or set the score manually.',
+      };
+    }
+
     const score = Math.round((percentage / 100) * maxScore);
 
-    // Use the full Markdown response as feedback
     const feedback = content.trim();
 
     return { score, feedback, success: true };
@@ -249,8 +363,8 @@ export const batchGradeSubmissions = async (
   let failed = 0;
   const results = new Map<string, AiGradingResult>();
 
-  for (const sub of ungraded) {
-    onProgress?.(graded + failed, ungraded.length, sub.studentName);
+  for (let i = 0; i < ungraded.length; i++) {
+    const sub = ungraded[i];
 
     try {
       const result = await gradeSubmissionWithAI(sub, assignment, sub.studentName);
@@ -268,8 +382,9 @@ export const batchGradeSubmissions = async (
       failed++;
     }
 
-    // Small delay between requests to avoid rate limiting
-    if (ungraded.indexOf(sub) < ungraded.length - 1) {
+    onProgress?.(graded + failed, ungraded.length, sub.studentName);
+
+    if (i < ungraded.length - 1) {
       await new Promise((r) => setTimeout(r, 1500));
     }
   }
@@ -368,6 +483,7 @@ export interface AiGradingSummary {
   totalSubmissions: number;
   aiGraded: number;
   pending: number;
+  /** Mean of AI scores as a percentage 0–100 (normalized by assignment `max_score`). */
   averageAiScore: number | null;
   highestScore: number | null;
   lowestScore: number | null;
@@ -384,23 +500,38 @@ export const getAiGradingSummary = async (assignmentId: string): Promise<AiGradi
     .select('ai_score, ai_graded_at')
     .eq('assignment_id', assignmentId);
 
+  const { data: assignmentRow } = await supabase
+    .from('assignments')
+    .select('max_score')
+    .eq('id', assignmentId)
+    .maybeSingle();
+
+  const maxPoints =
+    assignmentRow?.max_score != null && Number(assignmentRow.max_score) > 0
+      ? Number(assignmentRow.max_score)
+      : 100;
+
   const subs = submissions || [];
-  const aiGradedSubs = subs.filter(s => s.ai_graded_at && s.ai_score !== null);
-  const scores = aiGradedSubs.map(s => s.ai_score as number);
+  const aiGradedSubs = subs.filter((s) => s.ai_graded_at && s.ai_score !== null);
+  const scores = aiGradedSubs.map((s) => s.ai_score as number);
+
+  const toPct = (raw: number) => (raw / maxPoints) * 100;
+  const pctScores = scores.map(toPct);
 
   return {
     totalSubmissions: subs.length,
     aiGraded: aiGradedSubs.length,
     pending: subs.length - aiGradedSubs.length,
-    averageAiScore: scores.length > 0 
-      ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10 
-      : null,
+    averageAiScore:
+      scores.length > 0
+        ? Math.round((pctScores.reduce((a, b) => a + b, 0) / pctScores.length) * 10) / 10
+        : null,
     highestScore: scores.length > 0 ? Math.max(...scores) : null,
     lowestScore: scores.length > 0 ? Math.min(...scores) : null,
     scoreDistribution: {
-      excellent: scores.filter(s => s >= 80).length,
-      good: scores.filter(s => s >= 60 && s < 80).length,
-      needsWork: scores.filter(s => s < 60).length,
+      excellent: pctScores.filter((s) => s >= 80).length,
+      good: pctScores.filter((s) => s >= 60 && s < 80).length,
+      needsWork: pctScores.filter((s) => s < 60).length,
     },
   };
 };

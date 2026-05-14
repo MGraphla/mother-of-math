@@ -731,6 +731,16 @@ export const getAllSubmissions = async (): Promise<SubmissionStats[]> => {
  */
 export const getUsageAnalytics = async (): Promise<UsageAnalytics> => {
   try {
+    // Try RPC function first (bypasses RLS)
+    const { data: rpcAnalytics, error: rpcError } = await supabase.rpc('get_usage_analytics');
+    
+    if (!rpcError && rpcAnalytics) {
+      console.log('RPC: Fetched usage analytics (bypassed RLS)');
+      return rpcAnalytics as UsageAnalytics;
+    }
+
+    console.log('RPC error or not available, falling back to direct query:', rpcError?.message);
+
     // Get data grouped by month for the past 12 months
     const months = [];
     for (let i = 11; i >= 0; i--) {
@@ -1057,7 +1067,7 @@ export const getAllStudentWorks = async (): Promise<StudentWorkStats[]> => {
     }
 
     console.log('Falling back to direct query with adminSupabase...');
-    console.log('Has service role access:', !!import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY);
+    console.log('Using RPC functions for admin data access');
     
     // Direct query without relationship join (no FK constraint on student_works)
     const { data, error } = await adminSupabase
@@ -1067,7 +1077,7 @@ export const getAllStudentWorks = async (): Promise<StudentWorkStats[]> => {
 
     if (error) {
       console.warn('Direct query error:', error.message, error.code);
-      console.log('If RLS error, make sure to deploy SQL functions or set VITE_SUPABASE_SERVICE_ROLE_KEY');
+      console.log('If RLS error, make sure to deploy SQL functions');
       return [];
     }
     if (!data) return [];
@@ -1933,33 +1943,90 @@ export const getChatInputResponseStats = async (): Promise<{ totalInputs: number
  */
 export const getActivityTrends = async (): Promise<{ date: string; lessonPlans: number; assignments: number; submissions: number; messages: number }[]> => {
   try {
-    const trends: { date: string; lessonPlans: number; assignments: number; submissions: number; messages: number }[] = [];
+    // Try RPC function first (bypasses RLS and is much faster)
+    const { data: rpcData, error: rpcError } = await supabase.rpc('get_activity_trends', { days_lookback: 30 });
     
-    // Get last 30 days
-    for (let i = 29; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      const startOfDay = `${dateStr}T00:00:00.000Z`;
-      const endOfDay = `${dateStr}T23:59:59.999Z`;
-
-      const [lpCount, assignCount, subCount, msgCount] = await Promise.all([
-        adminSupabase.from('lesson_plans').select('*', { count: 'exact', head: true }).gte('created_at', startOfDay).lte('created_at', endOfDay),
-        adminSupabase.from('assignments').select('*', { count: 'exact', head: true }).gte('created_at', startOfDay).lte('created_at', endOfDay),
-        adminSupabase.from('assignment_submissions').select('*', { count: 'exact', head: true }).gte('submitted_at', startOfDay).lte('submitted_at', endOfDay),
-        adminSupabase.from('conversation_messages').select('*', { count: 'exact', head: true }).gte('created_at', startOfDay).lte('created_at', endOfDay),
-      ]);
-
-      trends.push({
-        date: dateStr,
-        lessonPlans: lpCount.count || 0,
-        assignments: assignCount.count || 0,
-        submissions: subCount.count || 0,
-        messages: msgCount.count || 0,
-      });
+    if (!rpcError && rpcData) {
+      console.log('Using RPC for activity trends');
+      return rpcData.map((d: any) => ({
+        date: d.activity_date, // RPC returns 'activity_date'
+        lessonPlans: Number(d.lesson_plans), // RPC returns snake_case
+        assignments: Number(d.assignments),
+        submissions: Number(d.submissions),
+        messages: Number(d.messages)
+      }));
     }
 
-    return trends;
+    console.warn('RPC get_activity_trends failed or not found, falling back to direct queries:', rpcError?.message);
+
+    const trends: { date: string; lessonPlans: number; assignments: number; submissions: number; messages: number }[] = [];
+    
+    // Get date range (last 30 days)
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - 30);
+    // Set to start of day for accurate filtering
+    startDate.setHours(0, 0, 0, 0);
+    const startDateStr = startDate.toISOString();
+    
+    console.log('Fetching activity trends from:', startDateStr);
+
+    // Fetch all data in parallel (single query per table instead of loop)
+    const [lessonPlans, assignments, submissions, messages] = await Promise.all([
+      adminSupabase
+        .from('lesson_plans')
+        .select('created_at')
+        .gte('created_at', startDateStr),
+      adminSupabase
+        .from('assignments')
+        .select('created_at')
+        .gte('created_at', startDateStr),
+      adminSupabase
+        .from('assignment_submissions')
+        .select('submitted_at')
+        .gte('submitted_at', startDateStr),
+      adminSupabase
+        .from('conversation_messages')
+        .select('created_at')
+        .gte('created_at', startDateStr),
+    ]);
+
+    // Initialize map for the last 30 days with 0 values
+    const trendMap = new Map<string, { lessonPlans: number; assignments: number; submissions: number; messages: number }>();
+    
+    for (let i = 0; i < 30; i++) {
+        const d = new Date();
+        d.setDate(endDate.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        trendMap.set(dateStr, { lessonPlans: 0, assignments: 0, submissions: 0, messages: 0 });
+    }
+
+    // Helper to aggregate counts by date
+    const aggregate = (data: any[], dateField: string, key: 'lessonPlans' | 'assignments' | 'submissions' | 'messages') => {
+        data?.forEach(item => {
+            if (!item[dateField]) return;
+            const itemDate = new Date(item[dateField]);
+            const dateStr = itemDate.toISOString().split('T')[0];
+            if (trendMap.has(dateStr)) {
+                const dayStats = trendMap.get(dateStr)!;
+                dayStats[key]++;
+            }
+        });
+    };
+
+    aggregate(lessonPlans.data || [], 'created_at', 'lessonPlans');
+    aggregate(assignments.data || [], 'created_at', 'assignments');
+    aggregate(submissions.data || [], 'submitted_at', 'submissions');
+    aggregate(messages.data || [], 'created_at', 'messages');
+
+    // Convert map to array and sort by date ascending
+    return Array.from(trendMap.entries())
+        .map(([date, counts]) => ({
+            date,
+            ...counts
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
   } catch (error) {
     console.error('Error fetching activity trends:', error);
     return [];

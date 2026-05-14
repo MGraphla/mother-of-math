@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,10 +32,15 @@ import {
   Square,
   RectangleHorizontal,
   X,
+  Share2,
+  Pencil,
+  Eraser
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
 import { generateSlideImage } from "@/services/imageGeneration";
 import { imageStorage } from "@/services/imageStorage";
+import { sendMessage } from "@/services/api";
 import { cn } from "@/lib/utils";
 
 interface StoredImage {
@@ -69,7 +74,7 @@ const ART_STYLES = [
 const QUICK_IDEAS = [
   "African children learning mathematics in a colorful classroom",
   "Teacher explaining fractions using colorful pie charts",
-  "Students working together on geometry problems",
+  "Learner working together on geometry problems",
   "Children counting with colorful blocks and beads",
   "Math equations on a green chalkboard",
 ];
@@ -85,6 +90,13 @@ const GenerateImages = () => {
   const [favorites, setFavorites] = useState<StoredImage[]>([]);
   const [loadingGallery, setLoadingGallery] = useState(false);
   const [selectedImage, setSelectedImage] = useState<StoredImage | null>(null);
+  const [generationsToday, setGenerationsToday] = useState(0);
+  const MAX_GENERATIONS_PER_DAY = 5;
+
+  // Canvas Drawing State
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [penColor, setPenColor] = useState("#000000");
 
   // Load gallery images
   const loadGallery = async () => {
@@ -93,6 +105,10 @@ const GenerateImages = () => {
       const images = await imageStorage.getImages();
       setGallery(images);
       setFavorites(images.filter((img) => img.is_favorite));
+      
+      // Load current day generations count
+      const count = await imageStorage.getGenerationsCountToday();
+      setGenerationsToday(count);
     } catch (error) {
       console.error("Failed to load gallery:", error);
     } finally {
@@ -104,8 +120,137 @@ const GenerateImages = () => {
     loadGallery();
   }, []);
 
+  // Drawing event handlers
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    const clientX = 'clientX' in e ? e.clientX : e.touches[0].clientX;
+    const clientY = 'clientY' in e ? e.clientY : e.touches[0].clientY;
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top) * scaleY;
+
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    setIsDrawing(true);
+  };
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    const clientX = 'clientX' in e ? e.clientX : e.touches[0].clientX;
+    const clientY = 'clientY' in e ? e.clientY : e.touches[0].clientY;
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top) * scaleY;
+
+    ctx.lineWidth = penColor === "#ffffff" ? 20 : 3; // Thicker line for eraser
+    ctx.lineCap = "round";
+    ctx.strokeStyle = penColor;
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => setIsDrawing(false);
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  };
+
+  // Initialize canvas background when tab changes
+  useEffect(() => {
+    if (activeTab === "sketch") {
+      // Small timeout to allow canvas to render
+      setTimeout(clearCanvas, 100);
+    }
+  }, [activeTab]);
+
+  const handleGenerateFromSketch = async () => {
+    if (generationsToday + numImages > MAX_GENERATIONS_PER_DAY) {
+      const remaining = Math.max(0, MAX_GENERATIONS_PER_DAY - generationsToday);
+      toast.error(`Daily limit reached. You can only generate ${remaining} more images today.`);
+      return;
+    }
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    // PNG keeps thin pen strokes sharp; JPEG blurs small sketch lines and confuses vision models.
+    const sketchBase64 = canvas.toDataURL("image/png");
+
+    setIsGenerating(true);
+    try {
+      toast.info("Analyzing your sketch...");
+      const description = await sendMessage(
+        "Describe only what is drawn in this sketch—shapes, figures, layout, and spatial relationships—so an image model can recreate it faithfully. Do not analyze math mistakes; this is a teacher's rough drawing, not learner homework.",
+        sketchBase64,
+        "text",
+        "sketch-to-image",
+      );
+
+      const descText =
+        typeof description === "object" && description !== null && "text" in description
+          ? String((description as { text: string }).text ?? "").trim()
+          : String(description ?? "").trim();
+
+      if (!descText) {
+        toast.error("Could not read your sketch. Try drawing with a darker pen or clearer lines, then try again.");
+        return;
+      }
+
+      const enhancedPrompt = enhancePrompt(descText, true);
+      const selectedRatio = ASPECT_RATIOS.find((r) => r.id === aspectRatio)?.ratio || "4:3";
+
+      const generatedImages: string[] = [];
+      for (let i = 0; i < numImages; i++) {
+        toast.info(`Generating image ${i + 1} of ${numImages} from sketch...`);
+        const imageUrl = await generateSlideImage(enhancedPrompt, selectedRatio);
+        
+        if (imageUrl) {
+          const saved = await imageStorage.saveImage(imageUrl, {
+            prompt: "Generated from Teacher Sketch",
+            enhancedPrompt: enhancedPrompt,
+            aspectRatio: selectedRatio,
+            style: artStyle,
+          });
+
+          if (saved) generatedImages.push(saved.image_url);
+        }
+      }
+
+      if (generatedImages.length > 0) {
+        toast.success(`Generated ${generatedImages.length} image(s) from sketch!`);
+        await loadGallery();
+        setGenerationsToday(prev => prev + generatedImages.length);
+        setActiveTab("gallery");
+      } else {
+        toast.error("Failed to generate images from sketch. Please try again.");
+      }
+    } catch (error) {
+      console.error("Sketch generation error:", error);
+      toast.error("An error occurred while generating images from sketch.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   // Enhance prompt with style and context
-  const enhancePrompt = (basePrompt: string): string => {
+  const enhancePrompt = (basePrompt: string, isFromSketch: boolean = false): string => {
     const styleMap: Record<string, string> = {
       illustration: "Clean vector-style illustration, flat design, modern educational artwork",
       realistic: "Photorealistic, high detail, professional photography style",
@@ -114,7 +259,18 @@ const GenerateImages = () => {
       sketch: "Hand-drawn pencil sketch, artistic linework",
     };
 
-    return `${basePrompt}. ${styleMap[artStyle] || styleMap.illustration}. 
+    const styleText = styleMap[artStyle] || styleMap.illustration;
+    
+    if (isFromSketch) {
+      return `Recreate this scene as a polished illustration. Stay very close to this description—same subjects, composition, and spatial layout: ${basePrompt}
+
+Rendering style: ${styleText}.
+If the description is clearly a classroom or school activity, show an African/Cameroonian school setting; if it is something else (diagram, object, nature, abstract layout), keep that subject—do not force a classroom.
+Use green (#009e60) and brown (#4b371c) as natural accents where they fit; do not let palette override what is described.
+High quality, professional. NO text, NO words, NO letters, NO numbers overlaid on the image.`;
+    }
+
+    return `${basePrompt}. ${styleText}. 
 Educational setting, African/Cameroonian school context. 
 Primary colors: green (#009e60), brown (#4b371c), warm tones.
 High quality, professional, suitable for classroom materials.
@@ -124,6 +280,12 @@ NO text, NO words, NO letters overlaid on the image.`;
   const handleGenerate = async () => {
     if (!prompt.trim()) {
       toast.error("Please enter a prompt");
+      return;
+    }
+
+    if (generationsToday + numImages > MAX_GENERATIONS_PER_DAY) {
+      const remaining = MAX_GENERATIONS_PER_DAY - generationsToday;
+      toast.error(`Daily limit reached. You can only generate ${remaining > 0 ? remaining : 0} more images today.`);
       return;
     }
 
@@ -156,6 +318,7 @@ NO text, NO words, NO letters overlaid on the image.`;
       if (generatedImages.length > 0) {
         toast.success(`Generated ${generatedImages.length} image(s)!`);
         await loadGallery();
+        setGenerationsToday(prev => prev + generatedImages.length);
         setActiveTab("gallery");
       } else {
         toast.error("Failed to generate images. Please try again.");
@@ -182,6 +345,7 @@ NO text, NO words, NO letters overlaid on the image.`;
     if (success) {
       await loadGallery();
       toast.success("Image deleted");
+      setSelectedImage((cur) => (cur?.id === image.id ? null : cur));
     } else {
       toast.error("Failed to delete image");
     }
@@ -200,6 +364,25 @@ NO text, NO words, NO letters overlaid on the image.`;
       toast.success("Image downloaded");
     } catch (error) {
       toast.error("Failed to download image");
+    }
+  };
+
+  const handleShare = async (image: StoredImage) => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Mother of Math - Generated Image',
+          text: `Check out this image I generated: ${image.prompt}`,
+          url: image.image_url,
+        });
+      } catch (err) {
+        if ((err as any).name !== 'AbortError') {
+          console.error("Share failed:", err);
+        }
+      }
+    } else {
+      navigator.clipboard.writeText(image.image_url);
+      toast.success("Image link copied to clipboard!");
     }
   };
 
@@ -261,7 +444,19 @@ NO text, NO words, NO letters overlaid on the image.`;
                     <Download className="h-4 w-4 text-muted-foreground hover:text-foreground" />
                   </button>
                   <button
-                    onClick={() => handleDelete(image)}
+                    onClick={() => handleShare(image)}
+                    className="p-1.5 hover:bg-muted rounded-md transition-colors"
+                    title="Share image"
+                  >
+                    <Share2 className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void handleDelete(image);
+                    }}
                     className="p-1.5 hover:bg-red-50 rounded-md transition-colors"
                     title="Delete image"
                   >
@@ -277,15 +472,15 @@ NO text, NO words, NO letters overlaid on the image.`;
   );
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-3 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="p-2 bg-primary/10 rounded-lg">
-          <ImageIcon className="h-6 w-6 text-primary" />
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        <div className="p-1.5 sm:p-2 bg-primary/10 rounded-lg shrink-0">
+          <ImageIcon className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
         </div>
-        <div>
-          <h1 className="text-2xl font-bold">Image Generator</h1>
-          <p className="text-muted-foreground text-sm">
+        <div className="min-w-0">
+          <h1 className="text-lg sm:text-2xl font-bold leading-tight">Image Generator</h1>
+          <p className="text-muted-foreground text-xs sm:text-sm hidden sm:block">
             Create stunning AI-generated images for your classroom materials
           </p>
         </div>
@@ -293,13 +488,17 @@ NO text, NO words, NO letters overlaid on the image.`;
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="generate" className="gap-2">
-            <Sparkles className="h-4 w-4" />
-            Generate
+        <TabsList className="grid grid-cols-2 sm:grid-cols-4 h-auto w-full gap-1 p-1 sm:inline-flex sm:w-auto">
+          <TabsTrigger value="generate" className="gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2">
+            <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+            <span className="truncate">Text to Image</span>
           </TabsTrigger>
-          <TabsTrigger value="gallery" className="gap-2">
-            <Grid3X3 className="h-4 w-4" />
+          <TabsTrigger value="sketch" className="gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2">
+            <Pencil className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+            <span className="truncate">Sketch</span>
+          </TabsTrigger>
+          <TabsTrigger value="gallery" className="gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2">
+            <Grid3X3 className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
             Gallery
             {gallery.length > 0 && (
               <span className="ml-1 px-1.5 py-0.5 text-xs bg-primary text-primary-foreground rounded-full">
@@ -307,19 +506,24 @@ NO text, NO words, NO letters overlaid on the image.`;
               </span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="favorites" className="gap-2">
-            <Star className="h-4 w-4" />
+          <TabsTrigger value="favorites" className="gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 col-span-2 sm:col-span-1">
+            <Star className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
             Favorites
           </TabsTrigger>
         </TabsList>
 
+        <div className="mt-2 sm:mt-4 mb-2 text-xs sm:text-sm font-medium text-amber-600 bg-amber-50 p-2 rounded-lg max-w-full sm:max-w-fit flex items-center gap-2">
+          <span>⚠️</span>
+          <span>Daily Limit: {generationsToday} / {MAX_GENERATIONS_PER_DAY} images generated today.</span>
+        </div>
+
         {/* Generate Tab */}
-        <TabsContent value="generate" className="mt-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <TabsContent value="generate" className="mt-3 sm:mt-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-6">
             {/* Left Column - Prompt */}
-            <div className="lg:col-span-2 space-y-4">
+            <div className="lg:col-span-2 space-y-3 sm:space-y-4">
               <Card>
-                <CardContent className="p-6 space-y-4">
+                <CardContent className="p-4 sm:p-6 space-y-3 sm:space-y-4">
                   <div className="flex items-center gap-2">
                     <Sparkles className="h-5 w-5 text-primary" />
                     <h2 className="font-semibold text-lg">Create Your Image</h2>
@@ -481,14 +685,154 @@ NO text, NO words, NO letters overlaid on the image.`;
             </div>
           </div>
         </TabsContent>
+        {/* Sketch Tab */}
+        <TabsContent value="sketch" className="mt-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 space-y-4">
+              <Card>
+                <CardContent className="p-6 space-y-4">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <Pencil className="h-5 w-5 text-primary" />
+                      <h2 className="font-semibold text-lg">Free Draw / Sketch Board</h2>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Draw a simple shape or scene. Our AI will analyze your sketch and generate a high-quality educational image based on it.
+                    </p>
+                  </div>
+                  
+                  {/* Tools */}
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="color" 
+                        value={penColor} 
+                        onChange={(e) => setPenColor(e.target.value)} 
+                        title="Pen Color"
+                        className="w-8 h-8 rounded cursor-pointer border-none bg-transparent"
+                      />
+                      <Button variant="outline" size="sm" onClick={() => setPenColor("#ffffff")} title="Eraser">
+                        <Eraser className="w-4 h-4 mr-1" /> Eraser
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={clearCanvas} title="Clear Board">
+                        <Trash2 className="w-4 h-4 mr-1 text-red-500" /> Clear
+                      </Button>
+                    </div>
+                  </div>
 
+                  {/* Canvas */}
+                  <div className="border-2 border-dashed rounded-lg overflow-hidden relative" style={{ touchAction: 'none' }}>
+                    <canvas
+                      ref={canvasRef}
+                      width={800}
+                      height={450}
+                      className="w-full h-full bg-white cursor-crosshair touch-none"
+                      onMouseDown={startDrawing}
+                      onMouseMove={draw}
+                      onMouseUp={stopDrawing}
+                      onMouseOut={stopDrawing}
+                      onTouchStart={startDrawing}
+                      onTouchMove={draw}
+                      onTouchEnd={stopDrawing}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Button
+                size="lg"
+                className="w-full h-14 text-lg bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary text-white"
+                disabled={isGenerating}
+                onClick={handleGenerateFromSketch}
+              >
+                {isGenerating ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Analyzing Sketch & Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="mr-2 h-5 w-5" />
+                    Create from Sketch
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {/* Right column settings: We can reuse the same controls if we want, or simple instructions */}
+            <div className="space-y-4">
+               {/* Aspect Ratio */}
+               <Card>
+                <CardContent className="p-6 space-y-6">
+                  <div className="flex items-center gap-2">
+                    <Settings2 className="h-5 w-5 text-primary" />
+                    <h2 className="font-semibold">Style Settings</h2>
+                  </div>
+                  <div className="space-y-3">
+                    <label className="text-sm font-medium">Aspect Ratio</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {ASPECT_RATIOS.map((ratio) => (
+                        <button
+                          key={ratio.id}
+                          onClick={() => setAspectRatio(ratio.id)}
+                          className={cn(
+                            "flex flex-col items-center gap-1 p-3 rounded-lg border transition-all",
+                            aspectRatio === ratio.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
+                          )}
+                        >
+                          <ratio.icon className="h-5 w-5" />
+                          <span className="text-xs">{ratio.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-sm font-medium">Art Style</label>
+                    <Select value={artStyle} onValueChange={setArtStyle}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ART_STYLES.map((style) => (
+                          <SelectItem key={style.id} value={style.id}>
+                            <div>
+                              <div className="font-medium">{style.label}</div>
+                              <div className="text-xs text-muted-foreground">{style.description}</div>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Tips for sketch */}
+              <Card className="bg-primary/5 border-primary/20">
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Lightbulb className="h-4 w-4 text-primary" />
+                    <span className="font-medium text-sm">Sketch Ideas</span>
+                  </div>
+                  <ul className="text-xs text-muted-foreground space-y-1">
+                    <li>• Stick figures work great</li>
+                    <li>• Draw geometric shapes</li>
+                    <li>• Outline a classroom layout</li>
+                    <li>• The AI will figure out the context</li>
+                  </ul>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
         {/* Gallery Tab */}
         <TabsContent value="gallery" className="mt-6">
           {loadingGallery ? (
-            <div className="flex items-center justify-center h-48">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-          ) : gallery.length === 0 ? (
+              <div className="flex items-center justify-center h-48">
+                <LoadingAnimation message="Loading gallery..." />
+              </div>
+            ) : gallery.length === 0 ? (
             <div className="text-center py-12">
               <ImageIcon className="h-12 w-12 mx-auto text-muted-foreground/50" />
               <h3 className="mt-4 font-medium">No images yet</h3>
@@ -571,11 +915,13 @@ NO text, NO words, NO letters overlaid on the image.`;
                       Download
                     </Button>
                     <Button
+                      type="button"
                       size="sm"
                       variant="destructive"
-                      onClick={() => {
-                        handleDelete(selectedImage);
-                        setSelectedImage(null);
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void handleDelete(selectedImage);
                       }}
                     >
                       <Trash2 className="h-4 w-4 mr-1" />
@@ -593,3 +939,4 @@ NO text, NO words, NO letters overlaid on the image.`;
 };
 
 export default GenerateImages;
+

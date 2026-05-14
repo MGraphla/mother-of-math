@@ -45,7 +45,7 @@ const eventConfig: Record<RealtimeEvent['type'], {
     icon: Users,
     color: 'text-blue-400',
     bgColor: 'bg-blue-500/10',
-    label: 'Student Added',
+    label: 'Learner Added',
   },
   lesson_created: {
     icon: BookOpen,

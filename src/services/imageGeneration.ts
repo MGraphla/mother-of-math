@@ -138,6 +138,29 @@ Professional and visually engaging, suitable for a classroom presentation. Warm 
 };
 
 /**
+ * Wide hero-style prompt for resource library cover art.
+ * `literalBrief` is ground-truth text from the resource (topic, description, summary) — the image must match it, not a reinterpretation.
+ */
+export function buildResourceFeaturedCoverPrompt(
+  title: string,
+  sceneDescription: string,
+  literalBrief?: string
+): string {
+  const ground = literalBrief?.trim()
+    ? `Ground truth from the actual resource (do not change, dilute, or replace this subject matter with a different math topic):\n${literalBrief.trim()}\n\n`
+    : "";
+  return buildPrompt(
+    `${ground}Library cover for the resource titled "${title}".
+
+FAITHFULNESS (required): Illustrate exactly what this resource is about as given above and in the scene below. If the resource is about fractions, geometry, word problems, etc., the picture must show that specific kind of mathematics and appropriate learning materials—not a generic unrelated math scene. Do not invent a different unit or story. Stay visually consistent with the teacher's wording.
+
+Scene to render faithfully (no creative drift away from this content):
+${sceneDescription}`,
+    "hero"
+  );
+}
+
+/**
  * Generate all images needed for a standard lesson plan PowerPoint.
  * Generates an image for EVERY slide for complete visual coverage.
  */

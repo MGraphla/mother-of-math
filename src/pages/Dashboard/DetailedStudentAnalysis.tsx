@@ -77,21 +77,20 @@ const DetailedStudentAnalysis = () => {
   };
 
   return (
-    <div className="container mx-auto p-4 md:p-6">
+    <div className="container mx-auto p-3 sm:p-4 md:p-6">
       <Card className="max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle className="text-2xl flex items-center">
-            <Brain className="mr-2 h-6 w-6 text-mama-purple" />
-            Detailed Student Work Analysis
+        <CardHeader className="p-4 sm:p-6 pb-2 sm:pb-4">
+          <CardTitle className="text-lg sm:text-2xl flex items-center gap-2 leading-tight">
+            <Brain className="h-5 w-5 sm:h-6 sm:w-6 shrink-0 text-mama-purple" />
+            Detailed Learner Work Analysis
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-xs sm:text-sm hidden sm:block">
             Upload a student's work (e.g., a PDF or image of their math assignment) for detailed AI-powered analysis.
-            {/* TODO: Add options to select student/assignment here if needed */}
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-4 sm:space-y-6 p-4 sm:p-6 pt-2 sm:pt-0">
           <div>
-            <Label htmlFor="student-work-upload" className="text-base">Upload Student Work</Label>
+            <Label htmlFor="student-work-upload" className="text-base">Upload Learner Work</Label>
             <div className="mt-2 flex items-center justify-center w-full">
               <label
                 htmlFor="student-work-upload"

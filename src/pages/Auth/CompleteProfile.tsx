@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { useAuth, isProfileComplete, getDashboardPath } from "@/context/AuthContext";
+import { useAuth, needsGoogleExtraProfile, userHasGoogleIdentity, getDashboardPath } from "@/context/AuthContext";
 import { upsertUserProfile } from "@/lib/supabase";
 import {
   BookHeart,
@@ -80,6 +80,9 @@ const CompleteProfile = () => {
   const [numberOfStudents, setNumberOfStudents] = useState(
     profile?.number_of_students ? String(profile.number_of_students) : ""
   );
+  const [numberOfClasses, setNumberOfClasses] = useState(
+    (profile as any)?.number_of_classes ? String((profile as any).number_of_classes) : ""
+  );
   const [subjectsTaught, setSubjectsTaught] = useState(profile?.subjects_taught ?? "");
   const [gradeLevels, setGradeLevels] = useState(profile?.grade_levels ?? "");
   const [yearsOfExperience, setYearsOfExperience] = useState(
@@ -89,12 +92,21 @@ const CompleteProfile = () => {
   const [phoneNumber, setPhoneNumber] = useState(profile?.phone_number ?? "");
   const [whatsappNumber, setWhatsappNumber] = useState(profile?.whatsapp_number ?? "");
 
-  // If profile is already complete, skip this page
+  // Only Google users who still owe the one-time wizard may stay here.
   useEffect(() => {
-    if (isProfileComplete(profile)) {
+    if (!user || !profile) return;
+    if (profile.role === "student") {
+      navigate(getDashboardPath(profile), { replace: true });
+      return;
+    }
+    if (!userHasGoogleIdentity(user)) {
+      navigate(getDashboardPath(profile), { replace: true });
+      return;
+    }
+    if (!needsGoogleExtraProfile(user, profile)) {
       navigate(getDashboardPath(profile), { replace: true });
     }
-  }, [profile, navigate]);
+  }, [user, profile, navigate]);
 
   // If not logged in, go to sign-in
   useEffect(() => {
@@ -183,6 +195,7 @@ const CompleteProfile = () => {
         school_address: schoolAddress || null,
         school_type: schoolType || null,
         number_of_students: numberOfStudents ? parseInt(numberOfStudents) : null,
+        number_of_classes: numberOfClasses ? parseInt(numberOfClasses) : null,
         subjects_taught: subjectsTaught || null,
         grade_levels: gradeLevels || null,
         years_of_experience: yearsOfExperience ? parseInt(yearsOfExperience) : null,
@@ -191,11 +204,10 @@ const CompleteProfile = () => {
         whatsapp_number: whatsappNumber || null,
         bio: bio || null,
         preferred_language: preferredLanguage || null,
+        google_extra_profile_completed: true,
       });
       await refreshProfile();
-      // Role is set during this form, use it directly for navigation
-      const dashPath = role === 'parent' ? '/parent-dashboard' : '/dashboard';
-      navigate(dashPath, { replace: true });
+      navigate(getDashboardPath(profile ? { ...profile, role } : null), { replace: true });
     } catch (err: any) {
       setErrorMessage(err.message || "Failed to save profile.");
     } finally {
@@ -306,14 +318,44 @@ const CompleteProfile = () => {
                 </select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="cp-numStudents" className={labelClass}>
-                  <Users className="h-3.5 w-3.5 text-green-600" /> No. of students
+                <Label htmlFor="cp-numClasses" className={labelClass}>
+                  <Briefcase className="h-3.5 w-3.5 text-green-600" /> No. of classes
                 </Label>
-                <Input id="cp-numStudents" type="number" placeholder="e.g. 150" value={numberOfStudents} onChange={(e) => setNumberOfStudents(e.target.value)} className={inputClass} min="0" />
+                <select
+                  id="cp-numClasses"
+                  value={numberOfClasses}
+                  onChange={(e) => setNumberOfClasses(e.target.value)}
+                  className={selectClass}
+                >
+                  <option value="">Select...</option>
+                  <option value="1">1 class</option>
+                  <option value="2">2 classes</option>
+                  <option value="3">3 classes</option>
+                  <option value="4">4 classes</option>
+                  <option value="5">5+ classes</option>
+                </select>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="cp-numStudents" className={labelClass}>
+                  <Users className="h-3.5 w-3.5 text-green-600" /> No. of students
+                </Label>
+                <select
+                  id="cp-numStudents"
+                  value={numberOfStudents}
+                  onChange={(e) => setNumberOfStudents(e.target.value)}
+                  className={selectClass}
+                >
+                  <option value="">Select...</option>
+                  <option value="20">1-20 students</option>
+                  <option value="50">21-50 students</option>
+                  <option value="100">51-100 students</option>
+                  <option value="200">101-200 students</option>
+                  <option value="500">200+ students</option>
+                </select>
+              </div>
               <div className="space-y-1.5">
                 <Label htmlFor="cp-subjects" className={labelClass}>Subjects taught</Label>
                 <Input id="cp-subjects" placeholder="e.g. Math, Science" value={subjectsTaught} onChange={(e) => setSubjectsTaught(e.target.value)} className={inputClass} />

@@ -2,6 +2,7 @@
 // Supports: streaming, vision, bilingual (EN/FR), context-window management
 
 import type { Language } from '@/lib/i18n';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { getTopicsForClassLevel } from '@/data/curriculumContent';
 import type { TopicItem } from '@/data/curriculumContent';
 
@@ -49,9 +50,7 @@ class ChatbotService {
   private visionModel: string;
 
   constructor() {
-    this.apiKey =
-      import.meta.env.VITE_OPENROUTER_API_KEY ||
-      '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';
+    this.apiKey = import.meta.env.VITE_OPENROUTER_API_KEY || '';
     this.apiUrl =
       import.meta.env.VITE_OPENROUTER_API_URL ||
       'https://openrouter.ai/api/v1/chat/completions';
@@ -193,6 +192,15 @@ Be helpful, encouraging, and educational in all responses, ensuring they are dir
     country: 'cameroon' | 'nigeria' = 'cameroon',
     curriculumTopics?: TopicItem[]
   ): Promise<ChatbotResponse> {
+    // Rate limit: max 30 chatbot messages per minute
+    if (!checkRateLimit('chatbot', 30, 60 * 1000)) {
+      return {
+        success: false,
+        message: 'Too many messages. Please wait a moment.',
+        error: 'Rate limited',
+      };
+    }
+
     if (!grade) {
       return {
         success: false,
@@ -262,6 +270,15 @@ Be helpful, encouraging, and educational in all responses, ensuring they are dir
     country: 'cameroon' | 'nigeria' = 'cameroon',
     curriculumTopics?: TopicItem[]
   ): Promise<ChatbotResponse> {
+    // Rate limit: max 30 chatbot messages per minute
+    if (!checkRateLimit('chatbot', 30, 60 * 1000)) {
+      return {
+        success: false,
+        message: 'Too many messages. Please wait a moment.',
+        error: 'Rate limited',
+      };
+    }
+
     if (!grade) {
       return {
         success: false,

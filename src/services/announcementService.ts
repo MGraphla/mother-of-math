@@ -41,6 +41,7 @@ export const getAnnouncementsForStudent = async (): Promise<Announcement[]> => {
         student_id
       )
     `)
+    .eq('teacher_id', session.teacher_id)
     .or(`target_grade_level.is.null,target_grade_level.eq.${session.grade_level}`)
     .or(`target_class_name.is.null,target_class_name.eq.${session.class_name || ''}`)
     .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)

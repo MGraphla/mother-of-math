@@ -21,6 +21,13 @@ export interface Resource {
   grade_level: string | null;
   is_public: boolean;
   download_count: number;
+  view_count?: number;
+  featured_image_status?: string | null;
+  summary?: string | null;
+  tags?: string[] | null;
+  completion_rate?: number | null;
+  rating_count?: number;
+  rating_sum?: number;
   created_at: string;
   updated_at: string;
 }
@@ -35,6 +42,7 @@ export const getResourcesForStudent = async (): Promise<Resource[]> => {
   const { data, error } = await supabase
     .from('resources')
     .select('*')
+    .eq('teacher_id', session.teacher_id)
     .or(`grade_level.is.null,grade_level.eq.${session.grade_level}`)
     .order('created_at', { ascending: false });
 
@@ -48,10 +56,15 @@ export const getResourcesForStudent = async (): Promise<Resource[]> => {
 
 /** Get resources by topic */
 export const getResourcesByTopic = async (topic: string): Promise<Resource[]> => {
+  const session = getStudentSession();
+  if (!session) return [];
+
   const { data, error } = await supabase
     .from('resources')
     .select('*')
+    .eq('teacher_id', session.teacher_id)
     .eq('topic', topic)
+    .or(`grade_level.is.null,grade_level.eq.${session.grade_level}`)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -62,18 +75,52 @@ export const getResourcesByTopic = async (topic: string): Promise<Resource[]> =>
   return data || [];
 };
 
-/** Increment download count */
-export const incrementDownloadCount = async (resourceId: string): Promise<void> => {
+/** Get all unique topics available for students */
+export const getStudentResourceTopics = async (): Promise<string[]> => {
+  const session = getStudentSession();
+  if (!session) return [];
+
+  const { data, error } = await supabase
+    .from('resources')
+    .select('topic')
+    .eq('teacher_id', session.teacher_id)
+    .or(`grade_level.is.null,grade_level.eq.${session.grade_level}`)
+    .order('topic');
+
+  if (error) {
+    console.error('Error fetching topics:', error);
+    return [];
+  }
+  
+  // Return unique non-null topics
+  const topics = new Set<string>();
+  (data || []).forEach(item => {
+    if (item.topic) topics.add(item.topic);
+  });
+  
+  return Array.from(topics);
+};
+
+/** Increment download count (RPC; requires migration `increment_resource_download`) */
+export const incrementResourceDownload = async (resourceId: string): Promise<void> => {
   const { error } = await supabase.rpc('increment_resource_download', {
     p_resource_id: resourceId,
   });
-
-  // Fallback if RPC doesn't exist
   if (error) {
-    await supabase
-      .from('resources')
-      .update({ download_count: supabase.rpc('increment', { x: 1 }) as unknown as number })
-      .eq('id', resourceId);
+    console.warn('increment_resource_download failed', error);
+  }
+};
+
+/** @deprecated use incrementResourceDownload */
+export const incrementDownloadCount = incrementResourceDownload;
+
+/** Increment in-app preview / open count */
+export const incrementResourceView = async (resourceId: string): Promise<void> => {
+  const { error } = await supabase.rpc('increment_resource_view', {
+    p_resource_id: resourceId,
+  });
+  if (error) {
+    console.warn('increment_resource_view failed', error);
   }
 };
 
@@ -129,13 +176,22 @@ export const createResource = async (params: {
   description?: string;
   fileUrl: string;
   fileType?: Resource['file_type'];
-  thumbnailUrl?: string;
+  thumbnailUrl?: string | null;
   topic?: string;
   gradeLevel?: string;
   isPublic?: boolean;
+  featuredImageStatus?: string | null;
 }): Promise<Resource | null> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
+
+  const fileType = params.fileType || detectFileType(params.fileUrl);
+  const thumbnailUrl =
+    params.thumbnailUrl !== undefined
+      ? params.thumbnailUrl
+      : fileType === 'image'
+        ? params.fileUrl
+        : null;
 
   const { data, error } = await supabase
     .from('resources')
@@ -144,11 +200,12 @@ export const createResource = async (params: {
       title: params.title,
       description: params.description || null,
       file_url: params.fileUrl,
-      file_type: params.fileType || detectFileType(params.fileUrl),
-      thumbnail_url: params.thumbnailUrl || null,
+      file_type: fileType,
+      thumbnail_url: thumbnailUrl,
       topic: params.topic || null,
       grade_level: params.gradeLevel || null,
       is_public: params.isPublic || false,
+      featured_image_status: params.featuredImageStatus ?? null,
     })
     .select()
     .single();
@@ -173,6 +230,7 @@ export const updateResource = async (
     topic?: string | null;
     gradeLevel?: string | null;
     isPublic?: boolean;
+    featuredImageStatus?: string | null;
   }
 ): Promise<Resource | null> => {
   const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -185,6 +243,7 @@ export const updateResource = async (
   if (params.topic !== undefined) updateData.topic = params.topic;
   if (params.gradeLevel !== undefined) updateData.grade_level = params.gradeLevel;
   if (params.isPublic !== undefined) updateData.is_public = params.isPublic;
+  if (params.featuredImageStatus !== undefined) updateData.featured_image_status = params.featuredImageStatus;
 
   const { data, error } = await supabase
     .from('resources')
@@ -252,8 +311,8 @@ export const getFileTypeIcon = (type: Resource['file_type']): string => {
   }
 };
 
-/** Get unique topics from resources */
-export const getResourceTopics = async (): Promise<string[]> => {
+/** Get unique topics from resources for a teacher */
+export const getTeacherResourceTopics = async (): Promise<string[]> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 

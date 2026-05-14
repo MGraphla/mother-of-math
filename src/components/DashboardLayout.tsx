@@ -7,6 +7,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import NotificationBell from "./NotificationBell";
+import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
 
 const DashboardLayout = () => {
   const { profile } = useAuth();
@@ -14,7 +15,7 @@ const DashboardLayout = () => {
   const [isSheetOpen, setSheetOpen] = useState(false);
 
   if (!profile) {
-    return null;
+    return <LoadingAnimation fullScreen message="Loading dashboard..." />;
   }
 
   return (

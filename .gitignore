@@ -17,6 +17,14 @@
 .env.test.local
 .env.production.local
 
+# Local-only SQL seeds that embed credentials (never commit)
+scripts/supabase-seed-admin-mother7ofmath.sql
+
+# Supabase Edge Function secrets (never commit)
+supabase/.env
+supabase/functions/.env
+supabase/.env.elevenlabs.tmp
+
 # Debug logs
 npm-debug.log*
 yarn-debug.log*

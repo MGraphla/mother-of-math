@@ -105,7 +105,9 @@ const isMathTopic = (topic: string): boolean => {
 const LANGUAGES = [
   { value: 'english', label: 'English' },
   { value: 'french', label: 'French' },
-  { value: 'pidgin', label: 'English Pidgin' }
+  { value: 'pidgin', label: 'English Pidgin' },
+  { value: 'hausa', label: 'Hausa' },
+  { value: 'yoruba', label: 'Yoruba' }
 ];
 
 const LessonPlanGenerator: React.FC = () => {
@@ -246,6 +248,10 @@ const LessonPlanGenerator: React.FC = () => {
         ? 'IMPORTANT: Generate all content in French.'
         : language === 'pidgin'
         ? 'IMPORTANT: Generate all content in English Pidgin (Cameroonian/Nigerian Pidgin English).'
+        : language === 'hausa'
+        ? 'IMPORTANT: Generate all content in Hausa.'
+        : language === 'yoruba'
+        ? 'IMPORTANT: Generate all content in Yoruba.'
         : 'IMPORTANT: Generate all content in English.';
       
       // Generate detailed topic-specific curriculum context using the selected topic data
@@ -402,7 +408,7 @@ You must provide between 5 and 7 sections. Respond with ONLY a valid JSON object
         sectionsForService, 
         fullCurriculumContext,
         country || undefined,
-        language as 'english' | 'french' | 'pidgin'
+        language as 'english' | 'french' | 'pidgin' | 'hausa' | 'yoruba' | string
       );
       console.log('Response received in component:', response);
       
@@ -415,7 +421,27 @@ You must provide between 5 and 7 sections. Respond with ONLY a valid JSON object
         setGeneratedContent(formattedMarkdown);
         setEditedContent(formattedMarkdown);
         setGenerationStep('complete');
-        toast({ title: "Lesson Plan Generated!", description: "Your detailed lesson plan is ready for review." });
+
+        // Auto-save the generated lesson plan
+        if (user) {
+          try {
+            const lessonPlanData = {
+              title: topic || 'Untitled Lesson Plan',
+              level: level,
+              content: JSON.parse(response.jsonString),
+              created_at: new Date().toISOString(),
+              user_id: user.id,
+            };
+            const { error: saveError } = await supabase.from('lesson_plans').insert(lessonPlanData);
+            if (saveError) throw saveError;
+            toast({ title: "Lesson Plan Generated & Saved!", description: "Your detailed lesson plan is ready and automatically saved to your account." });
+          } catch (e) {
+            console.error('Auto-save error:', e);
+            toast({ title: "Lesson Plan Generated!", description: "Your detailed lesson plan is ready for review." });
+          }
+        } else {
+          toast({ title: "Lesson Plan Generated!", description: "Your detailed lesson plan is ready for review." });
+        }
       } else {
         throw new Error("The AI returned an empty response.");
       }
@@ -632,14 +658,14 @@ You must provide between 5 and 7 sections. Respond with ONLY a valid JSON object
       {phase === 0 && (
         <div className="w-full max-w-3xl mx-auto mt-6 px-1">
           {/* Hero Banner */}
-          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/20 via-emerald-50 to-teal-50 dark:from-primary/20 dark:via-primary/5 dark:to-background border border-primary/20 shadow-xl mb-8">
+          <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gradient-to-br from-primary/20 via-emerald-50 to-teal-50 dark:from-primary/20 dark:via-primary/5 dark:to-background border border-primary/20 shadow-xl mb-4 sm:mb-8">
             {/* Soft glow blobs */}
             <div className="absolute top-0 right-0 w-56 h-56 bg-primary/10 rounded-full -translate-y-1/3 translate-x-1/3 blur-3xl pointer-events-none" />
             <div className="absolute bottom-0 left-0 w-44 h-44 bg-emerald-400/10 rounded-full translate-y-1/3 -translate-x-1/3 blur-3xl pointer-events-none" />
             <div className="absolute top-1/2 left-1/2 w-36 h-36 bg-teal-300/10 rounded-full -translate-x-1/2 -translate-y-1/2 blur-2xl pointer-events-none" />
 
             {/* Floating math symbols – decorative */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none select-none">
+            <div className="absolute inset-0 overflow-hidden pointer-events-none select-none hidden sm:block">
               <span className="absolute top-5 left-8 text-4xl font-black text-primary/[0.07]">∑</span>
               <span className="absolute top-10 right-14 text-3xl font-black text-primary/[0.07]">π</span>
               <span className="absolute bottom-7 left-14 text-3xl font-black text-primary/[0.07]">÷</span>
@@ -650,14 +676,14 @@ You must provide between 5 and 7 sections. Respond with ONLY a valid JSON object
               <span className="absolute top-1/3 right-[20%] text-2xl font-black text-primary/[0.05]">∞</span>
             </div>
 
-            <div className="relative p-10 text-center">
+            <div className="relative p-5 sm:p-10 text-center">
               {/* Icon */}
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary shadow-lg shadow-primary/30 mb-5 overflow-hidden">
+              <div className="inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl bg-primary shadow-lg shadow-primary/30 mb-3 sm:mb-5 overflow-hidden">
                 <img src="/mama%20math.svg" alt="Mama Math" className="w-full h-full object-cover" />
               </div>
 
               {/* Headline */}
-              <h1 className="text-3xl sm:text-4xl font-extrabold text-foreground mb-3 tracking-tight">
+              <h1 className="text-xl sm:text-3xl md:text-4xl font-extrabold text-foreground mb-2 sm:mb-3 tracking-tight">
                 Welcome to{' '}
                 <span className="text-primary relative">
                   Mama Math
@@ -764,20 +790,20 @@ You must provide between 5 and 7 sections. Respond with ONLY a valid JSON object
       {phase === 1 && (
         <div className="w-full max-w-2xl mx-auto mt-4">
           {/* Hero Section */}
-          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-background border border-primary/15 shadow-lg mb-6">
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-background border border-primary/15 shadow-lg mb-4 sm:mb-6">
             {/* Decorative background elements */}
-            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/2" />
-            <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full translate-y-1/2 -translate-x-1/2" />
+            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/2 hidden sm:block" />
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full translate-y-1/2 -translate-x-1/2 hidden sm:block" />
 
-            <div className="relative p-8 pb-6 text-center">
+            <div className="relative p-4 sm:p-8 sm:pb-6 text-center">
               {/* Icon badge */}
-              <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/15 mb-4 shadow-sm">
-                <GraduationCap className="h-7 w-7 text-primary" />
+              <div className="inline-flex items-center justify-center w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-primary/15 mb-2 sm:mb-4 shadow-sm">
+                <GraduationCap className="h-6 w-6 sm:h-7 sm:w-7 text-primary" />
               </div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-primary mb-2 tracking-tight">
+              <h1 className="text-lg sm:text-2xl md:text-3xl font-bold text-primary mb-1 sm:mb-2 tracking-tight leading-tight">
                 Mama Math Lesson Planner
               </h1>
-              <p className="text-sm sm:text-base text-muted-foreground max-w-md mx-auto leading-relaxed">
+              <p className="text-xs sm:text-sm md:text-base text-muted-foreground max-w-md mx-auto leading-relaxed line-clamp-3 sm:line-clamp-none">
                 Tell me what you want to teach, and I'll create a complete lesson plan tailored to the Cameroon primary curriculum.
               </p>
             </div>

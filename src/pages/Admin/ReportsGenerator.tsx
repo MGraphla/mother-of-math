@@ -81,7 +81,7 @@ const exportFormats = [
 
 const dataFields = [
   { id: 'teachers', name: 'Teachers', fields: ['id', 'full_name', 'email', 'school_name', 'country', 'created_at'] },
-  { id: 'students', name: 'Students', fields: ['id', 'full_name', 'grade_level', 'teacher_name', 'created_at'] },
+  { id: 'students', name: 'Learner', fields: ['id', 'full_name', 'grade_level', 'teacher_name', 'created_at'] },
   { id: 'lesson_plans', name: 'Lesson Plans', fields: ['id', 'title', 'grade_level', 'teacher_name', 'created_at'] },
   { id: 'assignments', name: 'Assignments', fields: ['id', 'title', 'subject', 'grade_level', 'teacher_name', 'due_date'] },
   { id: 'conversations', name: 'Conversations', fields: ['id', 'title', 'grade', 'teacher_name', 'message_count', 'created_at'] },

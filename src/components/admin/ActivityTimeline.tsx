@@ -58,7 +58,7 @@ const eventTypeConfig: Record<string, { icon: React.ReactNode; color: string; bg
     icon: <GraduationCap className="h-4 w-4" />,
     color: 'text-green-400',
     bgColor: 'bg-green-500/10',
-    label: 'Student Created',
+    label: 'Learner Created',
   },
   lesson_plan: {
     icon: <BookOpen className="h-4 w-4" />,
@@ -153,7 +153,7 @@ export const ActivityTimeline: React.FC<ActivityTimelineProps> = ({
           description = 'New teacher account created';
           break;
         case 'student_created':
-          title = `Student added`;
+          title = `Learner added`;
           description = `${name} created a new student account`;
           break;
         case 'lesson_plan':
@@ -166,7 +166,7 @@ export const ActivityTimeline: React.FC<ActivityTimelineProps> = ({
           break;
         case 'submission':
           title = 'Submission received';
-          description = `Student submitted assignment to ${name}`;
+          description = `Learner submitted assignment to ${name}`;
           break;
         case 'message':
           title = 'Chatbot conversation';
@@ -251,7 +251,7 @@ export const ActivityTimeline: React.FC<ActivityTimelineProps> = ({
               <SelectContent>
                 <SelectItem value="all">All Activity</SelectItem>
                 <SelectItem value="teacher_signup">Signups</SelectItem>
-                <SelectItem value="student_created">Students</SelectItem>
+                <SelectItem value="student_created">Learner</SelectItem>
                 <SelectItem value="lesson_plan">Lesson Plans</SelectItem>
                 <SelectItem value="assignment">Assignments</SelectItem>
                 <SelectItem value="submission">Submissions</SelectItem>

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Trash2, FileText, FileType, Loader2, BookOpen, ArrowLeft } from "lucide-react";
+import { Trash2, FileText, FileType, Loader2, BookOpen, ArrowLeft, Sparkles } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -10,6 +10,7 @@ import ReactMarkdown from 'react-markdown';
 import { exportToPDF, exportToPowerPoint, formatAIResponseAsMarkdown } from '@/services/lessonPlan';
 import { useNavigate } from 'react-router-dom';
 import ExportProgressModal from '@/components/ExportProgressModal';
+import { createResourcesFromLessonPlan } from '@/services/lessonPlanResources';
 
 interface SavedLessonPlan {
   id: string;
@@ -19,6 +20,8 @@ interface SavedLessonPlan {
   createdAt: any;
   userId: string;
 }
+
+import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
 
 const ViewLessonPlans = () => {
   const [lessonPlans, setLessonPlans] = useState<SavedLessonPlan[]>([]);
@@ -30,6 +33,7 @@ const ViewLessonPlans = () => {
   const [exportType, setExportType] = useState<'pdf' | 'pptx'>('pdf');
   const [exportProgress, setExportProgress] = useState('');
   const [exportComplete, setExportComplete] = useState(false);
+  const [isGeneratingResources, setIsGeneratingResources] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -208,7 +212,51 @@ const ViewLessonPlans = () => {
     }
   };
 
-    const selectedLesson = lessonPlans.find(plan => plan.id === selectedLessonId);
+  // Generate quiz + worksheet from lesson plan and save to Resources library
+  const handleGenerateResources = async (lessonPlan: SavedLessonPlan) => {
+    if (!user) return;
+    setIsGeneratingResources(true);
+    toast({
+      title: "Generating resources…",
+      description: "AI is building a quiz and worksheet from this lesson. This can take up to a minute.",
+    });
+
+    try {
+      const { created } = await createResourcesFromLessonPlan({
+        title: lessonPlan.title,
+        level: lessonPlan.level,
+        content: lessonPlan.content,
+        teacherId: user.id,
+      });
+
+      if (created <= 0) {
+        toast({
+          title: "Nothing was created",
+          description: "Try again, or check your API key and network connection.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Resources added",
+        description: `${created} file(s) are in your Resources library under Dashboard → Resources.`,
+        duration: 6000,
+      });
+      navigate("/dashboard/resources");
+    } catch (err) {
+      console.error("Generate resources error:", err);
+      toast({
+        title: "Could not generate resources",
+        description: err instanceof Error ? err.message : "Please try again in a moment.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGeneratingResources(false);
+    }
+  };
+
+  const selectedLesson = lessonPlans.find(plan => plan.id === selectedLessonId);
 
   const cardVariants = {
     hidden: { opacity: 0, y: 20 },
@@ -217,11 +265,8 @@ const ViewLessonPlans = () => {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto p-6 flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading your lesson plans...</p>
-        </div>
+      <div className="container mx-auto p-6 flex flex-col items-center justify-center min-h-[400px]">
+        <LoadingAnimation message="Loading your lesson plans..." />
       </div>
     );
   }
@@ -235,21 +280,23 @@ const ViewLessonPlans = () => {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 bg-gray-50 min-h-screen">
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-4">
+    <div className="p-3 sm:p-6 lg:p-8 bg-gray-50 min-h-screen space-y-4 sm:space-y-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col xs:flex-row items-start gap-2 sm:gap-4 min-w-0 w-full">
           <Button
             variant="ghost"
+            size="sm"
             onClick={() => navigate('/dashboard/lessons')}
-            className="flex items-center gap-2"
+            className="flex items-center gap-1.5 sm:gap-2 h-8 sm:h-9 px-2 sm:px-3 shrink-0 -ml-1 sm:ml-0"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to Lessons
+            <span className="hidden sm:inline">Back to Lessons</span>
+            <span className="sm:hidden">Back</span>
           </Button>
-          <div>
-            <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-gray-800">Your Lesson Plans</h1>
-            <p className="text-muted-foreground">
-              {lessonPlans.length} lesson plan{lessonPlans.length !== 1 ? 's' : ''} saved
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-3xl md:text-4xl font-bold tracking-tight text-gray-800 leading-tight">Your Lesson Plans</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+              {lessonPlans.length} saved
             </p>
           </div>
         </div>
@@ -273,7 +320,7 @@ const ViewLessonPlans = () => {
           </Button>
         </motion.div>
       ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 relative h-[calc(100vh-140px)]">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 sm:gap-6 relative h-[calc(100dvh-8rem)] sm:h-[calc(100vh-140px)]">
           {/* Lesson Plans List - Hidden on mobile if viewing details */}
           <div className={`xl:col-span-1 h-full overflow-hidden flex flex-col ${selectedLessonId ? 'hidden xl:flex' : 'flex'}`}>
             <h2 className="text-lg font-semibold mb-4 text-gray-700 flex items-center justify-between px-1">
@@ -369,6 +416,17 @@ const ViewLessonPlans = () => {
                       {isExportingPPTX ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileType className="h-4 w-4 sm:mr-2" />}
                       <span className="hidden sm:inline">PPT</span>
                     </Button>
+                    <Button 
+                      onClick={() => handleGenerateResources(selectedLesson)} 
+                      size="sm"
+                      disabled={isGeneratingResources}
+                      className="h-9 w-9 p-0 sm:w-auto sm:px-3 bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                      variant="outline"
+                      title="Auto-Generate Resources"
+                    >
+                      {isGeneratingResources ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4 sm:mr-2" />}
+                      <span className="hidden md:inline">Generate Resources</span>
+                    </Button>
                   </div>
                 </div>
 
@@ -430,3 +488,4 @@ const ViewLessonPlans = () => {
 };
 
 export default ViewLessonPlans;
+

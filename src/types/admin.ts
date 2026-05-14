@@ -14,6 +14,7 @@ export interface AdminSession {
   isAuthenticated: boolean;
   loginTime: string;
   expiresAt: string;
+  userId?: string;
 }
 
 export interface TeacherStats {

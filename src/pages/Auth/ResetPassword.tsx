@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { supabase, isPasswordRecoveryAccessToken } from "@/lib/supabase";
+import { supabase, isPasswordRecoveryAccessToken, getUserProfile } from "@/lib/supabase";
+import { getDashboardPath } from "@/context/AuthContext";
 import { Lock, Eye, EyeOff, CheckCircle2, ShieldCheck, AlertCircle, Loader2 } from "lucide-react";
 
 const ResetPassword = () => {
@@ -99,7 +100,9 @@ const ResetPassword = () => {
       if (code) {
         pkceFromResetEmailRef.current = true;
         try {
-          const { error: exchangeErr } = await supabase.auth.exchangeCodeForSession(code);
+          const { error: exchangeErr } = await supabase.auth.exchangeCodeForSession(
+            window.location.href,
+          );
           if (exchangeErr) {
             // Code may have already been consumed by detectSessionInUrl — check session again
             console.warn("[ResetPassword] Code exchange error:", exchangeErr.message);
@@ -185,17 +188,47 @@ const ResetPassword = () => {
 
     setIsSubmitting(true);
     try {
+      // 1) Capture the user's email from the active recovery session *before*
+      //    we touch the password — we need it for the auto sign-in below.
+      const { data: { user: pre } } = await supabase.auth.getUser();
+      const userEmail = pre?.email ?? "";
+
+      // 2) Store the new password against this auth user.
       const { error: updateError } = await supabase.auth.updateUser({
         password,
       });
-
       if (updateError) throw updateError;
 
       localStorage.removeItem("is_password_recovery");
+
+      // 3) Re-authenticate cleanly with the new password to prove it works
+      //    and to convert the recovery session into a normal user session.
+      //    If anything goes wrong here, the password is still saved — we
+      //    fall back to sending them to /sign-in.
+      if (userEmail) {
+        await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+        const { error: signInErr } = await supabase.auth.signInWithPassword({
+          email:    userEmail,
+          password,
+        });
+        if (signInErr) {
+          console.warn("[ResetPassword] auto sign-in failed:", signInErr.message);
+          setSuccess(true);
+          setTimeout(() => navigate("/sign-in", { replace: true }), 2000);
+          return;
+        }
+      }
+
       setSuccess(true);
-      setTimeout(() => {
-        navigate("/sign-in", { replace: true });
-      }, 2500);
+
+      // 4) Route to the role-appropriate dashboard.
+      try {
+        const { data: { user: u } } = await supabase.auth.getUser();
+        const profile = u ? await getUserProfile(u.id) : null;
+        setTimeout(() => navigate(getDashboardPath(profile), { replace: true }), 1500);
+      } catch {
+        setTimeout(() => navigate("/dashboard", { replace: true }), 1500);
+      }
     } catch (err: any) {
       const msg = err.message || "";
       if (msg.toLowerCase().includes("session") || err.status === 401 || err.status === 403) {
@@ -300,7 +333,7 @@ const ResetPassword = () => {
             </CardTitle>
             <CardDescription className="text-gray-500">
               {success
-                ? "Your password has been updated. Redirecting to sign in..."
+                ? "Your new password is active. Signing you in and taking you to your dashboard…"
                 : "Enter your new password below."}
             </CardDescription>
           </CardHeader>
@@ -313,7 +346,7 @@ const ResetPassword = () => {
               >
                 <CheckCircle2 className="h-12 w-12 text-green-500" />
                 <p className="text-green-700 text-center font-medium">
-                  Redirecting to sign in...
+                  Signed in — taking you to your dashboard…
                 </p>
               </motion.div>
             ) : (

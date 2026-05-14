@@ -1,5 +1,6 @@
-﻿import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { formatDistanceToNow } from "date-fns";
 import { isTeacher, PRIMARY_GRADE_LEVELS } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,12 +20,13 @@ import {
   Search, UserPlus, Copy, Eye, Trash2, PauseCircle, PlayCircle,
   Link2, Users, GraduationCap, Loader2, AlertTriangle, CheckCircle2,
   ChevronDown, ChevronUp, User, Heart, School, Globe, Phone, Mail,
-  MapPin, Calendar, Shield, FileText, Edit, Download, QrCode, RefreshCw, Upload, FileSpreadsheet, X, CheckCheck
+  MapPin, Calendar, Shield, FileText, Edit, Download, QrCode, RefreshCw, Upload, FileSpreadsheet, X,
+  FileDown
 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import * as XLSX from 'xlsx';
 import {
-  Student,
+  Learner,
   createStudent,
   getStudentsByTeacher,
   deleteStudent,
@@ -32,10 +34,23 @@ import {
   buildAccessLink,
   updateStudent,
   regenerateAccessToken,
+  getStudentLastActiveAt,
 } from "@/services/studentService";
+import { sendStudentCodeSms } from "@/services/smsNotificationService";
+import { resolveSmsDialCountry } from "@/lib/phone";
+import {
+  BULK_IMPORT_FIELDS,
+  autoMapColumns,
+  mapRowToPayload,
+  validateAllRows,
+  issuesToErrorCsv,
+  type ColumnMapping,
+  type BulkMappedRow,
+  type BulkValidationIssue,
+} from "@/lib/studentBulkImport";
 import { QRCodeSVG } from "qrcode.react";
 
-// â”€â”€ Form field definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Form field definitions ─────────────────────────────
 
 interface FormField {
   key: string;
@@ -51,7 +66,7 @@ interface FormField {
 
 const FORM_FIELDS: FormField[] = [
   // Basic Information
-  { key: 'full_name', label: "Student's Full Name", type: 'text', required: true, placeholder: "e.g., Nfor Che Junior", section: 'basic', icon: <User className="h-4 w-4" /> },
+  { key: 'full_name', label: "Learner's Full Name", type: 'text', required: true, placeholder: "e.g., Nfor Che Junior", section: 'basic', icon: <User className="h-4 w-4" /> },
   { key: 'date_of_birth', label: 'Date of Birth', type: 'date', section: 'basic', icon: <Calendar className="h-4 w-4" /> },
   { key: 'gender', label: 'Gender', type: 'select', options: ['Male', 'Female', 'Other'], section: 'basic' },
   { key: 'nationality', label: 'Nationality', type: 'text', placeholder: 'e.g., Cameroonian', section: 'basic', icon: <Globe className="h-4 w-4" /> },
@@ -60,9 +75,10 @@ const FORM_FIELDS: FormField[] = [
 
   // Guardian / Contact
   { key: 'parent_name', label: "Parent/Guardian Full Name", type: 'text', placeholder: "e.g., Mrs. Ngum Comfort", section: 'guardian', icon: <User className="h-4 w-4" /> },
-  { key: 'parent_phone', label: "Parent/Guardian Phone", type: 'tel', placeholder: 'e.g., +237 6XX XXX XXX', section: 'guardian', icon: <Phone className="h-4 w-4" /> },
+  { key: 'parent_phone', label: "Parent/Guardian Phone", type: 'tel', placeholder: '+237 or +234 mobile', section: 'guardian', icon: <Phone className="h-4 w-4" /> },
+  { key: 'parent_phone_country', label: 'Guardian phone country (SMS)', type: 'select', options: ['Cameroon', 'Nigeria'], section: 'guardian', icon: <Globe className="h-4 w-4" /> },
   { key: 'parent_email', label: "Parent/Guardian Email", type: 'email', placeholder: 'e.g., parent@email.com', section: 'guardian', icon: <Mail className="h-4 w-4" /> },
-  { key: 'parent_relationship', label: 'Relationship to Student', type: 'select', options: ['Mother', 'Father', 'Guardian', 'Uncle', 'Aunt', 'Grandparent', 'Sibling', 'Other'], section: 'guardian' },
+  { key: 'parent_relationship', label: 'Relationship to Learner', type: 'select', options: ['Mother', 'Father', 'Guardian', 'Uncle', 'Aunt', 'Grandparent', 'Sibling', 'Other'], section: 'guardian' },
   { key: 'home_address', label: 'Home Address', type: 'textarea', placeholder: 'Full home address...', section: 'guardian', icon: <MapPin className="h-4 w-4" />, colSpan: true },
 
   // School Information
@@ -84,6 +100,9 @@ const FORM_FIELDS: FormField[] = [
   { key: 'notes', label: 'Additional Notes', type: 'textarea', placeholder: 'Any other relevant information about this student...', section: 'additional', colSpan: true },
 ];
 
+/** Not stored on `students` row (UI-only for SMS dial plan). */
+const SKIP_STUDENT_DB_FIELDS = new Set(["parent_phone_country"]);
+
 const SECTIONS = [
   { id: 'basic', title: 'Basic Information', icon: <User className="h-5 w-5" />, description: 'Personal details about the student' },
   { id: 'guardian', title: 'Guardian / Contact', icon: <Phone className="h-5 w-5" />, description: "Parent or guardian's contact information" },
@@ -92,25 +111,32 @@ const SECTIONS = [
   { id: 'additional', title: 'Additional Information', icon: <FileText className="h-5 w-5" />, description: 'Extra notes and history' },
 ];
 
-// â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Component ──────────────────────────────────────────
+
+type BulkWizardStep = "upload" | "map" | "report" | "preview";
 
 const StudentAccountCreation = () => {
   const { profile } = useAuth();
-  const [students, setStudents] = useState<Student[]>([]);
+  const [students, setStudents] = useState<Learner[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("all");
   const [creatingStudent, setCreatingStudent] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [formData, setFormData] = useState<Record<string, string>>({});
+  const getDefaultFormData = () => ({
+    school_name: profile?.school_name || '',
+    grade_level: profile?.grade_levels || '',
+    parent_phone_country: profile?.country === 'Nigeria' ? 'Nigeria' : 'Cameroon',
+  });
+  const [formData, setFormData] = useState<Record<string, string>>(getDefaultFormData());
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ basic: true, guardian: true, school: true, health: false, additional: false });
-  const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
+  const [viewingStudent, setViewingStudent] = useState<Learner | null>(null);
   const [linkCopied, setLinkCopied] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<Student | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Learner | null>(null);
   
   // Enhanced features state
-  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
-  const [showQrCode, setShowQrCode] = useState<Student | null>(null);
+  const [editingStudent, setEditingStudent] = useState<Learner | null>(null);
+  const [showQrCode, setShowQrCode] = useState<Learner | null>(null);
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = useState<'pause' | 'activate' | 'delete' | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -119,10 +145,14 @@ const StudentAccountCreation = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [bulkUploadFile, setBulkUploadFile] = useState<File | null>(null);
-  const [bulkUploadData, setBulkUploadData] = useState<any[]>([]);
-  const [bulkUploadErrors, setBulkUploadErrors] = useState<string[]>([]);
   const [isBulkUploading, setIsBulkUploading] = useState(false);
-  const [bulkUploadResults, setBulkUploadResults] = useState<{ success: number; failed: number } | null>(null);
+  const [bulkUploadResults, setBulkUploadResults] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
+  const [bulkWizardStep, setBulkWizardStep] = useState<BulkWizardStep>("upload");
+  const [bulkRawRows, setBulkRawRows] = useState<Record<string, unknown>[]>([]);
+  const [bulkSourceHeaders, setBulkSourceHeaders] = useState<string[]>([]);
+  const [bulkColumnMapping, setBulkColumnMapping] = useState<ColumnMapping>({});
+  const [bulkValidRows, setBulkValidRows] = useState<BulkMappedRow[]>([]);
+  const [bulkValidationIssues, setBulkValidationIssues] = useState<BulkValidationIssue[]>([]);
 
   // Fetch students on mount
   useEffect(() => {
@@ -159,7 +189,7 @@ const StudentAccountCreation = () => {
     );
   }
 
-  // â”€â”€ Filter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Filter ─────────────────────────────────────────────
 
   const filteredStudents = students.filter((s) => {
     const matchesSearch =
@@ -175,7 +205,7 @@ const StudentAccountCreation = () => {
     return matchesSearch;
   });
 
-  // â”€â”€ Handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Handlers ───────────────────────────────────────────
 
   const handleCreateStudent = async () => {
     if (!formData.full_name || !formData.grade_level) {
@@ -188,23 +218,51 @@ const StudentAccountCreation = () => {
     try {
       const studentData: Record<string, any> = { teacher_id: profile.id };
       FORM_FIELDS.forEach((f) => {
+        if (SKIP_STUDENT_DB_FIELDS.has(f.key)) return;
         if (formData[f.key]) studentData[f.key] = formData[f.key];
       });
 
-      // Default school to teacher's school if not provided
-      if (!studentData.school_name && profile.school_name) {
-        studentData.school_name = profile.school_name;
+// Default school and class to teacher's profile if not provided
+        if (!studentData.school_name && profile.school_name) {
+          studentData.school_name = profile.school_name;
+        }
+        if (!studentData.grade_level && profile.grade_levels) {
+          studentData.grade_level = profile.grade_levels;
       }
 
       const newStudent = await createStudent(studentData);
       setStudents((prev) => [newStudent, ...prev]);
-      setFormData({});
+      setFormData(getDefaultFormData());
       setCreatingStudent(false);
 
       // Show the access link immediately
       setViewingStudent(newStudent);
 
-      toast({ title: "Student Created!", description: `${newStudent.full_name} has been enrolled successfully.` });
+      toast({ title: "Learner Created!", description: `${newStudent.full_name} has been enrolled successfully.` });
+
+      // Send SMS to guardian with the student code & access link
+      const guardianPhone = newStudent.parent_phone || formData.parent_phone;
+      if (guardianPhone) {
+        const accessLink = buildAccessLink(newStudent.access_token);
+        const smsCountry = resolveSmsDialCountry(
+          formData.parent_phone_country || profile?.country || newStudent.nationality,
+        );
+        sendStudentCodeSms(
+          guardianPhone,
+          newStudent.full_name,
+          newStudent.student_code,
+          accessLink,
+          newStudent.school_name || profile?.school_name || null,
+          smsCountry,
+        ).then((result) => {
+          if (result.success) {
+            toast({ title: "SMS Sent", description: `Access details sent to guardian's phone.` });
+          } else {
+            console.warn("Guardian SMS failed:", result.error);
+            toast({ title: "SMS Not Sent", description: result.error || "Could not send SMS to guardian.", variant: "destructive" });
+          }
+        });
+      }
     } catch (e: any) {
       console.error('Error creating student:', e);
       toast({ title: "Failed", description: e?.message || "Could not create student account.", variant: "destructive" });
@@ -226,7 +284,7 @@ const StudentAccountCreation = () => {
     }
   };
 
-  const handleToggleStatus = async (student: Student) => {
+  const handleToggleStatus = async (student: Learner) => {
     const newStatus = student.account_status === 'active' ? 'paused' : 'active';
     try {
       await toggleStudentStatus(student.id, newStatus);
@@ -237,7 +295,7 @@ const StudentAccountCreation = () => {
     }
   };
 
-  // â"€â"€ Edit Student â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  // �"��"� Edit Learner �"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"�
 
   const handleEditStudent = async () => {
     if (!editingStudent) return;
@@ -248,8 +306,9 @@ const StudentAccountCreation = () => {
 
     setIsSaving(true);
     try {
-      const updates: Partial<Student> = {};
+      const updates: Partial<Learner> = {};
       FORM_FIELDS.forEach((f) => {
+        if (SKIP_STUDENT_DB_FIELDS.has(f.key)) return;
         if (formData[f.key] !== undefined) {
           (updates as any)[f.key] = formData[f.key] || null;
         }
@@ -259,7 +318,7 @@ const StudentAccountCreation = () => {
       setStudents((prev) => prev.map((s) => 
         s.id === editingStudent.id ? { ...s, ...updates } : s
       ));
-      setFormData({});
+      setFormData(getDefaultFormData());
       setEditingStudent(null);
       toast({ title: "Updated!", description: `${formData.full_name}'s information has been saved.` });
     } catch (e: any) {
@@ -270,18 +329,20 @@ const StudentAccountCreation = () => {
     }
   };
 
-  const openEditDialog = (student: Student) => {
+  const openEditDialog = (student: Learner) => {
     const data: Record<string, string> = {};
     FORM_FIELDS.forEach((f) => {
       const val = (student as any)[f.key];
       if (val) data[f.key] = val;
     });
+    data.parent_phone_country =
+      profile?.country === "Nigeria" ? "Nigeria" : "Cameroon";
     setFormData(data);
     setExpandedSections({ basic: true, guardian: true, school: true, health: false, additional: false });
     setEditingStudent(student);
   };
 
-  // â"€â"€ Bulk Actions â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  // �"��"� Bulk Actions �"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"�
 
   const toggleStudentSelection = (id: string) => {
     setSelectedStudents((prev) => {
@@ -333,12 +394,12 @@ const StudentAccountCreation = () => {
     }
   };
 
-  // â"€â"€ Export to CSV â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  // �"��"� Export to CSV �"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"��"�
 
   const exportToCSV = () => {
     setIsExporting(true);
     try {
-      const headers = ['Student ID', 'Full Name', 'Grade/Class', 'Parent Name', 'Parent Phone', 'Parent Email', 'School', 'Status', 'Date of Birth', 'Gender', 'Admission No', 'Access Link'];
+      const headers = ['Learner ID', 'Full Name', 'Grade/Class', 'Parent Name', 'Parent Phone', 'Parent Email', 'School', 'Status', 'Date of Birth', 'Gender', 'Admission No', 'Access Link'];
       const studentsToExport = selectedStudents.size > 0 
         ? students.filter((s) => selectedStudents.has(s.id))
         : students;
@@ -380,10 +441,29 @@ const StudentAccountCreation = () => {
     navigator.clipboard.writeText(link);
     setLinkCopied(token);
     setTimeout(() => setLinkCopied(null), 2000);
-    toast({ title: "Link Copied!", description: "Student access link copied to clipboard." });
+    toast({ title: "Link Copied!", description: "Learner access link copied to clipboard." });
   };
 
-  // ── Bulk Upload Functions ──────────────────────────────────
+  const resetBulkWizard = () => {
+    setBulkWizardStep("upload");
+    setBulkRawRows([]);
+    setBulkSourceHeaders([]);
+    setBulkColumnMapping({});
+    setBulkValidRows([]);
+    setBulkValidationIssues([]);
+  };
+
+  const lastActiveLabel = (s: Learner) => {
+    const iso = getStudentLastActiveAt(s);
+    if (!iso) return null;
+    try {
+      return formatDistanceToNow(new Date(iso), { addSuffix: true });
+    } catch {
+      return null;
+    }
+  };
+
+  // -- Bulk Upload Functions ----------------------------------
 
   const downloadTemplate = () => {
     // Create template with all required and optional fields
@@ -417,7 +497,7 @@ const StudentAccountCreation = () => {
 
     const ws = XLSX.utils.json_to_sheet(templateData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Students Template');
+    XLSX.utils.book_append_sheet(wb, ws, 'Learner Template');
     
     // Set column widths
     ws['!cols'] = [
@@ -437,122 +517,134 @@ const StudentAccountCreation = () => {
     if (!file) return;
 
     setBulkUploadFile(file);
-    setBulkUploadErrors([]);
     setBulkUploadResults(null);
+    resetBulkWizard();
 
     try {
       const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data);
+      const workbook = XLSX.read(data, { type: "array" });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet);
-
-      // Validate and transform data
-      const errors: string[] = [];
-      const validatedData: any[] = [];
-
-      jsonData.forEach((row: any, index) => {
-        const rowNum = index + 2; // +2 because Excel rows start at 1 and we have a header
-        const errors_for_row: string[] = [];
-
-        // Check required fields
-        if (!row['Full Name*']?.toString().trim()) {
-          errors_for_row.push(`Row ${rowNum}: Full Name is required`);
-        }
-        if (!row['Grade Level*']?.toString().trim()) {
-          errors_for_row.push(`Row ${rowNum}: Grade Level is required`);
-        } else if (!PRIMARY_GRADE_LEVELS.includes(row['Grade Level*'].toString().trim())) {
-          errors_for_row.push(`Row ${rowNum}: Invalid Grade Level. Must be one of: ${PRIMARY_GRADE_LEVELS.join(', ')}`);
-        }
-
-        if (errors_for_row.length > 0) {
-          errors.push(...errors_for_row);
-        } else {
-          // Map Excel columns to database fields
-          validatedData.push({
-            full_name: row['Full Name*']?.toString().trim(),
-            grade_level: row['Grade Level*']?.toString().trim(),
-            date_of_birth: row['Date of Birth']?.toString().trim() || null,
-            gender: row['Gender']?.toString().trim() || null,
-            nationality: row['Nationality']?.toString().trim() || null,
-            place_of_birth: row['Place of Birth']?.toString().trim() || null,
-            home_language: row['Home Language']?.toString().trim() || null,
-            parent_name: row['Parent/Guardian Name']?.toString().trim() || null,
-            parent_phone: row['Parent Phone']?.toString().trim() || null,
-            parent_email: row['Parent Email']?.toString().trim() || null,
-            parent_relationship: row['Parent Relationship']?.toString().trim() || null,
-            home_address: row['Home Address']?.toString().trim() || null,
-            school_name: row['School Name']?.toString().trim() || profile?.school_name || null,
-            class_name: row['Class Name']?.toString().trim() || null,
-            admission_number: row['Admission Number']?.toString().trim() || null,
-            academic_year: row['Academic Year']?.toString().trim() || null,
-            blood_group: row['Blood Group']?.toString().trim() || null,
-            medical_conditions: row['Medical Conditions']?.toString().trim() || null,
-            allergies: row['Allergies']?.toString().trim() || null,
-            special_needs: row['Special Learning Needs']?.toString().trim() || null,
-            disability_status: row['Disability Status']?.toString().trim() || null,
-            previous_school: row['Previous School']?.toString().trim() || null,
-            notes: row['Notes']?.toString().trim() || null,
-          });
-        }
-      });
-
-      if (errors.length > 0) {
-        setBulkUploadErrors(errors);
-        setBulkUploadData([]);
-      } else {
-        setBulkUploadData(validatedData);
-        setBulkUploadErrors([]);
-        toast({ title: "File Validated", description: `${validatedData.length} students ready to import.` });
+      const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
+      if (!jsonData.length) {
+        toast({ title: "Empty file", description: "Add at least one data row below the header.", variant: "destructive" });
+        setBulkUploadFile(null);
+        return;
       }
-    } catch (error) {
-      toast({ title: "File Error", description: "Could not read the Excel file. Please check the format.", variant: "destructive" });
+      const headers = Object.keys(jsonData[0] as object);
+      setBulkRawRows(jsonData);
+      setBulkSourceHeaders(headers);
+      setBulkColumnMapping(autoMapColumns(headers));
+      setBulkWizardStep("map");
+      toast({ title: "Sheet loaded", description: "Map columns to fields, then run validation." });
+    } catch {
+      toast({ title: "File error", description: "Could not read the Excel file.", variant: "destructive" });
       setBulkUploadFile(null);
     }
   };
 
+  const runBulkValidation = () => {
+    if (!bulkRawRows.length || !profile) return;
+    const mapped = bulkRawRows.map((row, i) =>
+      mapRowToPayload(row, bulkColumnMapping, i + 2, {
+        school_name: profile.school_name,
+        grade_level: profile.grade_levels,
+      }),
+    );
+    const { issues, validRows } = validateAllRows(mapped);
+    setBulkValidationIssues(issues);
+    setBulkValidRows(validRows);
+    setBulkWizardStep("report");
+    if (issues.length === 0) {
+      toast({
+        title: "Validation passed",
+        description: `${validRows.length} row(s) are ready. Review the preview, then import.`,
+      });
+    } else {
+      toast({
+        title: "Validation report",
+        description: `${issues.length} issue(s) found. Fix the sheet or adjust column mapping.`,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const downloadBulkIssuesCsv = () => {
+    if (!bulkValidationIssues.length) return;
+    const csv = issuesToErrorCsv(bulkValidationIssues);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `bulk_import_errors_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "Error report downloaded", description: "Use this list to fix rows in your spreadsheet." });
+  };
+
   const handleBulkUpload = async () => {
-    if (!profile?.id || bulkUploadData.length === 0) return;
+    if (!profile?.id || bulkValidRows.length === 0) return;
 
     setIsBulkUploading(true);
     let successCount = 0;
-    let failedCount = 0;
+    const errors: string[] = [];
 
-    for (const studentData of bulkUploadData) {
+    for (const row of bulkValidRows) {
+      const p = row.payload;
       try {
         await createStudent({
-          ...studentData,
           teacher_id: profile.id,
+          full_name: p.full_name!,
+          grade_level: p.grade_level!,
+          date_of_birth: p.date_of_birth,
+          gender: p.gender,
+          nationality: p.nationality,
+          place_of_birth: p.place_of_birth,
+          home_language: p.home_language,
+          parent_name: p.parent_name,
+          parent_phone: p.parent_phone,
+          parent_email: p.parent_email,
+          parent_relationship: p.parent_relationship,
+          home_address: p.home_address,
+          school_name: p.school_name,
+          class_name: p.class_name,
+          admission_number: p.admission_number,
+          academic_year: p.academic_year,
+          blood_group: p.blood_group,
+          medical_conditions: p.medical_conditions,
+          allergies: p.allergies,
+          special_needs: p.special_needs,
+          disability_status: p.disability_status,
+          previous_school: p.previous_school,
+          notes: p.notes,
+          profile_photo_url: null,
         });
         successCount++;
-      } catch (error) {
-        console.error('Failed to create student:', studentData.full_name, error);
-        failedCount++;
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : "Unknown error";
+        errors.push(`Row ${row.rowNumber} (${p.full_name}): ${msg}`);
       }
     }
 
     setIsBulkUploading(false);
-    setBulkUploadResults({ success: successCount, failed: failedCount });
-    
-    // Refresh student list
+    setBulkUploadResults({ success: successCount, failed: errors.length, errors });
     await fetchStudents();
 
-    if (failedCount === 0) {
-      toast({ 
-        title: "Bulk Upload Complete!", 
-        description: `Successfully created ${successCount} student accounts.` 
+    if (errors.length === 0) {
+      toast({
+        title: "Bulk import complete",
+        description: `Successfully created ${successCount} learner account(s).`,
       });
-      // Reset after 3 seconds
       setTimeout(() => {
         setShowBulkUpload(false);
         setBulkUploadFile(null);
-        setBulkUploadData([]);
         setBulkUploadResults(null);
-      }, 3000);
+        resetBulkWizard();
+      }, 2500);
     } else {
-      toast({ 
-        title: "Upload Completed with Errors", 
-        description: `${successCount} succeeded, ${failedCount} failed.`,
-        variant: "destructive"
+      toast({
+        title: "Import finished with errors",
+        description: `${successCount} succeeded, ${errors.length} failed.`,
+        variant: "destructive",
       });
     }
   };
@@ -565,13 +657,13 @@ const StudentAccountCreation = () => {
     setExpandedSections((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }));
   };
 
-  // â”€â”€ Stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Stats ──────────────────────────────────────────────
 
   const totalStudents = students.length;
   const activeStudents = students.filter((s) => s.account_status === 'active').length;
   const pausedStudents = students.filter((s) => s.account_status === 'paused').length;
 
-  // â”€â”€ Render Field â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Render Field ───────────────────────────────────────
 
   const renderField = (field: FormField) => {
     const value = formData[field.key] || '';
@@ -618,48 +710,64 @@ const StudentAccountCreation = () => {
     );
   };
 
-  // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Render ─────────────────────────────────────────────
 
   return (
-    <div className="container py-6 space-y-6 max-w-7xl">
+    <div className="container py-4 sm:py-6 space-y-3 sm:space-y-6 max-w-7xl px-3 sm:px-4">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
-            <Users className="h-7 w-7 text-primary" />
-            Student Accounts
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-4">
+        <div className="min-w-0">
+          <h1 className="text-lg sm:text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2 leading-tight">
+            <Users className="h-6 w-6 sm:h-7 sm:w-7 text-primary shrink-0" />
+            Learner Accounts
           </h1>
-          <p className="text-muted-foreground mt-1">Create, manage, and share student access links</p>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 sm:mt-1 hidden sm:block">Create, manage, and share student access links</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-1.5 sm:gap-3 w-full sm:w-auto">
           <Button 
             onClick={() => setShowBulkUpload(true)} 
-            size="lg" 
+            size="sm"
             variant="outline"
-            className="shadow-md border-primary/20 hover:bg-primary/5"
+            className="shadow-md border-primary/20 hover:bg-primary/5 flex-1 sm:flex-none h-9 sm:h-10 text-xs sm:text-sm"
           >
-            <FileSpreadsheet className="mr-2 h-5 w-5" />
-            Bulk Upload
+            <FileSpreadsheet className="mr-1 sm:mr-2 h-4 w-4 sm:h-5 sm:w-5" />
+            <span className="hidden sm:inline">Bulk Upload</span>
+            <span className="sm:hidden">Bulk</span>
           </Button>
-          <Button onClick={() => { setFormData({}); setExpandedSections({ basic: true, guardian: true, school: true, health: false, additional: false }); setCreatingStudent(true); }} size="lg" className="shadow-md">
-            <UserPlus className="mr-2 h-5 w-5" />
-            Enroll New Student
+          <Button onClick={() => { setFormData(getDefaultFormData()); setExpandedSections({ basic: true, guardian: true, school: true, health: false, additional: false }); setCreatingStudent(true); }} size="sm" className="shadow-md flex-1 sm:flex-none h-9 sm:h-10 text-xs sm:text-sm">
+            <UserPlus className="mr-1 sm:mr-2 h-4 w-4 sm:h-5 sm:w-5" />
+            <span className="hidden sm:inline">Enroll New Learner</span>
+            <span className="sm:hidden">Enroll</span>
           </Button>
         </div>
       </div>
 
-      {/* Stats Cards - Horizontal Scroll on Mobile */}
-      <div className="flex overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 gap-4 sm:grid sm:grid-cols-3 no-scrollbar snap-x snap-mandatory">
-        <Card className="bg-gradient-to-br from-primary/10 to-background border-primary/20 min-w-[200px] snap-center">
+      {/* Stats — slim row on mobile */}
+      <div className="sm:hidden rounded-lg border bg-muted/40 divide-x divide-border flex text-center">
+        <div className="flex-1 min-w-0 py-2 px-1">
+          <p className="text-[9px] text-muted-foreground font-medium">Total</p>
+          <p className="text-sm font-bold tabular-nums">{totalStudents}</p>
+        </div>
+        <div className="flex-1 min-w-0 py-2 px-1">
+          <p className="text-[9px] text-muted-foreground font-medium">Active</p>
+          <p className="text-sm font-bold tabular-nums">{activeStudents}</p>
+        </div>
+        <div className="flex-1 min-w-0 py-2 px-1">
+          <p className="text-[9px] text-muted-foreground font-medium">Paused</p>
+          <p className="text-sm font-bold tabular-nums">{pausedStudents}</p>
+        </div>
+      </div>
+      <div className="hidden sm:grid sm:grid-cols-3 gap-4">
+        <Card className="bg-gradient-to-br from-primary/10 to-background border-primary/20">
           <CardContent className="pt-5 pb-4 flex items-center gap-4">
             <div className="p-3 rounded-xl bg-primary/15"><Users className="h-6 w-6 text-primary" /></div>
             <div>
               <p className="text-2xl font-bold">{totalStudents}</p>
-              <p className="text-xs text-muted-foreground">Total Students</p>
+              <p className="text-xs text-muted-foreground">Total Learner</p>
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-gradient-to-br from-emerald-500/10 to-background border-emerald-500/20 min-w-[200px] snap-center">
+        <Card className="bg-gradient-to-br from-emerald-500/10 to-background border-emerald-500/20">
           <CardContent className="pt-5 pb-4 flex items-center gap-4">
             <div className="p-3 rounded-xl bg-emerald-500/15"><CheckCircle2 className="h-6 w-6 text-emerald-600" /></div>
             <div>
@@ -668,7 +776,7 @@ const StudentAccountCreation = () => {
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-gradient-to-br from-amber-500/10 to-background border-amber-500/20 min-w-[200px] snap-center">
+        <Card className="bg-gradient-to-br from-amber-500/10 to-background border-amber-500/20">
           <CardContent className="pt-5 pb-4 flex items-center gap-4">
             <div className="p-3 rounded-xl bg-amber-500/15"><PauseCircle className="h-6 w-6 text-amber-600" /></div>
             <div>
@@ -739,7 +847,7 @@ const StudentAccountCreation = () => {
         </Card>
       )}
 
-      {/* Student List */}
+      {/* Learner List */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -755,11 +863,11 @@ const StudentAccountCreation = () => {
             <p className="text-muted-foreground text-sm max-w-md mx-auto">
               {searchTerm
                 ? 'Try a different search term.'
-                : "Click \"Enroll New Student\" to add your first student. They'll receive a unique link to access their dashboard."}
+                : "Click \"Enroll New Learner\" to add your first student. They'll receive a unique link to access their dashboard."}
             </p>
             {!searchTerm && (
-              <Button className="mt-6" onClick={() => setCreatingStudent(true)}>
-                <UserPlus className="mr-2 h-4 w-4" /> Enroll Your First Student
+              <Button className="mt-6" onClick={() => { setFormData(getDefaultFormData()); setCreatingStudent(true); }}>
+                <UserPlus className="mr-2 h-4 w-4" /> Enroll Your First Learner
               </Button>
             )}
           </CardContent>
@@ -775,10 +883,11 @@ const StudentAccountCreation = () => {
                     <TableHead className="w-10">
                       <Checkbox checked={selectedStudents.size === filteredStudents.length && filteredStudents.length > 0} onCheckedChange={toggleSelectAll} />
                     </TableHead>
-                    <TableHead className="font-semibold">Student</TableHead>
-                    <TableHead className="font-semibold hidden sm:table-cell">Student ID</TableHead>
+                    <TableHead className="font-semibold">Learner</TableHead>
+                    <TableHead className="font-semibold hidden sm:table-cell">Learner ID</TableHead>
                     <TableHead className="font-semibold hidden md:table-cell">Class</TableHead>
                     <TableHead className="font-semibold hidden lg:table-cell">Guardian</TableHead>
+                    <TableHead className="font-semibold hidden xl:table-cell">Last active</TableHead>
                     <TableHead className="font-semibold">Status</TableHead>
                     <TableHead className="font-semibold hidden sm:table-cell">Access Link</TableHead>
                     <TableHead className="text-right font-semibold">Actions</TableHead>
@@ -797,23 +906,30 @@ const StudentAccountCreation = () => {
                           </div>
                           <div className="min-w-0">
                             <p className="font-medium truncate">{student.full_name}</p>
-                            <p className="text-xs text-muted-foreground truncate sm:hidden">{student.student_code || '—'}</p>
+                            <p className="text-xs text-muted-foreground truncate sm:hidden">{student.student_code || "—"}</p>
                           </div>
                         </div>
                       </TableCell>
                       <TableCell className="hidden sm:table-cell">
-                        <code className="text-xs font-mono bg-primary/5 text-primary px-2 py-1 rounded">{student.student_code || '—'}</code>
+                        <code className="text-xs font-mono bg-primary/5 text-primary px-2 py-1 rounded">{student.student_code || "—"}</code>
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         <Badge variant="outline">{student.grade_level}</Badge>
                       </TableCell>
                       <TableCell className="hidden lg:table-cell">
-                        <div className="text-sm">{student.parent_name || '—'}</div>
-                        <div className="text-xs text-muted-foreground">{student.parent_phone || ''}</div>
+                        <div className="text-sm">{student.parent_name || "—"}</div>
+                        <div className="text-xs text-muted-foreground">{student.parent_phone || ""}</div>
+                      </TableCell>
+                      <TableCell className="hidden xl:table-cell text-xs text-muted-foreground">
+                        {lastActiveLabel(student) ? (
+                          <span title={getStudentLastActiveAt(student) || ""}>{lastActiveLabel(student)}</span>
+                        ) : (
+                          <span className="text-amber-700/90">Never logged in</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge variant={student.account_status === 'active' ? 'default' : 'secondary'} className={student.account_status === 'active' ? 'bg-emerald-500/15 text-emerald-700 border-emerald-200 hover:bg-emerald-500/20' : 'bg-amber-500/15 text-amber-700 border-amber-200 hover:bg-amber-500/20'}>
-                          {student.account_status === 'active' ? '● Active' : '⏸ Paused'}
+                          {student.account_status === 'active' ? 'Active' : 'Paused'}
                         </Badge>
                       </TableCell>
                       <TableCell className="hidden sm:table-cell">
@@ -832,13 +948,13 @@ const StudentAccountCreation = () => {
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewingStudent(student)} title="View Details">
                             <Eye className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(student)} title="Edit Student">
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(student)} title="Edit Learner">
                             <Edit className="h-4 w-4" />
                           </Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleToggleStatus(student)} title={student.account_status === 'active' ? 'Pause Account' : 'Activate Account'}>
                             {student.account_status === 'active' ? <PauseCircle className="h-4 w-4 text-amber-600" /> : <PlayCircle className="h-4 w-4 text-emerald-600" />}
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => setConfirmDelete(student)} title="Delete Student">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => setConfirmDelete(student)} title="Delete Learner">
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
@@ -871,8 +987,14 @@ const StudentAccountCreation = () => {
                         </div>
                         <p className="text-sm text-muted-foreground flex items-center gap-2">
                           <span className="font-mono bg-muted px-1.5 rounded text-xs">{student.student_code || 'No ID'}</span>
-                          <span>•</span>
+                          <span>·</span>
                           <span>{student.grade_level}</span>
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          Last active:{" "}
+                          {lastActiveLabel(student) || (
+                            <span className="text-amber-700">never logged in</span>
+                          )}
                         </p>
                       </div>
                     </div>
@@ -916,17 +1038,18 @@ const StudentAccountCreation = () => {
         </>
       )}
 
-      {/* â”€â”€ CREATE STUDENT DIALOG â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-      <Dialog open={creatingStudent} onOpenChange={setCreatingStudent}>
+      {/* ── CREATE STUDENT DIALOG ─────────────────────────── */}
+      <Dialog open={creatingStudent} onOpenChange={(open) => { setCreatingStudent(open); if (!open) setFormData(getDefaultFormData()); }}>
         <DialogContent className="max-w-3xl max-h-[90vh] p-0 gap-0">
           <DialogHeader className="p-6 pb-4 border-b bg-muted/30">
             <DialogTitle className="text-xl flex items-center gap-2">
               <UserPlus className="h-5 w-5 text-primary" />
-              Enroll New Student
+              Enroll New Learner
             </DialogTitle>
             <DialogDescription>
               Fill in the student's information below. Required fields are marked with <span className="text-red-500">*</span>.
               A unique access link will be generated automatically.
+              If you add a guardian phone, choose <strong>Guardian phone country</strong> (Cameroon or Nigeria) so the welcome SMS formats the number correctly.
             </DialogDescription>
           </DialogHeader>
 
@@ -965,13 +1088,13 @@ const StudentAccountCreation = () => {
           <DialogFooter className="p-6 pt-4 border-t bg-muted/30">
             <Button variant="outline" onClick={() => setCreatingStudent(false)} disabled={isSaving}>Cancel</Button>
             <Button onClick={handleCreateStudent} disabled={isSaving} className="min-w-[140px]">
-              {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating...</> : <><UserPlus className="mr-2 h-4 w-4" /> Create Student</>}
+              {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating...</> : <><UserPlus className="mr-2 h-4 w-4" /> Create Learner</>}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* â”€â”€ VIEW STUDENT DIALOG â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── VIEW STUDENT DIALOG ───────────────────────────── */}
       {viewingStudent && (
         <Dialog open={!!viewingStudent} onOpenChange={(open) => { if (!open) setViewingStudent(null); }}>
           <DialogContent className="max-w-2xl max-h-[90vh] p-0 gap-0">
@@ -1001,7 +1124,7 @@ const StudentAccountCreation = () => {
               {/* Access Link */}
               <div className="mb-6 p-4 bg-primary/5 rounded-lg border border-primary/20">
                 <Label className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5 mb-2">
-                  <Link2 className="h-3.5 w-3.5" /> Student Access Link
+                  <Link2 className="h-3.5 w-3.5" /> Learner Access Link
                 </Label>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-xs bg-background p-2.5 rounded border font-mono break-all">
@@ -1011,10 +1134,16 @@ const StudentAccountCreation = () => {
                     {linkCopied === viewingStudent.access_token ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground mt-2">Share this link with the parent or student. It will open their dashboard directly â€” no password needed.</p>
+                <p className="text-xs text-muted-foreground mt-2">Share this link with the parent or student. It will open their dashboard directly — no password needed.</p>
+                <p className="text-xs mt-2">
+                  <span className="text-muted-foreground">Last active on portal: </span>
+                  {lastActiveLabel(viewingStudent) || (
+                    <span className="text-amber-700 font-medium">Never (no visit or submission recorded yet)</span>
+                  )}
+                </p>
               </div>
 
-              {/* Student Details Grid */}
+              {/* Learner Details Grid */}
               <div className="space-y-5">
                 {SECTIONS.map((section) => {
                   const fields = FORM_FIELDS.filter((f) => f.section === section.id);
@@ -1060,13 +1189,13 @@ const StudentAccountCreation = () => {
         </Dialog>
       )}
 
-      {/* â”€â”€ DELETE CONFIRM DIALOG â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── DELETE CONFIRM DIALOG ─────────────────────────── */}
       {confirmDelete && (
         <Dialog open={!!confirmDelete} onOpenChange={(open) => { if (!open) setConfirmDelete(null); }}>
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-red-600">
-                <AlertTriangle className="h-5 w-5" /> Delete Student Account
+                <AlertTriangle className="h-5 w-5" /> Delete Learner Account
               </DialogTitle>
               <DialogDescription>
                 Are you sure you want to permanently delete <strong>{confirmDelete.full_name}</strong>&apos;s account? This action cannot be undone and all associated data (assignments, submissions) will be removed.
@@ -1082,14 +1211,14 @@ const StudentAccountCreation = () => {
         </Dialog>
       )}
 
-      {/* ── EDIT STUDENT DIALOG ─────────────────────────────── */}
+      {/* -- EDIT STUDENT DIALOG ------------------------------- */}
       {editingStudent && (
-        <Dialog open={!!editingStudent} onOpenChange={(open) => { if (!open) { setEditingStudent(null); setFormData({}); } }}>
+        <Dialog open={!!editingStudent} onOpenChange={(open) => { if (!open) { setEditingStudent(null); setFormData(getDefaultFormData()); } }}>
           <DialogContent className="max-w-3xl max-h-[90vh] p-0 gap-0">
             <DialogHeader className="p-6 pb-4 border-b bg-muted/30">
               <DialogTitle className="text-xl flex items-center gap-2">
                 <Edit className="h-5 w-5 text-primary" />
-                Edit Student: {editingStudent.full_name}
+                Edit Learner: {editingStudent.full_name}
               </DialogTitle>
               <DialogDescription>
                 Update the student's information below. Required fields are marked with <span className="text-red-500">*</span>.
@@ -1129,7 +1258,7 @@ const StudentAccountCreation = () => {
             </ScrollArea>
 
             <DialogFooter className="p-6 pt-4 border-t bg-muted/30">
-              <Button variant="outline" onClick={() => { setEditingStudent(null); setFormData({}); }} disabled={isSaving}>Cancel</Button>
+              <Button variant="outline" onClick={() => { setEditingStudent(null); setFormData(getDefaultFormData()); }} disabled={isSaving}>Cancel</Button>
               <Button onClick={handleEditStudent} disabled={isSaving} className="min-w-[140px]">
                 {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Save Changes</>}
               </Button>
@@ -1138,7 +1267,7 @@ const StudentAccountCreation = () => {
         </Dialog>
       )}
 
-      {/* ── QR CODE DIALOG ─────────────────────────────────── */}
+      {/* -- QR CODE DIALOG ----------------------------------- */}
       {showQrCode && (
         <Dialog open={!!showQrCode} onOpenChange={(open) => { if (!open) setShowQrCode(null); }}>
           <DialogContent className="max-w-sm">
@@ -1189,14 +1318,14 @@ const StudentAccountCreation = () => {
         </Dialog>
       )}
 
-      {/* ── BULK ACTION CONFIRM DIALOG ─────────────────────── */}
+      {/* -- BULK ACTION CONFIRM DIALOG ----------------------- */}
       {bulkAction && (
         <Dialog open={!!bulkAction} onOpenChange={(open) => { if (!open) setBulkAction(null); }}>
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 {bulkAction === 'delete' ? <AlertTriangle className="h-5 w-5 text-red-600" /> : bulkAction === 'pause' ? <PauseCircle className="h-5 w-5 text-amber-600" /> : <PlayCircle className="h-5 w-5 text-emerald-600" />}
-                {bulkAction === 'delete' ? 'Delete' : bulkAction === 'pause' ? 'Pause' : 'Activate'} {selectedStudents.size} Student(s)?
+                {bulkAction === 'delete' ? 'Delete' : bulkAction === 'pause' ? 'Pause' : 'Activate'} {selectedStudents.size} Learner(s)?
               </DialogTitle>
               <DialogDescription>
                 {bulkAction === 'delete' 
@@ -1222,56 +1351,54 @@ const StudentAccountCreation = () => {
         </Dialog>
       )}
 
-      {/* ── BULK UPLOAD DIALOG ─────────────────────────────── */}
-      <Dialog open={showBulkUpload} onOpenChange={(open) => { 
-        if (!open) {
-          setShowBulkUpload(false);
-          setBulkUploadFile(null);
-          setBulkUploadData([]);
-          setBulkUploadErrors([]);
-          setBulkUploadResults(null);
-        }
-      }}>
-        <DialogContent className="max-w-3xl max-h-[90vh]">
+      {/* -- BULK UPLOAD DIALOG (mapping + dry-run + import) --- */}
+      <Dialog
+        open={showBulkUpload}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowBulkUpload(false);
+            setBulkUploadFile(null);
+            setBulkUploadResults(null);
+            resetBulkWizard();
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl flex items-center gap-2">
               <FileSpreadsheet className="h-6 w-6 text-primary" />
-              Bulk Upload Students
+              Bulk import learners
             </DialogTitle>
             <DialogDescription>
-              Upload an Excel file with multiple student records. Download the template to get started.
+              Map spreadsheet columns, run a dry-run validation, preview rows, then create accounts. Use any XLSX — not only the template.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-6 py-4">
-            {/* Step 1: Download Template */}
+          <div className="space-y-5 py-2">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+              <Badge variant={bulkWizardStep === "upload" ? "default" : "outline"}>1. File</Badge>
+              <span>→</span>
+              <Badge variant={bulkWizardStep === "map" ? "default" : "outline"}>2. Map columns</Badge>
+              <span>→</span>
+              <Badge variant={bulkWizardStep === "report" ? "default" : "outline"}>3. Validation</Badge>
+              <span>→</span>
+              <Badge variant={bulkWizardStep === "preview" ? "default" : "outline"}>4. Preview & import</Badge>
+            </div>
+
             <div className="flex items-start gap-4 p-4 rounded-lg border border-primary/20 bg-primary/5">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-white font-bold text-sm">
                 1
               </div>
-              <div className="flex-1">
-                <h3 className="font-semibold mb-1">Download Template</h3>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold mb-1">Template & upload</h3>
                 <p className="text-sm text-muted-foreground mb-3">
-                  Get the Excel template with all required fields. Fill it with your student data.
+                  Download the starter file or use your own export — then choose the workbook.
                 </p>
-                <Button variant="outline" size="sm" onClick={downloadTemplate}>
-                  <Download className="mr-2 h-4 w-4" />
-                  Download Excel Template
-                </Button>
-              </div>
-            </div>
-
-            {/* Step 2: Upload File */}
-            <div className="flex items-start gap-4 p-4 rounded-lg border">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-white font-bold text-sm">
-                2
-              </div>
-              <div className="flex-1">
-                <h3 className="font-semibold mb-1">Upload Filled Template</h3>
-                <p className="text-sm text-muted-foreground mb-3">
-                  Upload your completed Excel file. We'll validate the data automatically.
-                </p>
-                <div>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" type="button" onClick={downloadTemplate}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Download template
+                  </Button>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -1280,28 +1407,29 @@ const StudentAccountCreation = () => {
                     className="hidden"
                     disabled={isBulkUploading}
                   />
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    type="button"
                     disabled={isBulkUploading}
                     onClick={() => fileInputRef.current?.click()}
                   >
                     <Upload className="mr-2 h-4 w-4" />
-                    {bulkUploadFile ? 'Change File' : 'Choose Excel File'}
+                    {bulkUploadFile ? "Change file" : "Choose Excel file"}
                   </Button>
                 </div>
                 {bulkUploadFile && (
                   <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
-                    <FileSpreadsheet className="h-4 w-4 text-primary" />
-                    <span className="font-medium">{bulkUploadFile.name}</span>
+                    <FileSpreadsheet className="h-4 w-4 text-primary shrink-0" />
+                    <span className="font-medium truncate">{bulkUploadFile.name}</span>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 w-6 p-0"
+                      type="button"
+                      className="h-6 w-6 p-0 shrink-0"
                       onClick={() => {
                         setBulkUploadFile(null);
-                        setBulkUploadData([]);
-                        setBulkUploadErrors([]);
+                        resetBulkWizard();
                       }}
                       disabled={isBulkUploading}
                     >
@@ -1312,80 +1440,147 @@ const StudentAccountCreation = () => {
               </div>
             </div>
 
-            {/* Validation Results */}
-            {bulkUploadErrors.length > 0 && (
-              <div className="p-4 rounded-lg border border-red-200 bg-red-50">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5" />
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-red-900 mb-2">Validation Errors</h3>
-                    <ScrollArea className="max-h-40">
-                      <ul className="space-y-1">
-                        {bulkUploadErrors.map((error, idx) => (
-                          <li key={idx} className="text-sm text-red-700">• {error}</li>
-                        ))}
-                      </ul>
-                    </ScrollArea>
-                    <p className="text-xs text-red-600 mt-2">
-                      Fix these errors in your Excel file and upload again.
-                    </p>
-                  </div>
+            {bulkWizardStep !== "upload" && bulkSourceHeaders.length > 0 && (
+              <div className="rounded-lg border p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h3 className="font-semibold">Column mapping</h3>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => setBulkColumnMapping(autoMapColumns(bulkSourceHeaders))}>
+                    Reset auto-map
+                  </Button>
                 </div>
-              </div>
-            )}
-
-            {bulkUploadData.length > 0 && bulkUploadErrors.length === 0 && !bulkUploadResults && (
-              <div className="p-4 rounded-lg border border-emerald-200 bg-emerald-50">
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5" />
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-emerald-900 mb-1">Ready to Import</h3>
-                    <p className="text-sm text-emerald-700">
-                      <span className="font-semibold">{bulkUploadData.length} students</span> validated and ready to be added to your account.
-                    </p>
-                    <div className="mt-3 space-y-1">
-                      {bulkUploadData.slice(0, 3).map((student, idx) => (
-                        <div key={idx} className="text-xs text-emerald-700 flex items-center gap-2">
-                          <CheckCheck className="h-3 w-3" />
-                          <span>{student.full_name} - {student.grade_level}</span>
-                        </div>
-                      ))}
-                      {bulkUploadData.length > 3 && (
-                        <p className="text-xs text-emerald-600 ml-5">
-                          {`+ ${bulkUploadData.length - 3} more student(s)`}
-                        </p>
-                      )}
+                <p className="text-xs text-muted-foreground">
+                  Connect each field to a column in your sheet. Required: full name and grade level.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[220px] overflow-y-auto pr-1">
+                  {BULK_IMPORT_FIELDS.map((spec) => (
+                    <div key={spec.key} className="space-y-1">
+                      <Label className="text-xs">
+                        {spec.label}
+                        {spec.required && <span className="text-red-500 ml-0.5">*</span>}
+                      </Label>
+                      <Select
+                        value={bulkColumnMapping[spec.key] || "__skip__"}
+                        onValueChange={(v) =>
+                          setBulkColumnMapping((prev) => ({
+                            ...prev,
+                            [spec.key]: v === "__skip__" ? undefined : v,
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="h-9 text-xs">
+                          <SelectValue placeholder="Skip" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__skip__">— Skip —</SelectItem>
+                          {bulkSourceHeaders.map((h) => (
+                            <SelectItem key={`${spec.key}-${h}`} value={h}>
+                              {h}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <Button type="button" onClick={runBulkValidation} disabled={!bulkRawRows.length}>
+                    Run validation (dry run)
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {bulkWizardStep === "report" && (
+              <div
+                className={`p-4 rounded-lg border ${
+                  bulkValidationIssues.length ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  {bulkValidationIssues.length ? (
+                    <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+                  ) : (
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5 shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold mb-1">
+                      {bulkValidationIssues.length
+                        ? `Validation: ${bulkValidationIssues.length} issue(s)`
+                        : `All clear: ${bulkValidRows.length} row(s) ready`}
+                    </h3>
+                    {bulkValidationIssues.length > 0 && (
+                      <>
+                        <ScrollArea className="max-h-36 mt-2">
+                          <ul className="space-y-1 pr-3">
+                            {bulkValidationIssues.slice(0, 80).map((issue, idx) => (
+                              <li key={idx} className="text-xs text-red-800">
+                                Row {issue.rowNumber}, {issue.field}: {issue.message}
+                              </li>
+                            ))}
+                          </ul>
+                        </ScrollArea>
+                        {bulkValidationIssues.length > 80 && (
+                          <p className="text-xs text-red-700 mt-1">Showing first 80 issues — download CSV for the full list.</p>
+                        )}
+                        <Button type="button" variant="outline" size="sm" className="mt-3" onClick={downloadBulkIssuesCsv}>
+                          <FileDown className="mr-2 h-4 w-4" />
+                          Download errors as CSV
+                        </Button>
+                      </>
+                    )}
+                    {bulkValidationIssues.length === 0 && bulkValidRows.length > 0 && (
+                      <Button type="button" size="sm" className="mt-3" onClick={() => setBulkWizardStep("preview")}>
+                        Continue to preview
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Step 3: Import */}
-            {bulkUploadData.length > 0 && bulkUploadErrors.length === 0 && (
-              <div className="flex items-start gap-4 p-4 rounded-lg border border-primary/20 bg-primary/5">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-white font-bold text-sm">
-                  3
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold mb-1">Create Student Accounts</h3>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    Click the button below to create all student accounts. Each will get a unique access link.
+            {bulkWizardStep === "preview" && bulkValidRows.length > 0 && !bulkUploadResults && (
+              <div className="rounded-lg border overflow-hidden">
+                <div className="px-3 py-2 bg-muted/40 border-b text-sm font-medium">Preview (first rows)</div>
+                <ScrollArea className="max-h-48">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-14">#</TableHead>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Grade</TableHead>
+                        <TableHead>Guardian</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {bulkValidRows.slice(0, 8).map((row) => (
+                        <TableRow key={row.rowNumber}>
+                          <TableCell className="text-muted-foreground text-xs">{row.rowNumber}</TableCell>
+                          <TableCell className="text-sm font-medium">{row.payload.full_name}</TableCell>
+                          <TableCell className="text-sm">{row.payload.grade_level}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {row.payload.parent_name || row.payload.parent_phone || "—"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+                {bulkValidRows.length > 8 && (
+                  <p className="text-xs text-muted-foreground px-3 py-2 border-t">
+                    + {bulkValidRows.length - 8} more row(s) will be imported.
                   </p>
-                  <Button
-                    onClick={handleBulkUpload}
-                    disabled={isBulkUploading}
-                    className="shadow-md"
-                  >
+                )}
+                <div className="p-3 border-t bg-primary/5">
+                  <Button onClick={handleBulkUpload} disabled={isBulkUploading} className="w-full sm:w-auto">
                     {isBulkUploading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Creating Accounts...
+                        Creating…
                       </>
                     ) : (
                       <>
                         <UserPlus className="mr-2 h-4 w-4" />
-                        Create {bulkUploadData.length} Student Account{bulkUploadData.length !== 1 ? 's' : ''}
+                        Create {bulkValidRows.length} learner{bulkValidRows.length !== 1 ? "s" : ""}
                       </>
                     )}
                   </Button>
@@ -1393,27 +1588,39 @@ const StudentAccountCreation = () => {
               </div>
             )}
 
-            {/* Upload Results */}
             {bulkUploadResults && (
-              <div className={`p-4 rounded-lg border ${bulkUploadResults.failed === 0 ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+              <div
+                className={`p-4 rounded-lg border ${bulkUploadResults.failed === 0 ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}
+              >
                 <div className="flex items-start gap-3">
                   {bulkUploadResults.failed === 0 ? (
-                    <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+                    <CheckCircle2 className="h-6 w-6 text-emerald-600 shrink-0" />
                   ) : (
-                    <AlertTriangle className="h-6 w-6 text-amber-600" />
+                    <AlertTriangle className="h-6 w-6 text-amber-600 shrink-0" />
                   )}
-                  <div className="flex-1">
-                    <h3 className={`font-semibold mb-2 ${bulkUploadResults.failed === 0 ? 'text-emerald-900' : 'text-amber-900'}`}>
-                      {bulkUploadResults.failed === 0 ? 'Upload Complete!' : 'Upload Completed with Warnings'}
+                  <div className="flex-1 min-w-0">
+                    <h3 className={`font-semibold mb-2 ${bulkUploadResults.failed === 0 ? "text-emerald-900" : "text-amber-900"}`}>
+                      {bulkUploadResults.failed === 0 ? "Import complete" : "Import finished with warnings"}
                     </h3>
                     <div className="space-y-1 text-sm">
                       <p className="text-emerald-700 font-medium">
-                        ✓ {bulkUploadResults.success} student{bulkUploadResults.success !== 1 ? 's' : ''} created successfully
+                        {bulkUploadResults.success} learner{bulkUploadResults.success !== 1 ? "s" : ""} created successfully
                       </p>
                       {bulkUploadResults.failed > 0 && (
-                        <p className="text-amber-700 font-medium">
-                          ✗ {bulkUploadResults.failed} student{bulkUploadResults.failed !== 1 ? 's' : ''} failed to create
-                        </p>
+                        <>
+                          <p className="text-amber-700 font-medium">
+                            {bulkUploadResults.failed} row{bulkUploadResults.failed !== 1 ? "s" : ""} failed
+                          </p>
+                          {bulkUploadResults.errors.length > 0 && (
+                            <ScrollArea className="h-24 mt-2 pr-3">
+                              <ul className="text-xs text-amber-900 list-disc pl-4 space-y-1">
+                                {bulkUploadResults.errors.map((error, idx) => (
+                                  <li key={idx}>{error}</li>
+                                ))}
+                              </ul>
+                            </ScrollArea>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -1423,18 +1630,18 @@ const StudentAccountCreation = () => {
           </div>
 
           <DialogFooter>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
+              type="button"
               onClick={() => {
                 setShowBulkUpload(false);
                 setBulkUploadFile(null);
-                setBulkUploadData([]);
-                setBulkUploadErrors([]);
                 setBulkUploadResults(null);
+                resetBulkWizard();
               }}
               disabled={isBulkUploading}
             >
-              {bulkUploadResults ? 'Close' : 'Cancel'}
+              {bulkUploadResults ? "Close" : "Cancel"}
             </Button>
           </DialogFooter>
         </DialogContent>

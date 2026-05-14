@@ -221,7 +221,7 @@ const SystemHealthPage: React.FC = () => {
                     <span className="text-sm font-medium">{overview?.totalTeachers || 0}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm">Total Students</span>
+                    <span className="text-sm">Total Learner</span>
                     <span className="text-sm font-medium">{overview?.totalStudents || 0}</span>
                   </div>
                 </div>

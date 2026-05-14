@@ -12,7 +12,15 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
-    flowType: 'implicit',
+    flowType: 'pkce',
+    /**
+     * Default GoTrue client uses the Web Locks API (`lock:sb-…-auth-token`) so only
+     * one tab mutates auth storage. With multiple tabs, dev HMR, or some extensions,
+     * that lock can hit `NavigatorLockAcquireTimeoutError` after 10s — then
+     * `functions.invoke` fails with "Failed to send a request to the Edge Function".
+     * Run auth work without a cross-tab lock; acceptable for this SPA (rare multi-tab races).
+     */
+    lock: async <R,>(_name: string, _acquireTimeout: number, fn: () => Promise<R>) => fn(),
   },
   realtime: {
     params: {
@@ -23,7 +31,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 
 // ── Types ──────────────────────────────────────────────────
 
-export type UserRole = 'teacher' | 'parent' | 'student';
+export type UserRole = 'teacher' | 'parent' | 'student' | 'admin';
 
 export interface UserProfile {
   id: string;
@@ -37,6 +45,7 @@ export interface UserProfile {
   school_address: string | null;
   school_type: string | null;
   number_of_students: number | null;
+  number_of_classes: number | null;
   subjects_taught: string | null;
   grade_levels: string | null;
   years_of_experience: number | null;
@@ -50,6 +59,13 @@ export interface UserProfile {
   managed_student_ids: string[] | null;
   created_at: string;
   updated_at: string;
+  /** Public roster code for /enroll/:code (teachers only). */
+  class_join_code?: string | null;
+  /**
+   * false = Google OAuth user still owes the one-time Complete Profile flow.
+   * true = not applicable (email signup) or Google onboarding already finished.
+   */
+  google_extra_profile_completed?: boolean;
 }
 
 export interface StudentWork {
@@ -111,9 +127,11 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
 };
 
 export const upsertUserProfile = async (profile: Partial<UserProfile> & { id: string }) => {
+  // Strip fields that may not exist in the DB schema yet to avoid PGRST204 errors.
+  const { number_of_classes: _nc, ...safeProfile } = profile as Record<string, unknown>;
   const { error } = await supabase
     .from('profiles')
-    .upsert({ ...profile, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+    .upsert({ ...safeProfile, updated_at: new Date().toISOString() }, { onConflict: 'id' });
 
   if (error) {
     console.error('Error upserting user profile:', error);
@@ -125,6 +143,42 @@ export const signOutUser = async () => {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
   return true;
+};
+
+/**
+ * Returns true when a Supabase access token belongs to password recovery flow.
+ * Supabase may emit SIGNED_IN for recovery in PKCE mode, so callers need this
+ * JWT hint to route users to /reset-password reliably.
+ */
+export const isPasswordRecoveryAccessToken = (accessToken: string): boolean => {
+  if (!accessToken) return false;
+
+  try {
+    const parts = accessToken.split('.');
+    if (parts.length < 2) return false;
+
+    const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = payloadBase64 + '='.repeat((4 - (payloadBase64.length % 4)) % 4);
+    const payloadJson = atob(padded);
+    const payload = JSON.parse(payloadJson) as {
+      type?: string;
+      action?: string;
+      /** Supabase / GoTrue: recovery often appears here, not in `type`. */
+      amr?: Array<{ method?: string; timestamp?: number }>;
+    };
+
+    if (payload.type === 'recovery' || payload.action === 'password_recovery') {
+      return true;
+    }
+    if (Array.isArray(payload.amr)) {
+      return payload.amr.some(
+        (e) => e && String(e.method ?? '').toLowerCase() === 'recovery',
+      );
+    }
+    return false;
+  } catch {
+    return false;
+  }
 };
 
 // ── Chat Conversations ───────────────────────────────────
@@ -278,7 +332,12 @@ export const getBookmarkedMessages = async (
 // ── Student Work CRUD ────────────────────────────────────
 
 export const uploadStudentWorkFile = async (userId: string, file: File): Promise<string> => {
-  const fileExt = file.name.split('.').pop() || 'bin';
+  // Validate file type and size
+  const { validateImageFile } = await import('@/lib/utils');
+  const validation = validateImageFile(file);
+  if (!validation.valid) throw new Error(validation.error);
+
+  const fileExt = file.name.split('.').pop()?.toLowerCase() || 'bin';
   const filePath = `${userId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${fileExt}`;
 
   const { error } = await supabase.storage

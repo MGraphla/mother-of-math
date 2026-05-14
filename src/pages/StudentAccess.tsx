@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getStudentByToken, setStudentSession } from "@/services/studentService";
+import { getStudentByToken, setStudentSession, recordStudentPortalActivity } from "@/services/studentService";
 import { Loader2, ShieldAlert, GraduationCap, CheckCircle2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
 
 type Status = "loading" | "success" | "paused" | "not-found" | "error";
 
@@ -33,8 +34,12 @@ const StudentAccess = () => {
 
         // Valid active student — store session & redirect
         setStudentSession(student);
+        recordStudentPortalActivity(student.id, token);
         setStudentName(student.full_name);
         setStatus("success");
+
+        // Clear the token from the URL to prevent leakage via referrer/history
+        window.history.replaceState({}, '', '/student-access');
 
         // Brief delay so user sees the welcome before redirect
         setTimeout(() => {
@@ -50,15 +55,15 @@ const StudentAccess = () => {
   }, [token, navigate]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-emerald-50 p-4">
-      <Card className="max-w-md w-full shadow-xl border-0">
-        <CardContent className="pt-10 pb-8 text-center space-y-4">
+    <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-primary/5 via-background to-emerald-50 p-4 pt-[max(1rem,env(safe-area-inset-top,0px))] pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
+      <Card className="w-full max-w-md border-0 shadow-xl">
+        <CardContent className="space-y-4 px-4 py-8 text-center sm:px-6 sm:pt-10 sm:pb-8">
           {status === "loading" && (
-            <>
-              <Loader2 className="h-14 w-14 animate-spin text-primary mx-auto" />
-              <h2 className="text-xl font-semibold">Opening your dashboard...</h2>
-              <p className="text-muted-foreground text-sm">Please wait while we verify your access link.</p>
-            </>
+            <div className="py-4">
+              <LoadingAnimation message="" />
+              <h2 className="text-xl font-semibold mt-4">Opening your dashboard...</h2>
+              <p className="text-muted-foreground text-sm mt-2">Please wait while we verify your access link.</p>
+            </div>
           )}
 
           {status === "success" && (
@@ -111,7 +116,7 @@ const StudentAccess = () => {
 
           <div className="pt-4 flex items-center justify-center gap-2 text-xs text-muted-foreground">
             <GraduationCap className="h-4 w-4" />
-            <span>Mother of Mathematics — Student Portal</span>
+            <span>Mother of Mathematics — Learner Portal</span>
           </div>
         </CardContent>
       </Card>

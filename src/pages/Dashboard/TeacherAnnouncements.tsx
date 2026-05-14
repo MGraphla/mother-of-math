@@ -78,7 +78,6 @@ import {
   getAnnouncementReadStats,
 } from '@/services/announcementService';
 import { useToast } from '@/hooks/use-toast';
-
 const CATEGORIES = ['General', 'Assignment', 'Exam', 'Event', 'Reminder', 'Urgent'];
 
 // Pre-defined templates
@@ -370,26 +369,26 @@ const TeacherAnnouncements = () => {
   const overallReadRate = totalPossibleReads > 0 ? Math.round((totalReads / totalPossibleReads) * 100) : 0;
 
   return (
-    <div className="container max-w-6xl mx-auto py-6 px-4">
+    <div className="container max-w-6xl mx-auto py-4 sm:py-6 px-3 sm:px-4 space-y-3 sm:space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <div className="flex items-center gap-3">
-          <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
-            <Megaphone className="h-6 w-6 text-primary" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4 mb-0 sm:mb-6">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <Megaphone className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
           </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Announcements</h1>
-            <p className="text-sm text-muted-foreground">
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-2xl font-bold tracking-tight leading-tight">Announcements</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground hidden sm:block">
               Communicate with your students effectively
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 sm:gap-2 flex-wrap">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2">
-                <FileText className="h-4 w-4" />
-                Templates
+              <Button variant="outline" size="sm" className="gap-1 sm:gap-2 h-8 sm:h-9 text-xs sm:text-sm" title="Templates">
+                <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Templates</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
@@ -408,15 +407,34 @@ const TeacherAnnouncements = () => {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button onClick={openCreate} className="gap-2">
-            <Plus className="h-4 w-4" />
-            New Announcement
+          <Button onClick={openCreate} size="sm" className="gap-1 sm:gap-2 h-8 sm:h-9 text-xs sm:text-sm shrink-0">
+            <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <span className="hidden sm:inline">New Announcement</span>
+            <span className="sm:hidden">New</span>
           </Button>
         </div>
       </div>
 
-      {/* Stats Dashboard */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      {/* Stats — slim row on mobile */}
+      <div className="md:hidden rounded-lg border border-muted bg-muted/30 divide-x divide-border flex text-center mb-3">
+        <div className="flex-1 min-w-0 py-1.5 px-0.5">
+          <p className="text-[9px] text-muted-foreground font-medium">Pub</p>
+          <p className="text-sm font-bold tabular-nums leading-tight">{publishedCount}</p>
+        </div>
+        <div className="flex-1 min-w-0 py-1.5 px-0.5">
+          <p className="text-[9px] text-muted-foreground font-medium">Sched</p>
+          <p className="text-sm font-bold tabular-nums leading-tight">{scheduledCount}</p>
+        </div>
+        <div className="flex-1 min-w-0 py-1.5 px-0.5">
+          <p className="text-[9px] text-muted-foreground font-medium">Pin</p>
+          <p className="text-sm font-bold tabular-nums leading-tight">{pinnedCount}</p>
+        </div>
+        <div className="flex-1 min-w-0 py-1.5 px-0.5">
+          <p className="text-[9px] text-muted-foreground font-medium">Read</p>
+          <p className="text-sm font-bold tabular-nums leading-tight">{overallReadRate}%</p>
+        </div>
+      </div>
+      <div className="hidden md:grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <Card className="bg-card border-muted shadow-sm">
           <CardContent className="p-4 flex items-center gap-4">
             <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
@@ -769,7 +787,7 @@ const TeacherAnnouncements = () => {
                     </div>
                     <p className="col-span-2 text-xs text-muted-foreground flex items-center gap-1">
                       <AlertCircle className="h-3 w-3" />
-                      Students will not see this announcement until the scheduled time.
+                      Learner will not see this announcement until the scheduled time.
                     </p>
                   </div>
                 )}

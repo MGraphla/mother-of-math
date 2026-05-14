@@ -162,15 +162,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           (_event === 'INITIAL_SESSION' && localStorage.getItem('is_password_recovery') === 'true');
 
         if (isRecovery) {
-          // Keep the flag set briefly so ResetPassword page can detect it,
-          // then clear it after a short delay.
+          // Do not clear `is_password_recovery` here — ResetPassword clears it only
+          // after it confirms the recovery session (otherwise the form shows
+          // "expired" when JWT omits legacy `type: recovery` but the flag was the only hint).
           if (!window.location.pathname.startsWith('/reset-password')) {
-            // Use window.location.href instead of replace to ensure PWA/mobile
-            // browsers handle the navigation correctly.
             window.location.href = '/reset-password';
-          } else {
-            // Already on reset-password page — just clear the flag
-            localStorage.removeItem('is_password_recovery');
           }
           return;
         }
@@ -408,7 +404,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   };
 
   /**
-   * Sign up with SMS or WhatsApp verification (Infobip). Creates an unconfirmed auth user server-side
+   * Sign up with SMS verification. Creates an unconfirmed auth user server-side
    * and sends a one-time code — avoids Supabase sending a duplicate confirmation email.
    */
   const signUpWithPhoneVerification = async (

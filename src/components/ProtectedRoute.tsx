@@ -1,24 +1,32 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { useAuth, isProfileComplete } from '@/context/AuthContext';
+import { useAuth, needsGoogleExtraProfile } from '@/context/AuthContext';
+import { LoadingAnimation } from '@/components/ui/LoadingAnimation';
 
-const ProtectedRoute = () => {
-  const { isAuthenticated, isLoading, profile } = useAuth();
+interface ProtectedRouteProps {
+  allowedRoles?: string[];
+}
+
+const ProtectedRoute = ({ allowedRoles }: ProtectedRouteProps = {}) => {
+  const { isAuthenticated, isLoading, profile, user } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center">
-        <div className="h-8 w-8 border-4 border-green-200 border-t-green-600 rounded-full animate-spin" />
-      </div>
-    );
+    return <LoadingAnimation fullScreen message="Verifying access..." />;
   }
 
   if (!isAuthenticated) {
     return <Navigate to="/sign-in" state={{ from: location }} replace />;
   }
 
-  // Students skip the profile-complete check (their accounts are created by teachers)
-  if (profile?.role !== 'student' && !isProfileComplete(profile)) {
+  // Role-based access control
+  if (allowedRoles && allowedRoles.length > 0 && profile?.role) {
+    if (!allowedRoles.includes(profile.role)) {
+      return <Navigate to="/dashboard" replace />;
+    }
+  }
+
+  // Complete Profile is only for Google OAuth users, once, until they submit the wizard.
+  if (profile?.role !== 'student' && needsGoogleExtraProfile(user, profile)) {
     return <Navigate to="/complete-profile" replace />;
   }
 

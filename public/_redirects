@@ -1,0 +1,2 @@
+# Netlify / some static hosts: SPA fallback so client routes work on refresh.
+/*    /index.html   200

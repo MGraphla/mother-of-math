@@ -457,6 +457,7 @@ const SupportTicketsManagement: React.FC = () => {
       
       if (responseId) {
         toast({ title: 'Response sent', description: isInternalNote ? 'Internal note added' : 'Reply sent to user' });
+
         setNewResponse('');
         setIsInternalNote(false);
         setShowCannedResponses(false);

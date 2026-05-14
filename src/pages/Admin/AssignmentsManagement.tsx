@@ -59,7 +59,7 @@ const AssignmentsManagement = () => {
   }, [searchQuery, assignments]);
 
   const exportToCSV = () => {
-    const headers = ['Title', 'Subject', 'Grade', 'Teacher', 'Students', 'Submitted', 'Graded', 'Avg Score', 'Due Date', 'Status'];
+    const headers = ['Title', 'Subject', 'Grade', 'Teacher', 'Learner', 'Submitted', 'Graded', 'Avg Score', 'Due Date', 'Status'];
     const csvData = filteredAssignments.map(a => [
       a.title.replace(/,/g, ';'),
       a.subject,
@@ -213,7 +213,7 @@ const AssignmentsManagement = () => {
                   <TableHead className="text-gray-400">Subject</TableHead>
                   <TableHead className="text-gray-400">Grade</TableHead>
                   <TableHead className="text-gray-400">Teacher</TableHead>
-                  <TableHead className="text-gray-400 text-center">Students</TableHead>
+                  <TableHead className="text-gray-400 text-center">Learner</TableHead>
                   <TableHead className="text-gray-400 text-center">Submitted</TableHead>
                   <TableHead className="text-gray-400 text-center">Graded</TableHead>
                   <TableHead className="text-gray-400 text-center">Avg Score</TableHead>

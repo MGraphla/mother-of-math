@@ -1,8 +1,16 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase, getUserProfile } from "@/lib/supabase";
-import { isProfileComplete, getDashboardPath } from "@/context/AuthContext";
+import { supabase, getUserProfile, isPasswordRecoveryAccessToken } from "@/lib/supabase";
+import type { UserProfile } from "@/lib/supabase";
+import {
+  syncGoogleOnboardingFlag,
+  needsGoogleExtraProfile,
+  getDashboardPath,
+  userHasGoogleIdentity,
+} from "@/context/AuthContext";
+import type { User } from "@supabase/supabase-js";
 import { AlertCircle, CheckCircle2, Shield, Sparkles } from "lucide-react";
+import { LoadingAnimation } from "@/components/ui/LoadingAnimation";
 
 const AuthCallback = () => {
   const navigate = useNavigate();
@@ -12,6 +20,8 @@ const AuthCallback = () => {
   const [progress, setProgress] = useState(0);
   const [stepText, setStepText] = useState("Verifying your identity...");
   const hasNavigated = useRef(false);
+  /** True while we're loading profile / syncing Google flag — avoids the failsafe timeout firing mid-flow. */
+  const oauthHandlingRef = useRef(false);
 
   // ── Animated progress bar ────────────────────────────────
   useEffect(() => {
@@ -39,10 +49,10 @@ const AuthCallback = () => {
 
     if (errorParam) {
       setStatus("error");
-      // Detect if this is a password-reset link expiry
       const isRecoveryError = errorCode === "otp_expired" || errorCode === "otp_disabled"
         || (errorDesc?.toLowerCase().includes("expired"))
-        || (errorDesc?.toLowerCase().includes("invalid"));
+        || (errorDesc?.toLowerCase().includes("invalid"))
+        || localStorage.getItem('is_password_recovery') === 'true';
       setIsPasswordResetError(isRecoveryError);
 
       if (isRecoveryError) {
@@ -53,106 +63,258 @@ const AuthCallback = () => {
       return;
     }
 
-    // With implicit flow + detectSessionInUrl: true,
-    // Supabase auto-detects the tokens in the URL hash and sets the session.
-    // We listen for the auth state change via onAuthStateChange.
+    const pkceCode = params.get("code");
+
+    // With PKCE, Supabase can miss or race `detectSessionInUrl` on slow networks.
+    // Explicitly exchange the code when it is present and we do not yet have a session.
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log("[AuthCallback] Auth event:", event, session?.user?.id);
       if (hasNavigated.current) return;
 
-      if (event === "PASSWORD_RECOVERY" && session?.user) {
-        // User clicked the password reset link from email
+      // Detect password recovery: Supabase fires PASSWORD_RECOVERY in some
+      // flows, but with PKCE it often fires SIGNED_IN instead. The localStorage
+      // flag (set in ForgotPassword before the email was sent) catches both.
+      const hasRecoveryFlag = localStorage.getItem('is_password_recovery') === 'true';
+      const recoveryJwt =
+        session?.access_token && isPasswordRecoveryAccessToken(session.access_token);
+
+      if (event === "PASSWORD_RECOVERY") {
         hasNavigated.current = true;
         setStatus("success");
         setStepText("Redirecting to reset password...");
-        setTimeout(() => navigate("/reset-password", { replace: true }), 800);
+        setTimeout(() => navigate("/reset-password", { replace: true }), 600);
+        return;
+      }
+      if (
+        (event === "SIGNED_IN" || event === "INITIAL_SESSION") &&
+        hasRecoveryFlag &&
+        session?.user
+      ) {
+        hasNavigated.current = true;
+        setStatus("success");
+        setStepText("Redirecting to reset password...");
+        setTimeout(() => navigate("/reset-password", { replace: true }), 600);
+        return;
+      }
+      // Recovery link opened on another device: no localStorage flag, but JWT is a recovery session.
+      if (
+        (event === "SIGNED_IN" || event === "INITIAL_SESSION") &&
+        recoveryJwt &&
+        session?.user
+      ) {
+        hasNavigated.current = true;
+        setStatus("success");
+        setStepText("Redirecting to reset password...");
+        setTimeout(() => navigate("/reset-password", { replace: true }), 600);
         return;
       }
 
-      if (event === "SIGNED_IN" && session?.user) {
+      // PKCE OAuth often delivers the session as INITIAL_SESSION; SIGNED_IN may also fire — both are handled once.
+      if (
+        (event === "SIGNED_IN" || event === "INITIAL_SESSION") &&
+        session?.user
+      ) {
         setStepText("Securing your session...");
-        await navigateForUser(session.user.id);
+        try {
+          await navigateForUser(session.user);
+        } catch (e: unknown) {
+          console.error("[AuthCallback] navigateForUser:", e);
+          oauthHandlingRef.current = false;
+          setStatus("error");
+          setErrorMsg(
+            e instanceof Error ? e.message : "Could not finish sign-in. Please try again."
+          );
+        }
       }
     });
 
-    // Fallback: check if session is already established
-    // (onAuthStateChange INITIAL_SESSION may fire before our listener is set)
-    const fallbackCheck = async () => {
-      if (hasNavigated.current) return;
+    void (async () => {
+      try {
+        const { data: first } = await supabase.auth.getSession();
+        if (pkceCode && first.session?.user) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } else if (pkceCode && !first.session?.user) {
+          setStepText("Completing sign-in…");
+          const { error: exchangeErr } = await supabase.auth.exchangeCodeForSession(
+            window.location.href,
+          );
+          if (exchangeErr) {
+            console.error("[AuthCallback] exchangeCodeForSession:", exchangeErr);
+            setStatus("error");
+            setErrorMsg(
+              exchangeErr.message ||
+                "Could not complete Google sign-in. Confirm this site URL is listed under Supabase → Authentication → URL Configuration (redirect URLs).",
+            );
+            return;
+          }
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
 
-      // Check if this is a password recovery flow from the URL hash
-      const hash = new URLSearchParams(window.location.hash.substring(1));
-      if (hash.get("type") === "recovery") {
-        // Wait for session to be set, then redirect
-        const { data: { session: s } } = await supabase.auth.getSession();
-        if (s?.user && !hasNavigated.current) {
+        if (hasNavigated.current) return;
+        const { data: after } = await supabase.auth.getSession();
+        const u = after.session?.user;
+        const token = after.session?.access_token;
+        if (
+          u &&
+          token &&
+          isPasswordRecoveryAccessToken(token) &&
+          !hasNavigated.current
+        ) {
           hasNavigated.current = true;
           setStatus("success");
           setStepText("Redirecting to reset password...");
-          setTimeout(() => navigate("/reset-password", { replace: true }), 800);
+          navigate("/reset-password", { replace: true });
           return;
         }
+        if (u && !oauthHandlingRef.current && !hasNavigated.current) {
+          setStepText("Securing your session…");
+          try {
+            await navigateForUser(u);
+          } catch (e: unknown) {
+            console.error("[AuthCallback] bootstrap navigateForUser:", e);
+            oauthHandlingRef.current = false;
+            setStatus("error");
+            setErrorMsg(
+              e instanceof Error ? e.message : "Could not finish sign-in. Please try again.",
+            );
+          }
+        }
+      } catch (e: unknown) {
+        console.error("[AuthCallback] PKCE bootstrap:", e);
+        setStatus("error");
+        setErrorMsg(e instanceof Error ? e.message : "Sign-in failed. Please try again.");
       }
+    })();
+
+    // Fallback: if the onAuthStateChange fires before our listener or the session
+    // was already set synchronously (e.g. INITIAL_SESSION), check manually.
+    const fallbackCheck = async () => {
+      if (hasNavigated.current) return;
+
+      const { data: { session: s } } = await supabase.auth.getSession();
 
       setStepText("Checking session...");
-      const { data: { session } } = await supabase.auth.getSession();
-      console.log("[AuthCallback] Fallback getSession:", session?.user?.id);
-      if (session?.user && !hasNavigated.current) {
+      console.log("[AuthCallback] Fallback getSession:", s?.user?.id);
+
+      // If the recovery flag is set and we have a session, go to reset page
+      if (s?.user && localStorage.getItem('is_password_recovery') === 'true' && !hasNavigated.current) {
+        hasNavigated.current = true;
+        setStatus("success");
+        setStepText("Redirecting to reset password...");
+        setTimeout(() => navigate("/reset-password", { replace: true }), 600);
+        return;
+      }
+
+      if (
+        s?.user &&
+        s.access_token &&
+        isPasswordRecoveryAccessToken(s.access_token) &&
+        !hasNavigated.current
+      ) {
+        hasNavigated.current = true;
+        setStatus("success");
+        setStepText("Redirecting to reset password...");
+        setTimeout(() => navigate("/reset-password", { replace: true }), 600);
+        return;
+      }
+
+      if (s?.user && !hasNavigated.current && !oauthHandlingRef.current) {
         setStepText("Session found...");
-        await navigateForUser(session.user.id);
+        try {
+          await navigateForUser(s.user);
+        } catch (e: unknown) {
+          console.error("[AuthCallback] fallback navigateForUser:", e);
+          oauthHandlingRef.current = false;
+          setStatus("error");
+          setErrorMsg(
+            e instanceof Error ? e.message : "Could not finish sign-in. Please try again."
+          );
+        }
       }
     };
 
-    // Give the auto-detection a moment, then check
-    const fallbackTimer = setTimeout(fallbackCheck, 1500);
+    // PKCE code exchange can take a moment; retry session a few times before giving up.
+    const fallbackTimer = setTimeout(fallbackCheck, 800);
+    const fallbackTimer2 = setTimeout(fallbackCheck, 2500);
+    const fallbackTimer3 = setTimeout(fallbackCheck, 5000);
 
-    // Timeout: if nothing happens in 15s, show error
+    // Only if we never got a session and never started post-login work (slow networks can need 20s+ for profile steps)
     const timeout = setTimeout(() => {
-      if (!hasNavigated.current) {
+      if (!hasNavigated.current && !oauthHandlingRef.current) {
         setStatus("error");
         setErrorMsg(
           "Sign-in is taking too long. Please try again. If this persists, clear your browser cache and retry."
         );
       }
-    }, 15000);
+    }, 90000);
 
     return () => {
       subscription.unsubscribe();
       clearTimeout(fallbackTimer);
+      clearTimeout(fallbackTimer2);
+      clearTimeout(fallbackTimer3);
       clearTimeout(timeout);
     };
   }, [navigate]);
 
-  const navigateForUser = async (userId: string) => {
+  const navigateForUser = async (authUser: User) => {
     if (hasNavigated.current) return;
+    if (oauthHandlingRef.current) return;
+    oauthHandlingRef.current = true;
+    // Normal OAuth / magic-link completion — clear stale reset flag so we never
+    // mis-route a later Google sign-in to /reset-password.
+    localStorage.removeItem("is_password_recovery");
 
-    // Give the Postgres trigger time to create the profile row
-    setStepText("Loading your profile...");
-    await new Promise((r) => setTimeout(r, 1000));
+    const isGoogle = userHasGoogleIdentity(authUser);
+    /** Never block the OAuth redirect on a request that never settles (SW / network / RLS quirks). */
+    const raceProfile = (ms: number) =>
+      Promise.race([
+        getUserProfile(authUser.id),
+        new Promise<UserProfile | null>((resolve) => setTimeout(() => resolve(null), ms)),
+      ]);
 
-    let profile = await getUserProfile(userId);
+    try {
+      setStepText("Loading your profile...");
+      await new Promise((r) => setTimeout(r, 300));
 
-    // Retry once if profile wasn't created yet by trigger
-    if (!profile) {
-      await new Promise((r) => setTimeout(r, 1500));
-      profile = await getUserProfile(userId);
-    }
+      const perTryMs = isGoogle ? 4000 : 12000;
+      let profile: UserProfile | null = await raceProfile(perTryMs);
+      if (!profile) {
+        await new Promise((r) => setTimeout(r, 500));
+        profile = await raceProfile(perTryMs);
+      }
+      if (!profile) {
+        await new Promise((r) => setTimeout(r, 800));
+        profile = await raceProfile(perTryMs);
+      }
 
-    setStatus("success");
-    setStepText("Welcome!");
+      if (profile) {
+        const synced = await Promise.race([
+          syncGoogleOnboardingFlag(authUser, profile),
+          new Promise<UserProfile | null>((resolve) =>
+            setTimeout(() => resolve(profile), isGoogle ? 5000 : 10000),
+          ),
+        ]);
+        profile = synced ?? profile;
+      }
 
-    // Brief pause so the user sees the success state
-    await new Promise((r) => setTimeout(r, 600));
+      setStatus("success");
+      setStepText("Welcome!");
+      await new Promise((r) => setTimeout(r, 200));
 
-    if (hasNavigated.current) return;
-    hasNavigated.current = true;
+      if (hasNavigated.current) return;
+      hasNavigated.current = true;
 
-    if (isProfileComplete(profile)) {
-      navigate(getDashboardPath(profile), { replace: true });
-    } else {
-      navigate("/complete-profile", { replace: true });
+      if (needsGoogleExtraProfile(authUser, profile)) {
+        navigate("/complete-profile", { replace: true });
+      } else {
+        navigate(getDashboardPath(profile), { replace: true });
+      }
+    } catch (e) {
+      oauthHandlingRef.current = false;
+      throw e;
     }
   };
 
@@ -204,9 +366,26 @@ const AuthCallback = () => {
               </div>
               <div>
                 <h2 className="text-xl font-bold text-gray-900 mb-2">
-                  {isPasswordResetError ? 'Link Expired' : 'Sign-in Failed'}
+                  {isPasswordResetError ? 'Reset Link Expired' : 'Sign-in Failed'}
                 </h2>
-                <p className="text-sm text-gray-500 leading-relaxed">{errorMsg}</p>
+                {isPasswordResetError ? (
+                  <div className="space-y-2">
+                    <p className="text-sm text-gray-600 leading-relaxed">
+                      This reset link has already been used or has expired.
+                    </p>
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-left">
+                      <p className="text-xs font-semibold text-amber-800 mb-1">What to do:</p>
+                      <ol className="text-xs text-amber-700 space-y-1 list-decimal list-inside">
+                        <li>Click <strong>"Request New Reset Link"</strong> below</li>
+                        <li>Enter your email and click <strong>"Send Email Reset Link"</strong></li>
+                        <li>Open the <strong>newest email</strong> from Mama Math</li>
+                        <li>Click the link <strong>in this same browser</strong></li>
+                      </ol>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 leading-relaxed">{errorMsg}</p>
+                )}
               </div>
               <div className="pt-2 space-y-3">
                 {isPasswordResetError ? (

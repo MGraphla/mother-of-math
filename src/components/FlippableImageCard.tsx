@@ -33,7 +33,7 @@ const FlippableImageCard = () => {
           <div className="border-2 border-white/30 rounded-2xl p-6 h-full flex flex-col">
             <div className="flex items-center mb-4">
               <Globe className="w-8 h-8 mr-3 text-yellow-300" />
-              <h3 className="text-2xl font-bold">Sample Lesson: Cocoa Farming Math</h3>
+              <h3 className="text-2xl font-bold">Sample Lesson: Sets & Objects</h3>
             </div>
             <p className="text-lg mb-4 font-light">A practical lesson plan for Class 1 students, aligned with the Cameroonian curriculum.</p>
             
@@ -42,21 +42,21 @@ const FlippableImageCard = () => {
                 <BookOpen className="w-6 h-6 mr-3 mt-1 flex-shrink-0" />
                 <div>
                   <h4 className="font-semibold">Topic</h4>
-                  <p className="text-white/80">Calculating Area & Yield</p>
+                  <p className="text-white/80">Grouping objects into sets</p>
                 </div>
               </div>
               <div className="flex items-start">
                 <Target className="w-6 h-6 mr-3 mt-1 flex-shrink-0" />
                 <div>
                   <h4 className="font-semibold">Objective</h4>
-                  <p className="text-white/80">Students will calculate the potential cocoa yield from a 1-hectare farm.</p>
+                  <p className="text-white/80">Learner will group everyday items (like fruits or pebbles) into simple sets.</p>
                 </div>
               </div>
               <div className="flex items-start">
                 <Award className="w-6 h-6 mr-3 mt-1 flex-shrink-0" />
                 <div>
                   <h4 className="font-semibold">Real-World Skill</h4>
-                  <p className="text-white/80">Applies geometry and multiplication to local agriculture.</p>
+                  <p className="text-white/80">Applies basic sorting to organizing items at home or the local market.</p>
                 </div>
               </div>
             </div>

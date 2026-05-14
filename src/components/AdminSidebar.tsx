@@ -62,10 +62,10 @@ const AdminSidebar = () => {
       title: "Users",
       items: [
         { name: "Teachers", href: "/admin/teachers", icon: Users },
-        { name: "Students", href: "/admin/students", icon: GraduationCap },
+        { name: "Learner", href: "/admin/students", icon: GraduationCap },
         { name: "Schools", href: "/admin/schools", icon: Building2 },
         { name: "Teacher Performance", href: "/admin/teacher-performance", icon: Award },
-        { name: "Student Performance", href: "/admin/student-performance", icon: TrendingUp, badge: "New" },
+        { name: "Learner Performance", href: "/admin/student-performance", icon: TrendingUp, badge: "New" },
         { name: "Create Teacher", href: "/admin/create-teacher", icon: UserPlus },
       ],
     },
@@ -114,8 +114,8 @@ const AdminSidebar = () => {
     return location.pathname.startsWith(href);
   };
 
-  const handleLogout = () => {
-    adminLogout();
+  const handleLogout = async () => {
+    await adminLogout();
     navigate("/admin/login", { replace: true });
   };
 

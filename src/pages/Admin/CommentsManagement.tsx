@@ -64,7 +64,7 @@ const CommentsManagement = () => {
     const csvData = filteredComments.map(c => [
       c.assignment_title?.replace(/,/g, ';') || '',
       c.student_name || c.teacher_name || 'Unknown',
-      c.student_id ? 'Student' : 'Teacher',
+      c.student_id ? 'Learner' : 'Teacher',
       c.message.replace(/,/g, ';').substring(0, 100),
       c.is_private ? 'Yes' : 'No',
       c.created_at ? format(new Date(c.created_at), 'yyyy-MM-dd HH:mm') : '',
@@ -134,7 +134,7 @@ const CommentsManagement = () => {
               <GraduationCap className="w-8 h-8 text-emerald-400" />
               <div>
                 <p className="text-2xl font-bold text-white">{studentComments}</p>
-                <p className="text-xs text-gray-400">From Students</p>
+                <p className="text-xs text-gray-400">From Learner</p>
               </div>
             </div>
           </CardContent>
@@ -206,7 +206,7 @@ const CommentsManagement = () => {
                         {comment.student_id ? (
                           <Badge className="bg-emerald-500/20 text-emerald-400">
                             <GraduationCap className="w-3 h-3 mr-1" />
-                            Student
+                            Learner
                           </Badge>
                         ) : (
                           <Badge className="bg-blue-500/20 text-blue-400">

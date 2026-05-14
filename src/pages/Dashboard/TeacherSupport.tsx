@@ -42,6 +42,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { LoadingAnimation } from '@/components/ui/LoadingAnimation';
 import {
   TicketIcon,
   Plus,
@@ -156,7 +157,7 @@ const faqs: FAQ[] = [
   {
     id: '1',
     question: 'How do I reset my students password?',
-    answer: 'Navigate to the Students page, find the student, click the menu button and select "Reset Password". A temporary password will be generated that the student can change on their next login.',
+    answer: 'Navigate to the Learner page, find the student, click the menu button and select "Reset Password". A temporary password will be generated that the student can change on their next login.',
     category: 'account',
   },
   {
@@ -180,14 +181,14 @@ const faqs: FAQ[] = [
   {
     id: '5',
     question: 'How do I contact a parent?',
-    answer: 'Navigate to the Students page, click on a student, and youll see the parent contact information. You can send messages directly through the platform or use their email address.',
+    answer: 'Navigate to the Learner page, click on a student, and youll see the parent contact information. You can send messages directly through the platform or use their email address.',
     category: 'general',
   },
 ];
 
 const helpArticles: HelpArticle[] = [
   { id: '1', title: 'Getting Started Guide', description: 'Learn the basics of using the platform', link: '#', icon: Book },
-  { id: '2', title: 'Managing Students', description: 'Add, edit, and organize your students', link: '#', icon: User },
+  { id: '2', title: 'Managing Learner', description: 'Add, edit, and organize your students', link: '#', icon: User },
   { id: '3', title: 'Creating Effective Assignments', description: 'Best practices for assignments', link: '#', icon: FileText },
   { id: '4', title: 'Understanding Analytics', description: 'Make sense of student performance data', link: '#', icon: TrendingUp },
 ];
@@ -597,32 +598,46 @@ const TeacherSupport: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto py-6 space-y-6 px-4 lg:px-8">
+    <div className="container mx-auto py-4 sm:py-6 space-y-3 sm:space-y-6 px-3 sm:px-4 lg:px-8">
       {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-            <div className="p-2 bg-primary/10 rounded-lg">
-              <HelpCircle className="h-8 w-8 text-primary" />
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2 sm:gap-4">
+        <div className="min-w-0">
+          <h1 className="text-lg sm:text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2 sm:gap-3 leading-tight">
+            <div className="p-1.5 sm:p-2 bg-primary/10 rounded-lg shrink-0">
+              <HelpCircle className="h-6 w-6 sm:h-8 sm:w-8 text-primary" />
             </div>
             Support Center
           </h1>
-          <p className="text-muted-foreground mt-1">Get help, browse FAQs, or submit a support request</p>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 sm:mt-1 hidden sm:block">Get help, browse FAQs, or submit a support request</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={fetchTickets} disabled={loading}>
-            <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
-            Refresh
+        <div className="flex gap-1.5 sm:gap-2 flex-wrap">
+          <Button variant="outline" size="sm" className="h-8 sm:h-9 text-xs sm:text-sm" onClick={fetchTickets} disabled={loading}>
+            <RefreshCw className={cn("h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-2", loading && "animate-spin")} />
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
-          <Button onClick={() => setIsNewTicketOpen(true)} className="gap-2">
-            <Plus className="h-4 w-4" />
+          <Button size="sm" className="h-8 sm:h-9 gap-1 sm:gap-2 text-xs sm:text-sm" onClick={() => setIsNewTicketOpen(true)}>
+            <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             New Ticket
           </Button>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      {/* Stats — single row on mobile */}
+      <div className="md:hidden rounded-lg border bg-muted/30 divide-x divide-border flex text-center overflow-hidden">
+        {[
+          { l: "All", v: stats.total },
+          { l: "Open", v: stats.open },
+          { l: "Prog", v: stats.inProgress },
+          { l: "Wait", v: stats.awaitingReply },
+          { l: "Done", v: stats.resolved },
+        ].map((s) => (
+          <div key={s.l} className="flex-1 min-w-0 py-1.5 px-0.5">
+            <p className="text-[8px] text-muted-foreground font-medium leading-none">{s.l}</p>
+            <p className="text-xs font-bold tabular-nums mt-0.5 leading-none">{s.v}</p>
+          </div>
+        ))}
+      </div>
+      <div className="hidden md:grid grid-cols-5 gap-3">
         <Card className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center justify-between">
@@ -680,7 +695,7 @@ const TeacherSupport: React.FC = () => {
         </Card>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="grid lg:grid-cols-3 gap-3 sm:gap-6">
         {/* Main Tickets Section */}
         <div className="lg:col-span-2 space-y-4">
           <Card>
@@ -744,7 +759,7 @@ const TeacherSupport: React.FC = () => {
                 <TabsContent value={activeTab} className="mt-0">
                   {loading ? (
                     <div className="flex items-center justify-center py-12">
-                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                      <LoadingAnimation message="Loading tickets..." />
                     </div>
                   ) : filteredTickets.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -1102,13 +1117,10 @@ const TeacherSupport: React.FC = () => {
 
                   {/* Responses - Conversation style */}
                   {responsesLoading ? (
-                    <div className="flex justify-center py-12">
-                      <div className="flex flex-col items-center gap-2">
-                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                        <span className="text-sm text-muted-foreground">Loading conversation...</span>
+                      <div className="flex justify-center py-12">
+                        <LoadingAnimation message="Loading conversation..." />
                       </div>
-                    </div>
-                  ) : responses.length > 0 ? (
+                    ) : responses.length > 0 ? (
                     <div className="space-y-6">
                       {responses.filter(r => !r.is_internal).map((response, index) => {
                         const isSupport = response.user_role === 'admin';
@@ -1358,3 +1370,5 @@ const TeacherSupport: React.FC = () => {
 };
 
 export default TeacherSupport;
+
+

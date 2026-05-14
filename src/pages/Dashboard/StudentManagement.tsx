@@ -25,7 +25,7 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  Student,
+  Learner,
   getStudentsByTeacher,
   deleteStudent,
   toggleStudentStatus,
@@ -38,7 +38,7 @@ import { QRCodeSVG } from "qrcode.react";
 
 // ── Types ──────────────────────────────────────────────
 
-interface StudentWithStats extends Student {
+interface StudentWithStats extends Learner {
   stats?: StudentStats;
 }
 
@@ -72,8 +72,8 @@ const StudentManagement = () => {
   
   // Dialog state
   const [viewingStudent, setViewingStudent] = useState<StudentWithStats | null>(null);
-  const [showQrCode, setShowQrCode] = useState<Student | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<Student | null>(null);
+  const [showQrCode, setShowQrCode] = useState<Learner | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Learner | null>(null);
   const [bulkActionDialog, setBulkActionDialog] = useState<'pause' | 'activate' | 'delete' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [linkCopied, setLinkCopied] = useState<string | null>(null);
@@ -205,10 +205,10 @@ const StudentManagement = () => {
     navigator.clipboard.writeText(link);
     setLinkCopied(token);
     setTimeout(() => setLinkCopied(null), 2000);
-    toast({ title: "Link Copied!", description: "Student access link copied to clipboard." });
+    toast({ title: "Link Copied!", description: "Learner access link copied to clipboard." });
   };
 
-  const handleToggleStatus = async (student: Student) => {
+  const handleToggleStatus = async (student: Learner) => {
     const newStatus = student.account_status === 'active' ? 'paused' : 'active';
     try {
       await toggleStudentStatus(student.id, newStatus);
@@ -244,7 +244,7 @@ const StudentManagement = () => {
     }
   };
 
-  const handleRegenerateToken = async (student: Student) => {
+  const handleRegenerateToken = async (student: Learner) => {
     try {
       const newToken = await regenerateAccessToken(student.id);
       setStudents(prev => prev.map(s => 
@@ -330,7 +330,7 @@ const StudentManagement = () => {
 
   const exportToCSV = () => {
     try {
-      const headers = ['Student ID', 'Full Name', 'Grade/Class', 'Class Name', 'Parent Name', 'Parent Phone', 'Parent Email', 'School', 'Status', 'Assignments', 'Submitted', 'Avg Score', 'Access Link'];
+      const headers = ['Learner ID', 'Full Name', 'Grade/Class', 'Class Name', 'Parent Name', 'Parent Phone', 'Parent Email', 'School', 'Status', 'Assignments', 'Submitted', 'Avg Score', 'Access Link'];
       const studentsToExport = selectedStudents.size > 0 
         ? filteredStudents.filter(s => selectedStudents.has(s.id))
         : filteredStudents;
@@ -441,13 +441,13 @@ const StudentManagement = () => {
           className="text-red-600 focus:text-red-600"
         >
           <Trash2 className="h-4 w-4 mr-2" />
-          Delete Student
+          Delete Learner
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 
-  // ── Student Card Component ────────────────────────────────
+  // ── Learner Card Component ────────────────────────────────
 
   const StudentCard = ({ student }: { student: StudentWithStats }) => (
     <Card className="group hover:shadow-lg transition-all duration-200 border-l-4 border-l-primary/20 hover:border-l-primary">
@@ -486,10 +486,10 @@ const StudentManagement = () => {
       </CardHeader>
       <CardContent className="pb-3">
         <div className="space-y-3">
-          {/* Student Code */}
+          {/* Learner Code */}
           {student.student_code && (
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Student ID</span>
+              <span className="text-muted-foreground">Learner ID</span>
               <Badge variant="outline" className="font-mono text-xs">{student.student_code}</Badge>
             </div>
           )}
@@ -581,7 +581,7 @@ const StudentManagement = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
             <Users className="h-8 w-8 text-primary" />
-            Student Management
+            Learner Management
           </h1>
           <p className="text-muted-foreground mt-1">
             Manage your students, track progress, and share access links
@@ -600,7 +600,7 @@ const StudentManagement = () => {
           <Button asChild>
             <Link to="/dashboard/student-accounts">
               <UserPlus className="h-4 w-4 mr-2" />
-              Add Student
+              Add Learner
             </Link>
           </Button>
         </div>
@@ -612,7 +612,7 @@ const StudentManagement = () => {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Students</p>
+                <p className="text-sm font-medium text-muted-foreground">Total Learner</p>
                 <p className="text-3xl font-bold text-primary">{stats.total}</p>
               </div>
               <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
@@ -799,7 +799,7 @@ const StudentManagement = () => {
         </TabsList>
       </Tabs>
 
-      {/* Student List/Grid */}
+      {/* Learner List/Grid */}
       {isLoading ? (
         <div className="flex flex-col items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -819,7 +819,7 @@ const StudentManagement = () => {
               <Button asChild className="mt-4">
                 <Link to="/dashboard/student-accounts">
                   <UserPlus className="h-4 w-4 mr-2" />
-                  Add Your First Student
+                  Add Your First Learner
                 </Link>
               </Button>
             )}
@@ -839,7 +839,7 @@ const StudentManagement = () => {
                 <TableHead className="w-12">
                   <Checkbox checked={selectAll} onCheckedChange={toggleSelectAll} />
                 </TableHead>
-                <TableHead>Student</TableHead>
+                <TableHead>Learner</TableHead>
                 <TableHead>Grade</TableHead>
                 <TableHead>Class</TableHead>
                 <TableHead>Status</TableHead>
@@ -924,7 +924,7 @@ const StudentManagement = () => {
 
       {/* ── Dialogs ─────────────────────────────────────────── */}
 
-      {/* View Student Dialog */}
+      {/* View Learner Dialog */}
       <Dialog open={!!viewingStudent} onOpenChange={() => setViewingStudent(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           {viewingStudent && (
@@ -980,7 +980,7 @@ const StudentManagement = () => {
                 
                 <Separator />
                 
-                {/* Student Info */}
+                {/* Learner Info */}
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <Label className="text-muted-foreground">Grade Level</Label>
@@ -1046,7 +1046,7 @@ const StudentManagement = () => {
                 <div>
                   <h4 className="font-medium mb-3 flex items-center gap-2">
                     <Link2 className="h-4 w-4" />
-                    Student Access Link
+                    Learner Access Link
                   </h4>
                   <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
                     <Input 
@@ -1095,7 +1095,7 @@ const StudentManagement = () => {
           {showQrCode && (
             <>
               <DialogHeader>
-                <DialogTitle className="text-center">Student Access QR Code</DialogTitle>
+                <DialogTitle className="text-center">Learner Access QR Code</DialogTitle>
                 <DialogDescription className="text-center">
                   {showQrCode.full_name}
                 </DialogDescription>
@@ -1133,7 +1133,7 @@ const StudentManagement = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
               <AlertTriangle className="h-5 w-5" />
-              Delete Student
+              Delete Learner
             </DialogTitle>
             <DialogDescription>
               Are you sure you want to delete <strong>{confirmDelete?.full_name}</strong>? 
@@ -1158,7 +1158,7 @@ const StudentManagement = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {bulkActionDialog === 'delete' ? (
-                <><AlertTriangle className="h-5 w-5 text-red-600" /> Delete Students</>
+                <><AlertTriangle className="h-5 w-5 text-red-600" /> Delete Learner</>
               ) : bulkActionDialog === 'pause' ? (
                 <><PauseCircle className="h-5 w-5 text-yellow-600" /> Pause Accounts</>
               ) : (

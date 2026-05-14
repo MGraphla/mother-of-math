@@ -183,9 +183,9 @@ const TeachersManagement = () => {
     const headers = [
       'Name', 'Email', 'Gender', 'Date of Birth', 'Phone', 'WhatsApp', 
       'Country', 'City', 'School Name', 'School Type', 'School Address', 
-      'Number of Students', 'Education Level', 'Years of Experience', 
+      'Number of Learner', 'Education Level', 'Years of Experience', 
       'Subjects Taught', 'Grade Levels', 'Preferred Language', 'Bio',
-      'Total Students', 'Total Lessons', 'Total Assignments', 'Total Messages',
+      'Total Learner', 'Total Lessons', 'Total Assignments', 'Total Messages',
       'Total Resources', 'Total Announcements', 'Account Status', 'Created At'
     ];
     const escapeCSV = (value: string | number | null | undefined) => {
@@ -416,7 +416,7 @@ const TeachersManagement = () => {
                 <p className="text-2xl font-bold text-white">
                   {teachers.reduce((sum, t) => sum + t.total_students, 0)}
                 </p>
-                <p className="text-xs text-gray-400">Total Students</p>
+                <p className="text-xs text-gray-400">Total Learner</p>
               </div>
             </div>
           </CardContent>
@@ -486,7 +486,7 @@ const TeachersManagement = () => {
                   <TableHead className="text-gray-400">Teacher</TableHead>
                   <TableHead className="text-gray-400">School</TableHead>
                   <TableHead className="text-gray-400">Country</TableHead>
-                  <TableHead className="text-gray-400 text-center">Students</TableHead>
+                  <TableHead className="text-gray-400 text-center">Learner</TableHead>
                   <TableHead className="text-gray-400 text-center">Lessons</TableHead>
                   <TableHead className="text-gray-400 text-center">Assignments</TableHead>
                   <TableHead className="text-gray-400 text-center">Messages</TableHead>
@@ -656,7 +656,7 @@ const TeachersManagement = () => {
                   <p className="text-xl font-bold text-emerald-400">
                     {selectedTeacher.total_students}
                   </p>
-                  <p className="text-xs text-gray-400">Students</p>
+                  <p className="text-xs text-gray-400">Learner</p>
                 </div>
                 <div className="bg-gray-800/50 rounded-lg p-3 text-center">
                   <p className="text-xl font-bold text-purple-400">
@@ -756,7 +756,7 @@ const TeachersManagement = () => {
                     <p className="text-white">{selectedTeacher.school_address || '-'}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500">Number of Students</p>
+                    <p className="text-xs text-gray-500">Number of Learner</p>
                     <p className="text-white">{selectedTeacher.number_of_students || '-'}</p>
                   </div>
                 </div>

@@ -66,7 +66,7 @@ const UploadsManagement = () => {
       try {
         console.log('Fetching student works...');
         const data = await getAllStudentWorks();
-        console.log('Student works received:', data.length, 'records');
+        console.log('Learner works received:', data.length, 'records');
         setStudentWorks(data);
         setFilteredWorks(data);
         if (data.length === 0) {
@@ -148,7 +148,7 @@ const UploadsManagement = () => {
   ];
 
   const exportToCSV = () => {
-    const headers = ['Student', 'Subject', 'Grade', 'Teacher', 'Status', 'File Name', 'Created'];
+    const headers = ['Learner', 'Subject', 'Grade', 'Teacher', 'Status', 'File Name', 'Created'];
     const csvData = filteredWorks.map(w => [
       w.student_name.replace(/,/g, ';'),
       w.subject || '',
@@ -201,7 +201,7 @@ const UploadsManagement = () => {
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-white">Student Work Uploads</h1>
+          <h1 className="text-3xl font-bold text-white">Learner Work Uploads</h1>
           <p className="text-gray-400 mt-1">
             Monitor all student work uploaded by teachers for AI analysis
           </p>
@@ -417,7 +417,7 @@ const UploadsManagement = () => {
             <Table>
               <TableHeader>
                 <TableRow className="border-gray-800">
-                  <TableHead className="text-gray-400">Student</TableHead>
+                  <TableHead className="text-gray-400">Learner</TableHead>
                   <TableHead className="text-gray-400">Subject</TableHead>
                   <TableHead className="text-gray-400">Grade</TableHead>
                   <TableHead className="text-gray-400">Teacher</TableHead>
@@ -499,7 +499,7 @@ const UploadsManagement = () => {
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
         <DialogContent className="max-w-2xl bg-gray-900 border-gray-800 text-white">
           <DialogHeader>
-            <DialogTitle>Student Work Details</DialogTitle>
+            <DialogTitle>Learner Work Details</DialogTitle>
           </DialogHeader>
           {selectedWork && (
             <div className="space-y-4">
@@ -508,7 +508,7 @@ const UploadsManagement = () => {
                 <div className="rounded-lg overflow-hidden bg-gray-800">
                   <img 
                     src={selectedWork.image_url} 
-                    alt="Student work"
+                    alt="Learner work"
                     className="w-full max-h-[300px] object-contain"
                   />
                 </div>
@@ -517,7 +517,7 @@ const UploadsManagement = () => {
               {/* Info Grid */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-gray-400 text-sm">Student</p>
+                  <p className="text-gray-400 text-sm">Learner</p>
                   <p className="text-white">{selectedWork.student_name}</p>
                 </div>
                 <div>

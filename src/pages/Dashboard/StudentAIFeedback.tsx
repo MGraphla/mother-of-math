@@ -1,20 +1,58 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { 
+  Card, 
+  CardContent, 
+  CardHeader, 
+  CardTitle, 
+  CardDescription 
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Brain, AlertCircle, ChevronDown, ChevronUp, Star, BookOpen, Lightbulb, ZoomIn } from "lucide-react";
+import {
+  Loader2,
+  Brain,
+  ChevronDown,
+  ChevronUp,
+  Star,
+  BookOpen,
+  ZoomIn,
+  TrendingUp,
+  TrendingDown,
+  ArrowRight,
+  FileText,
+  ExternalLink,
+  PlayCircle,
+  Volume2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getStudentSession } from "@/services/studentService";
-import type { Student } from "@/services/studentService";
+import type { Learner } from "@/services/studentService";
 import { getStudentWorksByToken } from "@/lib/supabase";
 import type { StudentWork } from "@/lib/supabase";
+import {
+  buildStudentWorkNarrativeParagraph,
+  parseStudentWorkFeedbackSections,
+} from "@/lib/studentFeedbackNarrative";
+import { getResourcesForStudent, Resource } from "@/services/resourceService";
 import { motion, AnimatePresence } from "framer-motion";
-import ReactMarkdown from "react-markdown";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  ReferenceLine
+} from "recharts";
+import { format } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
 
 /* ── Helpers ─────────────────────────────────────────── */
 
 const extractGradeValue = (text: string): number | null => {
+  if (!text) return null;
   const pctMatch = text.match(/(\d{1,3})\s*%/);
   if (pctMatch) {
     const val = parseInt(pctMatch[1]);
@@ -34,38 +72,15 @@ const extractGradeValue = (text: string): number | null => {
   return null;
 };
 
-const stripMd = (text: string) =>
-  text
-    .replace(/\*{1,3}([^*]+)\*{1,3}/g, "$1")
-    .replace(/_{1,2}([^_]+)_{1,2}/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/^#{1,6}\s*/gm, "")
-    .trim();
-
-const parseAiFeedback = (text: string) => {
-  const sections = { analysis: "", error_type: "", grade: "", remediation: "" };
-  const regex = /##\s*(Analysis|Error Type|Grade|Remediation)\s*\n([\s\S]*?)(?=##\s|$)/gi;
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    const key = match[1].toLowerCase();
-    const value = stripMd(match[2].trim());
-    if (key === "analysis") sections.analysis = value;
-    else if (key === "error type") sections.error_type = value;
-    else if (key === "grade") sections.grade = value;
-    else if (key === "remediation") sections.remediation = value;
-  }
-  return sections;
-};
-
 const scoreColor = (score: number) => {
-  if (score >= 70) return "text-green-600";
-  if (score >= 50) return "text-yellow-600";
+  if (score >= 80) return "text-green-600";
+  if (score >= 60) return "text-yellow-600";
   return "text-red-600";
 };
 
 const scoreBg = (score: number) => {
-  if (score >= 70) return "bg-green-50 border-green-200";
-  if (score >= 50) return "bg-yellow-50 border-yellow-200";
+  if (score >= 80) return "bg-green-50 border-green-200";
+  if (score >= 60) return "bg-yellow-50 border-yellow-200";
   return "bg-red-50 border-red-200";
 };
 
@@ -73,8 +88,10 @@ const scoreBg = (score: number) => {
 
 const StudentAIFeedback = () => {
   const navigate = useNavigate();
-  const [student, setStudent] = useState<Student | null>(null);
+  const { toast } = useToast();
+  const [student, setStudent] = useState<Learner | null>(null);
   const [works, setWorks] = useState<StudentWork[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -86,20 +103,51 @@ const StudentAIFeedback = () => {
       return;
     }
     setStudent(s);
-    loadWorks(s);
-  }, []);
+    
+    const init = async () => {
+      setIsLoading(true);
+      try {
+        const [worksData, resourcesData] = await Promise.all([
+          getStudentWorksByToken(s.access_token, s.full_name),
+          getResourcesForStudent()
+        ]);
+        setWorks(worksData);
+        setResources(resourcesData);
+        
+        // Auto-expand the most recent work if it has feedback
+        if (worksData.length > 0 && worksData[0].feedback) {
+          setExpandedIds(new Set([worksData[0].id]));
+        }
+      } catch (e) {
+        console.error("Error loading data:", e);
+        toast({
+          title: "Error loading data",
+          description: "Could not fetch your analysis and resources.",
+          variant: "destructive"
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    init();
+  }, [navigate]);
 
-  const loadWorks = async (s: Student) => {
-    setIsLoading(true);
-    try {
-      const data = await getStudentWorksByToken(s.access_token, s.full_name);
-      setWorks(data);
-    } catch (e) {
-      console.error("Error loading AI feedback:", e);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  useEffect(() => {
+    const s = getStudentSession();
+    if (!s) return;
+    const pending = works.some((w) => w.feedback_audio_status === "pending");
+    if (!pending) return;
+    const t = setInterval(async () => {
+      try {
+        const fresh = await getStudentWorksByToken(s.access_token, s.full_name);
+        setWorks(fresh);
+      } catch {
+        /* ignore */
+      }
+    }, 10000);
+    return () => clearInterval(t);
+  }, [works]);
 
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
@@ -112,239 +160,412 @@ const StudentAIFeedback = () => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-3 text-muted-foreground font-medium">Loading your feedback…</span>
+      <div className="flex min-h-[50dvh] flex-1 flex-col items-center justify-center gap-4 px-4 py-12">
+        <Loader2 className="h-10 w-10 shrink-0 animate-spin text-primary" />
+        <p className="animate-pulse text-center text-sm font-medium text-muted-foreground sm:text-base">Analyzing your learning journey...</p>
       </div>
     );
   }
 
   if (!student) return null;
 
-  // Compute quick stats
-  const analyzed = works.filter((w) => w.feedback);
+  // Analysis Logic
+  const analyzed = works.filter((w) => w.feedback).sort((a, b) => 
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
+  const chartData = analyzed
+    .map(w => ({
+      date: format(new Date(w.created_at), 'MMM d'),
+      fullDate: w.created_at,
+      score: extractGradeValue(w.feedback || ''),
+      subject: w.subject
+    }))
+    .filter(d => d.score !== null)
+    .reverse(); // Display historically from left to right for the chart
+
   const scores = analyzed
     .map((w) => extractGradeValue(w.feedback!))
     .filter((v): v is number => v !== null);
+  
   const avgScore = scores.length > 0
     ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
     : null;
-  const best = scores.length > 0 ? Math.max(...scores) : null;
+    
+  const bestScore = scores.length > 0 ? Math.max(...scores) : null;
+  
+  // Determine trend (last 3 assignments)
+  let trend: 'up' | 'down' | 'stable' | null = null;
+  if (scores.length >= 2) {
+    const recent = scores.slice(0, 3);
+    const newest = recent[0]; 
+    const oldest = recent[recent.length - 1]; 
+    if (newest > oldest + 5) trend = 'up';
+    else if (newest < oldest - 5) trend = 'down';
+    else trend = 'stable';
+  }
+
+  const getRecommendedResources = (work: StudentWork, sections: any) => {
+    if (!sections) return [];
+    
+    const searchTerms = [
+      ...(work.subject ? [work.subject.toLowerCase()] : []),
+      ...(sections.error_type ? sections.error_type.toLowerCase().split(' ').filter((w: string) => w.length > 4) : []),
+      ...(sections.analysis ? [sections.analysis.toLowerCase()] : []) // broad matching
+    ].join(' ');
+
+    return resources.filter(r => {
+      const topicMatch = r.topic && searchTerms.includes(r.topic.toLowerCase());
+      const titleMatch = r.title && searchTerms.includes(r.title.toLowerCase());
+      return topicMatch || titleMatch;
+    }).slice(0, 2);
+  };
 
   return (
-    <div className="container py-6 space-y-6 max-w-4xl">
-      {/* Page header */}
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
-          <Brain className="h-7 w-7 text-primary" />
-          My AI Feedback
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          See what your teacher's AI analysis found in your math work
-        </p>
+    <div className="container mx-auto w-full min-w-0 max-w-5xl space-y-3 px-2 py-4 sm:space-y-6 sm:px-4 sm:py-8 pb-14 sm:pb-20">
+      <div className="relative overflow-hidden rounded-xl bg-primary px-3 py-4 text-primary-foreground shadow-lg sm:rounded-2xl sm:px-6 sm:py-8">
+        <div className="absolute -top-16 -right-16 h-48 w-48 rounded-full bg-white/10 hidden sm:block" />
+        <div className="relative z-10">
+          <p className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-widest text-primary-foreground/65">AI feedback</p>
+          <h1 className="mt-0.5 sm:mt-1 flex flex-wrap items-center gap-2 text-lg font-bold tracking-tight sm:gap-3 sm:text-2xl md:text-3xl leading-tight">
+            <Brain className="h-6 w-6 shrink-0 text-primary-foreground/95 sm:h-8 sm:w-8" />
+            <span>My performance</span>
+          </h1>
+          <p className="mt-1 sm:mt-2 max-w-2xl text-xs leading-relaxed text-primary-foreground/80 sm:text-sm md:text-base hidden sm:block">
+            Below is a short, plain-language summary of each piece of work: what you did, what to fix, and how to improve. Your teacher’s grade is official — this page helps you learn. When your teacher saves your work, parents may get a short SMS with a link to the portal.
+          </p>
+        </div>
       </div>
 
-      {/* Stats row */}
+      {/* Stats Overview */}
       {analyzed.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <Card className="border-primary/20 bg-primary/5">
-            <CardContent className="pt-4 pb-3 text-center">
-              <p className="text-2xl font-extrabold text-primary">{analyzed.length}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Works analysed</p>
+        <>
+        <div className="lg:hidden rounded-lg border bg-muted/40 divide-x divide-border flex text-center">
+          {[
+            { l: "Works", v: analyzed.length },
+            { l: "Avg", v: avgScore ? `${avgScore}%` : '-' },
+            { l: "Best", v: bestScore ? `${bestScore}%` : '-' },
+            { l: "Trend", v: trend || '—' },
+          ].map((row) => (
+            <div key={row.l} className="flex-1 min-w-0 py-2 px-0.5">
+              <p className="text-[9px] text-muted-foreground font-medium">{row.l}</p>
+              <p className={cn("text-xs font-bold tabular-nums mt-0.5 capitalize", row.l === "Avg" && avgScore && scoreColor(avgScore))}>{row.v}</p>
+            </div>
+          ))}
+        </div>
+        <div className="hidden lg:grid grid-cols-4 gap-4">
+          <Card className="border-primary/10 bg-gradient-to-br from-primary/5 to-transparent">
+            <CardContent className="p-4 pt-5 sm:pt-6">
+              <div className="mb-2 flex items-center justify-between gap-1">
+                <span className="text-xs font-medium text-muted-foreground sm:text-sm">Assignments</span>
+                <BookOpen className="h-4 w-4 text-primary opacity-70" />
+              </div>
+              <div className="text-2xl font-bold tabular-nums sm:text-3xl">{analyzed.length}</div>
+              <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">Analyzed works</p>
             </CardContent>
           </Card>
-          {avgScore !== null && (
-            <Card className={cn("border", scoreBg(avgScore))}>
-              <CardContent className="pt-4 pb-3 text-center">
-                <p className={cn("text-2xl font-extrabold", scoreColor(avgScore))}>{avgScore}%</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Average score</p>
-              </CardContent>
-            </Card>
-          )}
-          {best !== null && (
-            <Card className="border-green-200 bg-green-50 hidden sm:block">
-              <CardContent className="pt-4 pb-3 text-center">
-                <p className="text-2xl font-extrabold text-green-600 flex items-center justify-center gap-1">
-                  <Star className="h-5 w-5 fill-green-500 text-green-500" />
-                  {best}%
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">Best score</p>
-              </CardContent>
-            </Card>
-          )}
+
+          <Card>
+            <CardContent className="p-4 pt-5 sm:pt-6">
+              <div className="mb-2 flex items-center justify-between gap-1">
+                <span className="text-xs font-medium text-muted-foreground sm:text-sm">Average Score</span>
+                <TrendingUp className="h-4 w-4 text-muted-foreground opacity-70" />
+              </div>
+              <div className={cn("text-2xl font-bold tabular-nums sm:text-3xl", avgScore && scoreColor(avgScore))}>
+                {avgScore ? `${avgScore}%` : '-'}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">Overall performance</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4 pt-5 sm:pt-6">
+              <div className="mb-2 flex items-center justify-between gap-1">
+                <span className="text-xs font-medium text-muted-foreground sm:text-sm">Best Score</span>
+                <Star className="h-4 w-4 text-yellow-500 opacity-70" />
+              </div>
+              <div className="text-2xl font-bold tabular-nums text-green-600 sm:text-3xl">
+                {bestScore ? `${bestScore}%` : '-'}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">Personal best</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4 pt-5 sm:pt-6">
+              <div className="mb-2 flex items-center justify-between gap-1">
+                <span className="text-xs font-medium text-muted-foreground sm:text-sm">Trend</span>
+                {trend === 'up' ? (
+                   <TrendingUp className="h-4 w-4 text-green-500" />
+                ) : trend === 'down' ? (
+                   <TrendingDown className="h-4 w-4 text-red-500" />
+                ) : (
+                   <div className="h-4 w-4 bg-muted rounded-full" />
+                )}
+              </div>
+              <div className="text-2xl font-bold capitalize sm:text-3xl">
+                {trend || 'N/A'}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">Last 3 assignments</p>
+            </CardContent>
+          </Card>
         </div>
+        </>
       )}
 
-      {/* No works yet */}
-      {works.length === 0 && (
-        <Card className="border-dashed">
-          <CardContent className="py-16 text-center">
-            <BookOpen className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
-            <p className="font-medium text-muted-foreground">No analysed work yet</p>
-            <p className="text-sm text-muted-foreground/70 mt-1">
-              Your teacher will upload and analyse your math work here
-            </p>
+      {/* Progress Chart */}
+      {chartData.length > 1 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Performance History</CardTitle>
+            <CardDescription>Your scores over time</CardDescription>
+          </CardHeader>
+          <CardContent className="h-[220px] w-full min-w-0 xs:h-[260px] sm:h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 8, right: 4, bottom: 4, left: -12 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <XAxis 
+                  dataKey="date" 
+                  stroke="hsl(var(--muted-foreground))" 
+                  fontSize={10} 
+                  tickLine={false} 
+                  axisLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis 
+                  stroke="hsl(var(--muted-foreground))" 
+                  fontSize={10} 
+                  width={28}
+                  tickLine={false} 
+                  axisLine={false} 
+                  domain={[0, 100]} 
+                />
+                <RechartsTooltip
+                  contentStyle={{ backgroundColor: 'hsl(var(--card))', borderRadius: '8px', border: '1px solid hsl(var(--border))' }}
+                  itemStyle={{ color: 'hsl(var(--foreground))' }}
+                />
+                <ReferenceLine y={70} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" opacity={0.5} label={{ value: "Passing", position: "insideTopRight", fill: "hsl(var(--muted-foreground))", fontSize: 10 }} />
+                <Line 
+                  type="monotone" 
+                  dataKey="score" 
+                  stroke="hsl(var(--primary))" 
+                  strokeWidth={3} 
+                  dot={{ r: 4, fill: "hsl(var(--background))", strokeWidth: 2 }} 
+                  activeDot={{ r: 6 }} 
+                  animationDuration={1500}
+                />
+              </LineChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
       )}
 
-      {/* Work cards */}
-      <div className="space-y-4">
-        {works.map((work) => {
-          const score = work.feedback ? extractGradeValue(work.feedback) : null;
-          const sections = work.feedback ? parseAiFeedback(work.feedback) : null;
-          const isExpanded = expandedIds.has(work.id);
-          const uploadDate = new Date(work.created_at);
+      {/* Detailed Analysis List */}
+      <div className="space-y-6">
+        <h2 className="text-xl font-semibold tracking-tight">Recent Analysis</h2>
+        
+        {works.length === 0 && (
+          <Card className="border-dashed bg-muted/40">
+             <CardContent className="py-20 text-center">
+               <BookOpen className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+               <p className="text-lg font-medium text-muted-foreground">No analysis available yet</p>
+               <p className="text-sm text-muted-foreground/80 mt-1 max-w-sm mx-auto">
+                 Once you submit assignments and your teacher reviews them, detailed AI feedback will appear here.
+               </p>
+             </CardContent>
+          </Card>
+        )}
 
+        {analyzed.map((work) => {
+          const score = work.feedback ? extractGradeValue(work.feedback) : null;
+          const sections = work.feedback
+            ? parseStudentWorkFeedbackSections(work.feedback)
+            : null;
+          const narrative = buildStudentWorkNarrativeParagraph(
+            {
+              ...work,
+              student_name: work.student_name || student.full_name,
+            },
+            "student",
+          );
+          const isExpanded = expandedIds.has(work.id);
+          const recommendations = getRecommendedResources(work, sections);
+          
           return (
             <motion.div
               key={work.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
+              layout
             >
-              <Card>
-                <CardContent className="pt-4 pb-3">
-                  {/* Card header row */}
-                  <div className="flex items-start gap-3">
-                    {/* Thumbnail */}
-                    {work.image_url && !work.image_url.startsWith("data:application") && (
-                      <div
-                        className="relative flex-shrink-0 cursor-pointer group/thumb"
-                        onClick={() => setLightbox(work.image_url!)}
-                      >
-                        <img
-                          src={work.image_url}
-                          alt="student work"
-                          className="w-14 h-14 sm:w-16 sm:h-16 object-cover rounded-lg border"
-                        />
-                        <div className="absolute inset-0 bg-black/0 group-hover/thumb:bg-black/30 rounded-lg transition-colors flex items-center justify-center opacity-0 group-hover/thumb:opacity-100">
-                          <ZoomIn className="h-4 w-4 text-white" />
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex-1 min-w-0">
-                      {/* Title + date + badges */}
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-sm truncate max-w-[200px]">
-                            {work.file_name || work.subject || "Math work"}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {uploadDate.toLocaleDateString()}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {work.subject && (
-                            <Badge variant="secondary" className="text-xs">
-                              {work.subject}
-                            </Badge>
-                          )}
-                          {work.grade && (
-                            <Badge variant="outline" className="text-xs">
-                              {work.grade}
-                            </Badge>
-                          )}
-                          {score !== null && (
-                            <span
-                              className={cn(
-                                "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border",
-                                score >= 70
-                                  ? "bg-green-50 text-green-700 border-green-300"
-                                  : score >= 50
-                                  ? "bg-yellow-50 text-yellow-700 border-yellow-300"
-                                  : "bg-red-50 text-red-700 border-red-300"
-                              )}
-                            >
-                              {score}%
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* No feedback yet */}
-                      {!work.feedback && (
-                        <div className="flex items-center gap-2 mt-2 text-muted-foreground text-sm">
-                          <AlertCircle className="h-4 w-4" />
-                          Waiting for teacher to analyse this work
-                        </div>
-                      )}
-
-                      {/* Expand button */}
-                      {work.feedback && (
-                        <button
-                          onClick={() => toggleExpand(work.id)}
-                          className="flex items-center gap-1.5 mt-2 text-sm font-medium text-primary hover:text-primary/80 transition-colors"
-                        >
-                          <Brain className="h-4 w-4" />
-                          {isExpanded ? "Hide feedback" : "See AI feedback"}
-                          {isExpanded ? (
-                            <ChevronUp className="h-3.5 w-3.5" />
+              <Card className="overflow-hidden border shadow-sm hover:shadow-md transition-shadow">
+                 <div className="p-0">
+                    <div 
+                      className="p-4 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4 cursor-pointer hover:bg-muted/30 transition-colors"
+                      onClick={() => toggleExpand(work.id)}
+                    >
+                      {/* Left: Score & Thumbnail */}
+                      <div className="flex items-center gap-4 w-full sm:w-auto">
+                        <div className={cn(
+                          "flex flex-col items-center justify-center h-16 w-16 rounded-xl border-2 shrink-0 font-bold text-xl",
+                          score !== null ? scoreBg(score) : "bg-muted border-muted-foreground/20 text-muted-foreground"
+                        )}>
+                          {score !== null ? (
+                            <>
+                              <span className={cn(scoreColor(score))}>{score}</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">%</span>
+                            </>
                           ) : (
-                            <ChevronDown className="h-3.5 w-3.5" />
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Expandable analysis */}
-                  <AnimatePresence>
-                    {isExpanded && sections && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="overflow-hidden"
-                      >
-                        <div className="mt-4 space-y-3 border-t pt-3">
-                          {score !== null && (
-                            <div
-                              className={cn(
-                                "text-3xl font-extrabold",
-                                scoreColor(score)
-                              )}
-                            >
-                              {score}%
-                            </div>
-                          )}
-                          {sections.analysis && (
-                            <div className="rounded-lg bg-primary/5 border border-primary/15 p-3">
-                              <p className="text-[10px] font-extrabold text-primary uppercase tracking-widest mb-1.5">
-                                How you did
-                              </p>
-                              <p className="text-sm leading-relaxed whitespace-pre-line">
-                                {sections.analysis}
-                              </p>
-                            </div>
-                          )}
-                          {sections.error_type && sections.error_type !== "None Found" && (
-                            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
-                              <p className="text-[10px] font-extrabold text-amber-700 uppercase tracking-widest mb-1.5">
-                                Things to improve
-                              </p>
-                              <p className="text-sm leading-relaxed whitespace-pre-line text-amber-900">
-                                {sections.error_type}
-                              </p>
-                            </div>
-                          )}
-                          {sections.remediation && (
-                            <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
-                              <p className="text-[10px] font-extrabold text-blue-700 uppercase tracking-widest mb-1.5 flex items-center gap-1">
-                                <Lightbulb className="h-3 w-3" />
-                                How to get better
-                              </p>
-                              <p className="text-sm leading-relaxed whitespace-pre-line text-blue-900">
-                                {sections.remediation}
-                              </p>
-                            </div>
+                            <span className="text-sm">N/A</span>
                           )}
                         </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </CardContent>
+                        
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-lg line-clamp-1">
+                            {work.file_name || work.subject || "Math Assignment"}
+                          </h3>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <Badge variant="outline" className="text-xs font-normal">
+                              {work.subject || "Math"}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {format(new Date(work.created_at), 'MMM d, yyyy')}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        <div className="sm:hidden ml-auto">
+                           {isExpanded ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
+                        </div>
+                      </div>
+
+                      {/* Right: Summary for desktop */}
+                      <div className="hidden sm:flex flex-1 items-center justify-end gap-6 text-sm text-muted-foreground">
+                         <span className="max-w-md line-clamp-2 text-left">
+                           {narrative || "Open for your summary."}
+                         </span>
+                         {isExpanded ? <ChevronUp className="h-5 w-5 shrink-0" /> : <ChevronDown className="h-5 w-5 shrink-0" />}
+                      </div>
+                    </div>
+
+                    <AnimatePresence>
+                      {isExpanded && narrative && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden bg-muted/10 border-t"
+                        >
+                          <div className="p-4 sm:p-6 space-y-6">
+                            {(work.feedback_audio_status === "pending" ||
+                              work.feedback_audio_url) && (
+                              <div className="rounded-xl border bg-primary/5 border-primary/15 p-4">
+                                <h4 className="flex items-center gap-2 text-sm font-semibold text-primary mb-3">
+                                  <Volume2 className="h-4 w-4" />
+                                  Listen to Mama Math
+                                </h4>
+                                {work.feedback_audio_status === "pending" &&
+                                !work.feedback_audio_url ? (
+                                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                                    Your teacher is asking Mama Math to record a voice report…
+                                  </div>
+                                ) : work.feedback_audio_url ? (
+                                  <>
+                                    <audio
+                                      controls
+                                      className="w-full max-w-md h-10"
+                                      src={work.feedback_audio_url}
+                                      preload="metadata"
+                                    >
+                                      Your browser does not support audio.
+                                    </audio>
+                                    <p className="mt-2 text-xs text-muted-foreground leading-snug">
+                                      Mama Math speaks a short report for your family: she greets you
+                                      by name, then explains what showed in your work and what helps
+                                      at home — in plain words for parents (math symbols are read as
+                                      plus, minus, percent, and so on). Your written summary below is
+                                      the student version. Ask your teacher to regenerate voice
+                                      feedback from Upload if you need a fresh clip.
+                                    </p>
+                                  </>
+                                ) : null}
+                              </div>
+                            )}
+
+                            <div>
+                              <h4 className="flex items-center gap-2 text-sm font-semibold text-primary mb-3">
+                                <Brain className="h-4 w-4" />
+                                Your summary
+                              </h4>
+                              <p className="rounded-xl border bg-background p-4 sm:p-5 text-sm sm:text-base leading-relaxed text-foreground shadow-sm">
+                                {narrative}
+                              </p>
+                              <p className="mt-2 text-xs text-muted-foreground">
+                                This is a simpler version than what your teacher sees — same ideas, easier to read.
+                              </p>
+                            </div>
+
+                            {recommendations.length > 0 && (
+                              <div className="pt-2 border-t border-dashed">
+                                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
+                                  Recommended for you
+                                </h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  {recommendations.map((rec) => (
+                                    <div
+                                      key={rec.id}
+                                      className="flex items-center gap-3 p-3 rounded-lg bg-background border hover:border-primary/50 transition-colors group cursor-pointer"
+                                      onClick={() => {
+                                        if (rec.url) window.open(rec.url, "_blank");
+                                        else if (rec.file_url) window.open(rec.file_url, "_blank");
+                                      }}
+                                    >
+                                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 text-primary">
+                                        {rec.file_type === "video" ? (
+                                          <PlayCircle className="h-4 w-4" />
+                                        ) : rec.file_type === "link" ? (
+                                          <ExternalLink className="h-4 w-4" />
+                                        ) : (
+                                          <FileText className="h-4 w-4" />
+                                        )}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                                          {rec.title}
+                                        </p>
+                                        <p className="text-[10px] text-muted-foreground truncate">
+                                          {rec.topic || "Resource"}
+                                        </p>
+                                      </div>
+                                      <ArrowRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                                    </div>
+                                  ))}
+                                </div>
+                                <Button
+                                  variant="link"
+                                  className="px-0 h-auto mt-2 text-xs text-primary"
+                                  onClick={() => navigate("/student/resources")}
+                                >
+                                  View all resources
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Image preview strip if needed, or simple view button */}
+                          {work.image_url && (
+                             <div className="bg-muted/30 px-6 py-3 border-t flex justify-end">
+                               <Button variant="outline" size="sm" className="gap-2" onClick={(e) => { e.stopPropagation(); setLightbox(work.image_url); }}>
+                                 <ZoomIn className="h-3.5 w-3.5" />
+                                 View Original Work
+                               </Button>
+                             </div>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                 </div>
               </Card>
             </motion.div>
           );
@@ -358,20 +579,20 @@ const StudentAIFeedback = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm"
             onClick={() => setLightbox(null)}
           >
             <motion.img
-              initial={{ scale: 0.9 }}
+              initial={{ scale: 0.95 }}
               animate={{ scale: 1 }}
-              exit={{ scale: 0.9 }}
+              exit={{ scale: 0.95 }}
               src={lightbox}
               alt="student work full"
-              className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain"
+              className="max-w-full max-h-[90vh] rounded-lg shadow-2xl object-contain"
               onClick={(e) => e.stopPropagation()}
             />
             <button
-              className="absolute top-4 right-4 text-white/80 hover:text-white text-3xl font-light"
+              className="absolute top-4 right-4 text-white/70 hover:text-white text-4xl leading-none font-light transition-colors"
               onClick={() => setLightbox(null)}
             >
               ×

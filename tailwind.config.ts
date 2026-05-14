@@ -73,12 +73,19 @@ const config = {
   theme: {
     container: {
       center: true,
-      padding: "2rem",
+      padding: {
+        DEFAULT: "1rem",
+        sm: "1.25rem",
+        lg: "2rem",
+      },
       screens: {
         "2xl": "1400px",
       },
     },
     extend: {
+      screens: {
+        xs: "380px",
+      },
       keyframes: {
         'pulse-slow': {
           '0%, 100%': { transform: 'scale(1)', opacity: '1' },

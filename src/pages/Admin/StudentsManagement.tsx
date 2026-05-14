@@ -114,7 +114,7 @@ const StudentsManagement = () => {
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-white">Students Overview</h1>
+          <h1 className="text-3xl font-bold text-white">Learner Overview</h1>
           <p className="text-gray-400 mt-1">
             {students.length} students registered across all teachers
           </p>
@@ -138,7 +138,7 @@ const StudentsManagement = () => {
               </div>
               <div>
                 <p className="text-2xl font-bold text-white">{students.length}</p>
-                <p className="text-xs text-gray-400">Total Students</p>
+                <p className="text-xs text-gray-400">Total Learner</p>
               </div>
             </div>
           </CardContent>
@@ -198,7 +198,7 @@ const StudentsManagement = () => {
       {/* Grade Distribution */}
       <Card className="bg-gray-900/50 border-gray-800">
         <CardContent className="p-4">
-          <h3 className="text-sm font-medium text-gray-400 mb-3">Students by Grade Level</h3>
+          <h3 className="text-sm font-medium text-gray-400 mb-3">Learner by Grade Level</h3>
           <div className="flex flex-wrap gap-2">
             {Object.entries(gradeStats).sort((a, b) => a[0].localeCompare(b[0])).map(([grade, count]) => (
               <Badge key={grade} variant="outline" className="bg-gray-800/50 border-gray-700 text-white">
@@ -224,14 +224,14 @@ const StudentsManagement = () => {
         </CardContent>
       </Card>
 
-      {/* Students Table */}
+      {/* Learner Table */}
       <Card className="bg-gray-900/50 border-gray-800 overflow-hidden">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="border-gray-800 hover:bg-transparent">
-                  <TableHead className="text-gray-400">Student</TableHead>
+                  <TableHead className="text-gray-400">Learner</TableHead>
                   <TableHead className="text-gray-400">Grade</TableHead>
                   <TableHead className="text-gray-400">Teacher</TableHead>
                   <TableHead className="text-gray-400 text-center">Submissions</TableHead>

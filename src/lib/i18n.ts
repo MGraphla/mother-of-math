@@ -163,6 +163,8 @@ const strings: Record<Language, Record<string, string>> = {
     'dashboard.performanceTrend': 'Class Performance Trend',
     'dashboard.recentSubmissions': 'Recent Submissions',
     'dashboard.noSubmissions': 'No recent submissions found.',
+    'dashboard.noPerformanceTrendData':
+      'No graded scores in the last six months yet. Once you grade assignment submissions, average scores by month will appear here. Tip: the chart uses submission grades, not learner work uploads.',
     'dashboard.assignmentsGraded': 'Assignments Graded',
     'dashboard.lessonPlansCreated': 'Lesson Plans Created',
     'dashboard.averageScore': 'Average Score',
@@ -795,6 +797,8 @@ const strings: Record<Language, Record<string, string>> = {
     'dashboard.performanceTrend': 'Tendance de Performance de la Classe',
     'dashboard.recentSubmissions': 'Soumissions Récentes',
     'dashboard.noSubmissions': 'Aucune soumission récente trouvée.',
+    'dashboard.noPerformanceTrendData':
+      "Pas encore de notes sur les six derniers mois. Quand vous noterez des devoirs, la moyenne par mois s'affichera ici (notes des soumissions de devoirs, pas les analyses d'images).",
     'dashboard.assignmentsGraded': 'Devoirs Notés',
     'dashboard.lessonPlansCreated': 'Plans de Cours Créés',
     'dashboard.averageScore': 'Score Moyen',

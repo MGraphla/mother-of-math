@@ -480,7 +480,7 @@ const Home = () => {
       icon: <BookOpen className="w-8 h-8 text-primary" />,
     },
     {
-      title: 'Student Progress Tracking',
+      title: 'Learner Progress Tracking',
       description: 'Monitor individual and class-wide performance with intuitive dashboards. Understand strengths and weaknesses at a glance.',
       icon: <Target className="w-8 h-8 text-primary" />,
     },
@@ -779,7 +779,7 @@ const Home = () => {
       <HowItWorks />
 
       {/* Testimonials Section */}
-      <section className="relative py-16 sm:py-20 md:py-24 lg:py-32 px-4 sm:px-6 lg:px-8 w-full bg-gradient-to-br from-green-50 via-white to-purple-50 overflow-x-clip">
+      <section id="testimonials" className="relative py-16 sm:py-20 md:py-24 lg:py-32 px-4 sm:px-6 lg:px-8 w-full bg-gradient-to-br from-green-50 via-white to-purple-50 overflow-x-clip">
         {/* Decorative background shapes */}
         <motion.div className="absolute -top-32 -left-32 w-[500px] h-[500px] bg-gradient-to-br from-primary/20 to-green-400/10 rounded-full blur-3xl z-0" animate={{ scale: [1, 1.1, 1] }} transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }} />
         <motion.div className="absolute -bottom-32 -right-32 w-[500px] h-[500px] bg-gradient-to-br from-pink-400/10 to-primary/10 rounded-full blur-3xl z-0" animate={{ scale: [1, 1.05, 1] }} transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }} />

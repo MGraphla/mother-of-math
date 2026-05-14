@@ -50,9 +50,40 @@
     @apply border-border;
   }
 
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground min-h-dvh;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Mobile browsers: avoid horizontal scroll from full-width flex children */
+  #root {
+    @apply min-h-dvh min-w-0 overflow-x-hidden;
+  }
+}
+
+/* iOS / notched devices: use with viewport-fit=cover in index.html */
+@layer utilities {
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .px-safe {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+  .min-h-dvh-safe {
+    min-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
   }
 }
 

@@ -7,6 +7,7 @@
  * to securely bypass RLS after verifying the student's access_token.
  */
 import { supabase } from '@/lib/supabase';
+import { sha256HexFromFile } from '@/lib/fileHash';
 
 // ── Types ──────────────────────────────────────────────
 
@@ -54,6 +55,30 @@ export interface Student {
 
   created_at: string;
   updated_at: string;
+
+  /** Last portal open (magic link or dashboard ping). */
+  last_portal_activity_at?: string | null;
+  /** Latest assignment submission (DB trigger). */
+  last_submission_at?: string | null;
+}
+
+/** Alias used across dashboard UIs */
+export type Learner = Student;
+
+export interface EnrollmentRequest {
+  id: string;
+  teacher_id: string;
+  status: 'pending' | 'approved' | 'rejected';
+  full_name: string;
+  grade_level: string;
+  class_name: string | null;
+  parent_name: string | null;
+  parent_phone: string | null;
+  parent_email: string | null;
+  notes: string | null;
+  resolved_student_id: string | null;
+  created_at: string;
+  resolved_at: string | null;
 }
 
 export interface StudentAssignment {
@@ -70,6 +95,13 @@ export interface StudentAssignment {
   attachment_url: string | null;
   created_at: string;
   updated_at: string;
+  /** Criteria-based grading (JSON from DB) */
+  rubric_criteria?: unknown;
+  peer_review_enabled?: boolean;
+  reminder_48h?: boolean;
+  reminder_24h?: boolean;
+  reminder_due_day?: boolean;
+  reminder_parent_sms?: boolean;
 }
 
 export interface AssignmentSubmission {
@@ -87,6 +119,7 @@ export interface AssignmentSubmission {
   ai_score: number | null;
   ai_feedback: string | null;
   ai_graded_at: string | null;
+  file_content_hash?: string | null;
 }
 
 // ── Token Generation ───────────────────────────────────
@@ -220,6 +253,114 @@ export const regenerateAccessToken = async (id: string): Promise<string> => {
   return newToken;
 };
 
+const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/** Public enrollment page URL for a class join code */
+export const buildEnrollPageLink = (code: string): string => {
+  const c = code.trim();
+  return `${window.location.origin}/enroll/${encodeURIComponent(c)}`;
+};
+
+/** Latest meaningful activity: portal visit or submission (whichever is newer). */
+export const getStudentLastActiveAt = (s: Pick<Student, 'last_portal_activity_at' | 'last_submission_at'>): string | null => {
+  const a = s.last_portal_activity_at ? new Date(s.last_portal_activity_at).getTime() : 0;
+  const b = s.last_submission_at ? new Date(s.last_submission_at).getTime() : 0;
+  const m = Math.max(a, b);
+  return m > 0 ? new Date(m).toISOString() : null;
+};
+
+export const recordStudentPortalActivity = async (studentId: string, accessToken: string): Promise<void> => {
+  const { error } = await supabase.rpc('record_student_portal_activity', {
+    p_student_id: studentId,
+    p_access_token: accessToken,
+  });
+  if (error) console.warn('recordStudentPortalActivity:', error.message);
+};
+
+export const getTeacherJoinCode = async (teacherId: string): Promise<string | null> => {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('class_join_code')
+    .eq('id', teacherId)
+    .single();
+  if (error || !data) return null;
+  return (data as { class_join_code: string | null }).class_join_code ?? null;
+};
+
+export const generateRandomJoinCode = (): string => {
+  const chars = JOIN_CODE_CHARS;
+  const arr = new Uint8Array(8);
+  crypto.getRandomValues(arr);
+  let out = '';
+  for (let i = 0; i < 8; i++) out += chars[arr[i]! % chars.length];
+  return out;
+};
+
+export const regenerateTeacherJoinCode = async (teacherId: string): Promise<string> => {
+  for (let i = 0; i < 30; i++) {
+    const code = generateRandomJoinCode();
+    const { error } = await supabase
+      .from('profiles')
+      .update({ class_join_code: code, updated_at: new Date().toISOString() })
+      .eq('id', teacherId);
+    if (!error) return code;
+    const msg = `${error.message}`.toLowerCase();
+    const dup = error.code === '23505' || msg.includes('unique');
+    if (!dup) throw error;
+  }
+  throw new Error('Could not assign a unique class code. Try again.');
+};
+
+export const submitEnrollmentRequest = async (params: {
+  joinCode: string;
+  fullName: string;
+  gradeLevel: string;
+  className?: string;
+  parentName?: string;
+  parentPhone?: string;
+  parentEmail?: string;
+  notes?: string;
+}): Promise<string> => {
+  const { data, error } = await supabase.rpc('submit_enrollment_request', {
+    p_join_code: params.joinCode.trim(),
+    p_full_name: params.fullName.trim(),
+    p_grade_level: params.gradeLevel.trim(),
+    p_class_name: params.className?.trim() || null,
+    p_parent_name: params.parentName?.trim() || null,
+    p_parent_phone: params.parentPhone?.trim() || null,
+    p_parent_email: params.parentEmail?.trim() || null,
+    p_notes: params.notes?.trim() || null,
+  });
+  if (error) throw error;
+  return data as string;
+};
+
+export const getEnrollmentRequestsForTeacher = async (
+  teacherId: string,
+  status?: 'pending' | 'approved' | 'rejected',
+): Promise<EnrollmentRequest[]> => {
+  let q = supabase
+    .from('enrollment_requests')
+    .select('*')
+    .eq('teacher_id', teacherId)
+    .order('created_at', { ascending: false });
+  if (status) q = q.eq('status', status);
+  const { data, error } = await q;
+  if (error) {
+    console.error('getEnrollmentRequestsForTeacher:', error);
+    return [];
+  }
+  return (data || []) as EnrollmentRequest[];
+};
+
+export const updateEnrollmentRequest = async (
+  id: string,
+  patch: Partial<Pick<EnrollmentRequest, 'status' | 'resolved_student_id' | 'resolved_at'>>,
+): Promise<void> => {
+  const { error } = await supabase.from('enrollment_requests').update(patch).eq('id', id);
+  if (error) throw error;
+};
+
 // ── Assignments CRUD (Teacher operations) ──────────────
 
 export const createAssignment = async (
@@ -239,6 +380,12 @@ export const createAssignment = async (
       max_score: data.max_score,
       instructions: data.instructions,
       attachment_url: data.attachment_url,
+      rubric_criteria: (data as StudentAssignment).rubric_criteria ?? [],
+      peer_review_enabled: (data as StudentAssignment).peer_review_enabled ?? false,
+      reminder_48h: (data as StudentAssignment).reminder_48h ?? false,
+      reminder_24h: (data as StudentAssignment).reminder_24h ?? false,
+      reminder_due_day: (data as StudentAssignment).reminder_due_day ?? false,
+      reminder_parent_sms: (data as StudentAssignment).reminder_parent_sms ?? false,
     })
     .select()
     .single();
@@ -396,7 +543,12 @@ export const uploadProfilePhoto = async (
   file: File,
   studentId: string
 ): Promise<string> => {
-  const ext = file.name.split('.').pop() || 'jpg';
+  // Validate file type and size
+  const { validateImageFile } = await import('@/lib/utils');
+  const validation = validateImageFile(file);
+  if (!validation.valid) throw new Error(validation.error);
+
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
   // Use a timestamp to prevent caching issues on updates
   const path = `profiles/${studentId}/avatar_${Date.now()}.${ext}`;
 
@@ -440,6 +592,17 @@ export const uploadSubmissionFile = async (
   studentId: string,
   assignmentId: string,
 ): Promise<string> => {
+  const { url } = await uploadSubmissionFileWithHash(file, studentId, assignmentId);
+  return url;
+};
+
+/** Upload submission file and compute SHA-256 for originality checks */
+export const uploadSubmissionFileWithHash = async (
+  file: File,
+  studentId: string,
+  assignmentId: string,
+): Promise<{ url: string; contentHash: string }> => {
+  const contentHash = await sha256HexFromFile(file);
   const ext = file.name.split('.').pop() || 'file';
   const path = `submissions/${studentId}/${assignmentId}/${Date.now()}.${ext}`;
 
@@ -456,7 +619,78 @@ export const uploadSubmissionFile = async (
     .from('assignment-files')
     .getPublicUrl(path);
 
-  return urlData.publicUrl;
+  return { url: urlData.publicUrl, contentHash };
+};
+
+/** Track when a learner opens an assignment (and optional local draft flag). */
+export const recordAssignmentEngagement = async (
+  studentId: string,
+  assignmentId: string,
+  hasDraft: boolean,
+): Promise<void> => {
+  const session = getStudentSession();
+  if (!session?.access_token) return;
+  const { error } = await supabase.rpc('upsert_assignment_engagement', {
+    p_student_id: studentId,
+    p_assignment_id: assignmentId,
+    p_access_token: session.access_token,
+    p_has_draft: hasDraft,
+  });
+  if (error) console.warn('recordAssignmentEngagement:', error.message);
+};
+
+export const upsertPeerReviewCriterion = async (
+  studentId: string,
+  assignmentId: string,
+  criterionId: string,
+  body: string,
+): Promise<void> => {
+  const session = getStudentSession();
+  if (!session?.access_token) {
+    console.warn('upsertPeerReviewCriterion: no session');
+    return;
+  }
+  const { error } = await supabase.rpc('upsert_peer_review_by_token', {
+    p_student_id: studentId,
+    p_access_token: session.access_token,
+    p_assignment_id: assignmentId,
+    p_criterion_id: criterionId,
+    p_body: body,
+  });
+  if (error) throw error;
+};
+
+export const fetchPeerReviewsForStudentAssignment = async (
+  studentId: string,
+  assignmentId: string,
+): Promise<{ criterion_id: string; body: string; updated_at: string }[]> => {
+  const session = getStudentSession();
+  if (session?.access_token) {
+    const { data: rpcData, error: rpcError } = await supabase.rpc('get_peer_reviews_by_token', {
+      p_student_id: studentId,
+      p_access_token: session.access_token,
+      p_assignment_id: assignmentId,
+    });
+    if (!rpcError && rpcData) {
+      const rows = Array.isArray(rpcData) ? rpcData : [rpcData];
+      return rows.map((r: { criterion_id: string; body: string; updated_at: string }) => ({
+        criterion_id: r.criterion_id,
+        body: r.body,
+        updated_at: r.updated_at,
+      }));
+    }
+    console.warn('get_peer_reviews_by_token:', rpcError?.message);
+  }
+  const { data, error } = await supabase
+    .from('assignment_peer_reviews')
+    .select('criterion_id, body, updated_at')
+    .eq('assignment_id', assignmentId)
+    .eq('student_id', studentId);
+  if (error) {
+    console.warn('fetchPeerReviewsForStudentAssignment:', error.message);
+    return [];
+  }
+  return (data || []) as { criterion_id: string; body: string; updated_at: string }[];
 };
 
 /**
@@ -624,7 +858,7 @@ export const getStudentStats = async (studentId: string): Promise<StudentStats> 
  * falls back to direct insert.
  */
 export const submitAssignment = async (
-  data: { assignment_id: string; student_id: string; file_url?: string; notes?: string }
+  data: { assignment_id: string; student_id: string; file_url?: string; notes?: string; file_hash?: string | null }
 ): Promise<AssignmentSubmission> => {
   const session = getStudentSession();
 
@@ -637,6 +871,7 @@ export const submitAssignment = async (
         p_assignment_id: data.assignment_id,
         p_notes: data.notes || null,
         p_file_url: data.file_url || null,
+        p_file_hash: data.file_hash ?? null,
       });
 
     if (!rpcError && rpcData) {
@@ -656,6 +891,7 @@ export const submitAssignment = async (
       file_url: data.file_url || null,
       notes: data.notes || null,
       status: 'submitted',
+      file_content_hash: data.file_hash || null,
     })
     .select()
     .single();
@@ -857,20 +1093,50 @@ export const getSubmissionsForTeacher = async (teacherId: string): Promise<
 // ── Student Session (for magic-link access) ────────────
 
 const STUDENT_SESSION_KEY = 'mom_student_session';
+const SESSION_EXPIRY_HOURS = 24;
 
-/** Persist student record to localStorage after magic-link validation */
+interface StudentSessionData {
+  student: Student;
+  expiresAt: string;
+}
+
+/** Persist student record to sessionStorage after magic-link validation (with expiry) */
 export const setStudentSession = (student: Student): void => {
-  localStorage.setItem(STUDENT_SESSION_KEY, JSON.stringify(student));
+  const expiresAt = new Date(Date.now() + SESSION_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  // We must store the access_token because it is required for all RPC calls
+  // The token acts as the session credential for magic-link students
+  const sessionData: StudentSessionData = { student, expiresAt };
+  sessionStorage.setItem(STUDENT_SESSION_KEY, JSON.stringify(sessionData));
 };
 
 /** Retrieve the current student session (if any) */
 export const getStudentSession = (): Student | null => {
   try {
-    const raw = localStorage.getItem(STUDENT_SESSION_KEY);
+    const raw = sessionStorage.getItem(STUDENT_SESSION_KEY);
     if (!raw) return null;
-    const student = JSON.parse(raw) as Student;
-    // Validate session has required fields
-    if (!student.id || !student.access_token || !student.full_name) {
+    const parsed = JSON.parse(raw);
+
+    // Handle both old format (Student directly) and new format (StudentSessionData)
+    let student: Student;
+    let expiresAt: string | undefined;
+
+    if (parsed.student && parsed.expiresAt) {
+      student = parsed.student;
+      expiresAt = parsed.expiresAt;
+    } else if (parsed.id && parsed.full_name) {
+      student = parsed;
+    } else {
+      clearStudentSession();
+      return null;
+    }
+
+    // Check expiry
+    if (expiresAt && new Date(expiresAt) < new Date()) {
+      clearStudentSession();
+      return null;
+    }
+
+    if (!student.id || !student.full_name) {
       clearStudentSession();
       return null;
     }
@@ -883,7 +1149,7 @@ export const getStudentSession = (): Student | null => {
 
 /** Clear the student session (sign out) */
 export const clearStudentSession = (): void => {
-  localStorage.removeItem(STUDENT_SESSION_KEY);
+  sessionStorage.removeItem(STUDENT_SESSION_KEY);
 };
 
 /** Refresh the student session from the database */
@@ -891,14 +1157,14 @@ export const refreshStudentSession = async (): Promise<Student | null> => {
   const current = getStudentSession();
   if (!current) return null;
 
-  // Use token-based lookup (works for anon/magic-link)
-  const fresh = await getStudentByToken(current.access_token);
+  // Use ID-based lookup to refresh session data
+  const fresh = await getStudentById(current.id);
   if (fresh && fresh.account_status !== 'suspended') {
     setStudentSession(fresh);
     return fresh;
   }
 
-  // Student was suspended or token invalidated
+  // Student was suspended or not found
   clearStudentSession();
   return null;
 };

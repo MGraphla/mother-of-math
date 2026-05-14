@@ -67,6 +67,7 @@ interface ComprehensiveStats {
 const AdminOverview = () => {
   const [stats, setStats] = useState<ComprehensiveStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [trendDays, setTrendDays] = useState<7 | 14 | 30>(14);
 
   const fetchData = async () => {
     setLoading(true);
@@ -97,13 +98,13 @@ const AdminOverview = () => {
       description: "Registered teachers",
     },
     {
-      title: "Total Students",
+      title: "Total Learner",
       value: overview?.totalStudents || 0,
       icon: GraduationCap,
       color: "#10b981",
       bgColor: "bg-emerald-500/10",
       link: "/admin/students",
-      description: "Students created",
+      description: "Learner created",
     },
     {
       title: "Lesson Plans",
@@ -130,7 +131,7 @@ const AdminOverview = () => {
       color: "#f43f5e",
       bgColor: "bg-rose-500/10",
       link: "/admin/submissions",
-      description: "Student submissions",
+      description: "Learner submissions",
     },
     {
       title: "Chat Conversations",
@@ -200,7 +201,7 @@ const AdminOverview = () => {
       bgColor: "bg-emerald-500/10",
     },
     {
-      title: "New Students (Week)",
+      title: "New Learner (Week)",
       value: overview?.newStudentsThisWeek || 0,
       icon: GraduationCap,
       color: "text-amber-400",
@@ -333,7 +334,7 @@ const AdminOverview = () => {
   }));
 
   // Get last 14 days for activity trend
-  const activityTrendData = (stats?.activityTrends || []).slice(-14).map(d => ({
+  const activityTrendData = (stats?.activityTrends || []).slice(-trendDays).map(d => ({
     date: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     lessonPlans: d.lessonPlans,
     assignments: d.assignments,
@@ -463,14 +464,14 @@ const AdminOverview = () => {
         </Card>
       </div>
 
-      {/* Charts Row 1: Students per Teacher & Lesson Plans by Teacher */}
+      {/* Charts Row 1: Learner per Teacher & Lesson Plans by Teacher */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Students per Teacher Bar Chart */}
+        {/* Learner per Teacher Bar Chart */}
         <Card className="bg-gray-900/50 border-gray-800">
           <CardHeader>
             <CardTitle className="text-lg text-white flex items-center gap-2">
               <GraduationCap className="w-5 h-5 text-emerald-400" />
-              Students per Teacher (Top 10)
+              Learner per Teacher (Top 10)
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -601,16 +602,51 @@ const AdminOverview = () => {
 
       {/* Activity Trends Line Chart - Full Width */}
       <Card className="bg-gray-900/50 border-gray-800">
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="text-lg text-white flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-rose-400" />
-            Activity Trends (Last 14 Days)
+            Activity Trends (Last {trendDays} Days)
           </CardTitle>
+          <div className="flex bg-gray-800/50 p-1 rounded-lg border border-gray-700/50">
+            {[7, 14, 30].map((days) => (
+              <button
+                key={days}
+                onClick={() => setTrendDays(days as 7 | 14 | 30)}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                  trendDays === days 
+                    ? 'bg-rose-500 text-white shadow-sm' 
+                    : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+                }`}
+              >
+                {days}d
+              </button>
+            ))}
+          </div>
         </CardHeader>
         <CardContent>
+          <div className="flex gap-4 mb-4 text-sm text-gray-400">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-500/10 rounded-md border border-purple-500/20">
+              <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+              Lessons: <span className="text-white font-medium">{activityTrendData.reduce((acc, curr) => acc + (curr.lessonPlans || 0), 0)}</span>
+            </div>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 rounded-md border border-amber-500/20">
+              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+              Assignments: <span className="text-white font-medium">{activityTrendData.reduce((acc, curr) => acc + (curr.assignments || 0), 0)}</span>
+            </div>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 rounded-md border border-emerald-500/20">
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              Submissions: <span className="text-white font-medium">{activityTrendData.reduce((acc, curr) => acc + (curr.submissions || 0), 0)}</span>
+            </div>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/10 rounded-md border border-cyan-500/20">
+              <span className="w-2 h-2 rounded-full bg-cyan-500"></span>
+              Messages: <span className="text-white font-medium">{activityTrendData.reduce((acc, curr) => acc + (curr.messages || 0), 0)}</span>
+            </div>
+          </div>
+
           {activityTrendData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={350}>
-              <AreaChart data={activityTrendData}>
+           <div className="h-[350px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={activityTrendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorLessons" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3}/>
@@ -643,6 +679,7 @@ const AdminOverview = () => {
                 <Area type="monotone" dataKey="messages" stroke="#06b6d4" fillOpacity={1} fill="url(#colorMessages)" name="Messages" />
               </AreaChart>
             </ResponsiveContainer>
+           </div>
           ) : (
             <div className="h-[350px] flex items-center justify-center text-gray-500">
               No activity data available
@@ -726,7 +763,7 @@ const AdminOverview = () => {
             <Link to="/admin/students">
               <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700 hover:border-emerald-500/50 cursor-pointer transition-all group text-center">
                 <GraduationCap className="w-8 h-8 mx-auto text-gray-400 group-hover:text-emerald-400 transition-colors mb-2" />
-                <p className="text-sm text-gray-300 group-hover:text-white">View Students</p>
+                <p className="text-sm text-gray-300 group-hover:text-white">View Learner</p>
               </div>
             </Link>
             <Link to="/admin/lesson-plans">

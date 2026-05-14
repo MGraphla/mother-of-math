@@ -248,12 +248,12 @@ const AdminAnalytics = () => {
           </CardContent>
         </Card>
 
-        {/* Students by Grade */}
+        {/* Learner by Grade */}
         <Card className="bg-gray-900/50 border-gray-800">
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <Users className="w-5 h-5 text-emerald-400" />
-              Students by Grade Level
+              Learner by Grade Level
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -286,7 +286,7 @@ const AdminAnalytics = () => {
                       dataKey="count" 
                       fill="#10b981" 
                       radius={[0, 4, 4, 0]}
-                      name="Students"
+                      name="Learner"
                     />
                   </BarChart>
                 </ResponsiveContainer>
