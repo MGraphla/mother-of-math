@@ -173,9 +173,17 @@ const buildScope = async (): Promise<NigeriaScope> => {
 };
 
 const loadScope = (): Promise<NigeriaScope> => {
-  if (!scopePromise) scopePromise = buildScope();
+  if (!scopePromise) {
+    scopePromise = buildScope().catch((err) => {
+      scopePromise = null;
+      throw err;
+    });
+  }
   return scopePromise;
 };
+
+/** Ensures the Nigeria scope is built; use before parallel getters to avoid redundant work. */
+export const warmMonitorScope = (): Promise<NigeriaScope> => loadScope();
 
 /** Force a re-fetch on next call (used by manual refresh buttons). */
 export const refreshMonitorScope = (): void => {
@@ -218,6 +226,26 @@ export const getAllAnnouncements = async (): Promise<AnnouncementStats[]> => (aw
 export const getAllNotifications = async (): Promise<NotificationStats[]> => (await loadScope()).notifications;
 export const getAllComments = async (): Promise<CommentStats[]> => (await loadScope()).comments;
 export const getAllImages = async () => (await loadScope()).images;
+
+/** Learner + parent-portal signals (Nigeria scope): roster, submissions, uploads, nudges, assignment comments. */
+export interface LearnerParentMonitorBundle {
+  students: StudentStats[];
+  submissions: SubmissionStats[];
+  works: StudentWorkStats[];
+  notifications: NotificationStats[];
+  comments: CommentStats[];
+}
+
+export const getLearnerParentMonitorBundle = async (): Promise<LearnerParentMonitorBundle> => {
+  const s = await loadScope();
+  return {
+    students: s.students,
+    submissions: s.submissions,
+    works: s.works,
+    notifications: s.notifications,
+    comments: s.comments,
+  };
+};
 
 /* ── Aggregate getters — recomputed from Nigeria scope only ── */
 
@@ -443,10 +471,29 @@ export const getUserActivity = async (): Promise<ActivityItem[]> => {
     })
   );
 
+  const convById = new Map(s.conversations.map((c) => [c.id, c]));
+  s.messages.forEach((m) => {
+    if (!m.created_at) return;
+    const conv = m.conversation_id ? convById.get(m.conversation_id) : undefined;
+    const teacherLabel = conv ? teacherName(conv.user_id) : m.user_name;
+    const raw = (m.content ?? '').replace(/\s+/g, ' ').trim();
+    const preview = raw.length > 160 ? `${raw.slice(0, 160)}…` : raw;
+    const thread = conv?.title?.trim() || 'Conversation';
+    out.push({
+      id: `chat-${m.id}`,
+      type: 'chat',
+      description:
+        m.role === 'user'
+          ? `Chat (${thread})${preview ? `: ${preview}` : ''}`
+          : `Chatbot reply (${thread})${preview ? `: ${preview}` : ''}`,
+      user_name: m.role === 'user' ? (m.user_name ?? teacherLabel) : teacherLabel ?? m.user_name,
+      created_at: m.created_at,
+    });
+  });
+
   return out
     .filter((a) => !!a.created_at)
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, 200);
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 };
 
 /* getGrowthMetrics & getUsageAnalytics are not currently used by any

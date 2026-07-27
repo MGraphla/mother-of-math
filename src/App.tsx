@@ -54,6 +54,9 @@ const TeacherSupport = lazy(() => import("@/pages/Dashboard/TeacherSupport"));
 // Image Generation
 const GenerateImages = lazy(() => import("@/pages/Dashboard/GenerateImages"));
 
+// Agent (MCP-style tool-using assistant for teachers)
+const AgentPage = lazy(() => import("@/pages/Dashboard/Agent"));
+
 // Public access pages
 const StudentAccess = lazy(() => import("@/pages/StudentAccess"));
 const ClassEnroll = lazy(() => import("@/pages/ClassEnroll"));
@@ -166,6 +169,7 @@ const AppContent = () => {
             <Route path="resources" element={<TeacherResources />} />
             <Route path="support" element={<TeacherSupport />} />
             <Route path="generate-images" element={<GenerateImages />} />
+            <Route path="agent" element={<AgentPage />} />
           </Route>
         </Route>
 

@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
-import { Menu, X, BookHeart, ArrowRight, Sparkles } from 'lucide-react';
+import { Menu, X, ArrowRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useLanguage } from '@/context/LanguageContext';
@@ -34,26 +34,6 @@ const Header = () => {
 
   return (
     <>
-      {/* Top announcement bar */}
-      <motion.div
-        initial={{ y: -40, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.2, duration: 0.5 }}
-        className="relative z-[60] bg-gradient-to-r from-green-600 via-emerald-500 to-teal-500 text-white"
-      >
-        <div className="container max-w-7xl mx-auto flex items-center justify-center gap-2 px-4 py-1.5 text-xs sm:text-sm font-medium">
-          <Sparkles className="h-3.5 w-3.5 animate-pulse" />
-          <span>{t('home.tagline')}</span>
-          <span className="hidden sm:inline text-white/60">—</span>
-          <button
-            onClick={() => navigate('/sign-up')}
-            className="hidden sm:inline-flex items-center gap-1 underline underline-offset-2 decoration-white/40 hover:decoration-white transition-all font-semibold"
-          >
-            {t('home.startFree')} <ArrowRight className="h-3 w-3" />
-          </button>
-        </div>
-      </motion.div>
-
       {/* Main header */}
       <motion.header
         className="sticky top-0 z-50 w-full border-b border-green-700/40 bg-green-600 shadow-md"
@@ -67,8 +47,12 @@ const Header = () => {
               className="relative"
             >
               <div className="absolute inset-0 bg-white/20 rounded-xl blur-lg group-hover:bg-white/30 transition-colors" />
-              <div className="relative bg-white/20 border border-white/30 p-2 rounded-xl shadow-lg">
-                <BookHeart className="h-5 w-5 text-white" />
+              <div className="relative bg-white/20 border border-white/30 p-1.5 rounded-xl shadow-lg">
+                <img
+                  src="/mama%20math.svg"
+                  alt="Mama Math"
+                  className="h-7 w-7 object-contain"
+                />
               </div>
             </motion.div>
             <div className="flex flex-col">

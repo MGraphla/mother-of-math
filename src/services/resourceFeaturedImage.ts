@@ -4,12 +4,12 @@
  */
 
 import { checkRateLimit } from "@/lib/rateLimit";
-import { getApiKey } from "./api";
+import { isOpenRouterConfigured } from "./openrouterEnv";
+import { fetchOpenRouterChatCompletion } from "./openrouterTransport";
 import { generateSlideImage, buildResourceFeaturedCoverPrompt } from "./imageGeneration";
 import { updateResource, uploadResourceFile } from "./resourceService";
 
 const PLANNER_MODEL = "anthropic/claude-sonnet-4.6";
-const FALLBACK_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 export type FeaturedImageJobContext = {
   resourceId: string;
@@ -37,10 +37,7 @@ function buildLiteralBrief(ctx: FeaturedImageJobContext): string {
 }
 
 async function planScene(ctx: FeaturedImageJobContext): Promise<string> {
-  const apiKey = getApiKey();
-  if (!apiKey) throw new Error("OpenRouter API key not configured");
-
-  const apiUrl = import.meta.env.VITE_OPENROUTER_API_URL || FALLBACK_API_URL;
+  if (!isOpenRouterConfigured()) throw new Error("OpenRouter is not configured");
   const bits = [
     `Resource title: ${ctx.title}`,
     ctx.topic ? `Topic / folder: ${ctx.topic}` : "",
@@ -64,15 +61,8 @@ Return JSON only: {"scene":"3–6 sentences, concrete and faithful to the resour
 ---
 ${bits}`;
 
-  const res = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      "HTTP-Referer": typeof window !== "undefined" ? window.location.origin : "https://mamamath.org",
-      "X-Title": "Mother of Math",
-    },
-    body: JSON.stringify({
+  const res = await fetchOpenRouterChatCompletion(
+    {
       model: PLANNER_MODEL,
       temperature: 0.15,
       max_tokens: 700,
@@ -85,8 +75,13 @@ ${bits}`;
         },
         { role: "user", content: userInstructions },
       ],
-    }),
-  });
+    },
+    {
+      referer:
+        typeof window !== "undefined" ? window.location.origin : "https://mamamath.org",
+      title: "Mother of Math",
+    },
+  );
 
   if (!res.ok) throw new Error(`Planner request failed (${res.status})`);
 

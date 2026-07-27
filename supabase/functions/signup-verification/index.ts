@@ -1,4 +1,4 @@
-// Supabase Edge Function: signup verification (SMS / WhatsApp).
+v// Supabase Edge Function: signup verification (SMS / WhatsApp).
 // Secrets: INFOBIP_BASE_URL, INFOBIP_API_KEY, INFOBIP_SMS_FROM, INFOBIP_WHATSAPP_FROM,
 //         SIGNUP_OTP_PEPPER (optional but recommended)
 

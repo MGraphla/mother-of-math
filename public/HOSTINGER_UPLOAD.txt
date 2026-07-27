@@ -1,0 +1,12 @@
+Mama Math — Hostinger upload checklist
+=====================================
+
+Upload ALL files and folders from the dist/ folder into public_html
+(do not upload the "dist" folder itself).
+
+Required after upload:
+1. Enable SSL (HTTPS) in Hostinger hPanel
+2. In Supabase → Authentication → URL configuration, set Site URL to https://yourdomain.com
+3. Add redirect URLs: https://yourdomain.com/** and https://yourdomain.com/auth/callback
+
+Full guide: see HOSTINGER.md in the project repository.

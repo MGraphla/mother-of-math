@@ -1,10 +1,10 @@
 // src/services/imageGeneration.ts
 // AI-powered image generation for PowerPoint slides using Google Gemini via OpenRouter
 
-import { getApiKey } from './api';
+import { isOpenRouterConfigured } from './openrouterEnv';
+import { fetchOpenRouterChatCompletion } from './openrouterTransport';
 
 const IMAGE_MODEL = 'google/gemini-3-pro-image-preview';
-const FALLBACK_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const REQUEST_TIMEOUT_MS = 60_000; // 60 seconds per image
 
 /**
@@ -15,11 +15,8 @@ export const generateSlideImage = async (
   prompt: string,
   aspectRatio: string = '16:9'
 ): Promise<string | null> => {
-  const apiKey = getApiKey();
-  const apiUrl = import.meta.env.VITE_OPENROUTER_API_URL || FALLBACK_API_URL;
-
-  if (!apiKey) {
-    console.warn('[ImageGen] No API key available');
+  if (!isOpenRouterConfigured()) {
+    console.warn('[ImageGen] OpenRouter not configured');
     return null;
   }
 
@@ -27,16 +24,8 @@ export const generateSlideImage = async (
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': window.location.origin,
-        'X-Title': 'Mother of Math',
-      },
-      body: JSON.stringify({
+    const response = await fetchOpenRouterChatCompletion(
+      {
         model: IMAGE_MODEL,
         messages: [{ role: 'user', content: prompt }],
         modalities: ['image', 'text'],
@@ -45,8 +34,13 @@ export const generateSlideImage = async (
           aspect_ratio: aspectRatio,
           image_size: '1K',
         },
-      }),
-    });
+      },
+      {
+        referer: window.location.origin,
+        title: 'Mother of Math',
+        signal: controller.signal,
+      },
+    );
 
     clearTimeout(timeout);
 

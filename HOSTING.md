@@ -1,6 +1,8 @@
 # Deploying Mama Math to your domain
 
-This app is a **Vite + React SPA**. Production output is the **`dist/`** folder after `npm run build`. Upload **everything inside `dist/`** to your host’s **web root** (often `public_html`, `www`, or `htdocs`), not the `dist` folder name itself unless your panel expects that.
+> **Hostinger step-by-step:** see **[HOSTINGER.md](./HOSTINGER.md)** (domain, SSL, `public_html`, Supabase, build commands).
+
+This app is a **Vite + React SPA**. Production output is the **`dist/`** folder after `npm run build` or `npm run build:hostinger`. Upload **everything inside `dist/`** to your host’s **web root** (often `public_html`, `www`, or `htdocs`), not the `dist` folder name itself unless your panel expects that.
 
 ## 1. Environment variables (build time)
 
@@ -10,9 +12,10 @@ Vite inlines variables that start with `VITE_` at **build** time.
 2. Fill in at least:
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
-   - `VITE_OPENROUTER_API_KEY` and `VITE_OPENROUTER_API_URL` if you use AI features
-   - `VITE_MONITOR_PASSWORD` if you expose `/monitor` (use a strong secret in production)
-3. Run **`npm run build`** on a machine that has those variables set. The resulting `dist/` is what you deploy.
+   - **OpenRouter (recommended):** deploy the `openrouter-proxy` Edge Function and set the Supabase secret `OPENROUTER_API_KEY` (see checklist in this file, section 5). The app calls OpenRouter through that proxy by default so keys are not in the browser bundle.
+   - **Optional local / legacy:** `VITE_OPENROUTER_USE_CLIENT_KEY=true` plus `VITE_OPENROUTER_API_KEY` only if you intentionally call OpenRouter from the browser (not recommended for production).
+   - `VITE_MONITOR_EMAIL` and `VITE_MONITOR_PASSWORD` if you expose `/monitor` (set strong values in production)
+3. Run **`npm run build:hostinger`** (validates env + builds) or **`npm run build`**. The resulting `dist/` is what you deploy.
 
 Never commit `.env` or paste server-only secrets (Infobip, ElevenLabs, service role keys) into `VITE_*` variables.
 
@@ -49,6 +52,7 @@ The PWA service worker’s `navigateFallback` does **not** replace server rewrit
 ## 5. Deploy checklist
 
 - [ ] Production `.env` / CI secrets set; `npm run build` succeeds.
+- [ ] **OpenRouter:** `supabase secrets set OPENROUTER_API_KEY=sk-or-v1-...` and `supabase functions deploy openrouter-proxy --no-verify-jwt` (see function comment in repo).
 - [ ] Upload **contents** of `dist/` to the document root; old files removed or overwritten if you do incremental deploys.
 - [ ] Supabase **Site URL** and **Redirect URLs** match your live domain.
 - [ ] **HTTPS** enabled.

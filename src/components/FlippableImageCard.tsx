@@ -10,12 +10,18 @@ const FlippableImageCard = () => {
   };
 
   return (
-    <div style={{ perspective: '1000px' }} className="relative w-full max-w-2xl h-[480px] cursor-pointer" onClick={handleFlip}>
+    <motion.div
+      style={{ perspective: '1000px' }}
+      className="relative w-full max-w-2xl h-[480px] cursor-pointer"
+      onClick={handleFlip}
+      animate={{ y: [0, -10, 0] }}
+      transition={{ duration: 5.5, repeat: Infinity, ease: 'easeInOut' }}
+    >
       <motion.div
         className="relative w-full h-full"
         style={{ transformStyle: 'preserve-3d' }}
         animate={{ rotateY: isFlipped ? 180 : 0 }}
-        transition={{ duration: 0.7, ease: 'easeInOut' }}
+        transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
       >
         {/* Front of the card */}
         <div className="absolute w-full h-full" style={{ backfaceVisibility: 'hidden' }}>
@@ -64,7 +70,7 @@ const FlippableImageCard = () => {
           </div>
         </div>
       </motion.div>
-    </div>
+    </motion.div>
   );
 };
 

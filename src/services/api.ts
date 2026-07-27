@@ -1,8 +1,15 @@
 // src/services/api.ts
 
 import { checkRateLimit } from '@/lib/rateLimit';
+import { fetchOpenRouterChatCompletion } from '@/services/openrouterTransport';
+import {
+  FALLBACK_OPENROUTER_CHAT_URL,
+  getClientOpenRouterKey,
+  headerByteString,
+  isOpenRouterConfigured,
+} from '@/services/openrouterEnv';
 
-const FALLBACK_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+const FALLBACK_API_URL = FALLBACK_OPENROUTER_CHAT_URL;
 
 const OPENROUTER_MODEL = "anthropic/claude-sonnet-4.6";
 
@@ -27,24 +34,12 @@ const cleanJsonResponse = (content: string): string => {
   return cleaned;
 };
 
-// Function to get API key with validation
-export const getApiKey = (): string | undefined => {
-  const key = import.meta.env.VITE_OPENROUTER_API_KEY;
-  if (!key) {
-    console.error('API key is missing. Please check your .env file.');
-    return undefined;
-  }
-  if (!key.startsWith('sk-or-v1-')) {
-    console.error('API key format is invalid - should start with sk-or-v1-');
-    return undefined;
-  }
-  return key;
-};
+/** @deprecated Prefer isOpenRouterConfigured — key may live only on Supabase Edge. */
+export const getApiKey = (): string | undefined => getClientOpenRouterKey();
 
-// Function to check if API key is set
-export const hasApiKey = (): boolean => {
-  return !!import.meta.env.VITE_OPENROUTER_API_KEY;
-};
+export { headerByteString } from '@/services/openrouterEnv';
+
+export const hasApiKey = isOpenRouterConfigured;
 
 /** When an image is sent: student homework analysis vs describing a teacher sketch for image generation. */
 export type VisionImagePurpose = 'student-work' | 'sketch-to-image';
@@ -61,14 +56,10 @@ export const sendMessage = async (
     throw new Error('Too many requests. Please wait a moment before trying again.');
   }
 
-  const apiKey = getApiKey();
-  const apiUrl = import.meta.env.VITE_OPENROUTER_API_URL || FALLBACK_API_URL;
-
-  if (!apiKey) {
-    throw new Error("API key not configured properly. Please check your .env file.");
-  }
-  if (!apiUrl) {
-    throw new Error("OpenRouter API URL is not configured. Please check VITE_OPENROUTER_API_URL in your .env file.");
+  if (!isOpenRouterConfigured()) {
+    throw new Error(
+      'AI is not configured. Use Supabase Edge (default): deploy openrouter-proxy and set OPENROUTER_API_KEY secret. For local dev with a browser key, set VITE_OPENROUTER_USE_CLIENT_KEY=true and VITE_OPENROUTER_API_KEY.',
+    );
   }
 
   let systemPrompt: string;
@@ -129,21 +120,29 @@ Always be encouraging, use simple language, and provide actionable advice. Use m
   ];
 
   try {
-        const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-        "HTTP-Referer": typeof window !== 'undefined' ? window.location.origin : "https://mamamath.org",
-        "X-Title": "Mother of Math"
-      },
-      body: JSON.stringify(requestBody)
+    const response = await fetchOpenRouterChatCompletion(requestBody, {
+      referer:
+        typeof window !== 'undefined'
+          ? headerByteString(window.location.origin)
+          : 'https://mamamath.org',
+      title: 'Mother of Math',
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
+      const errorData = await response.json().catch(() => ({})) as {
+        error?: string | { message?: string };
+        ok?: boolean;
+      };
       console.error("API Error Details:", errorData);
-      throw new Error(`API request failed with status ${response.status}: ${errorData.error?.message || 'Unknown error'}`);
+      const nested =
+        typeof errorData.error === 'object' && errorData.error !== null
+          ? (errorData.error as { message?: string }).message
+          : undefined;
+      const flat =
+        typeof errorData.error === 'string' ? errorData.error : undefined;
+      throw new Error(
+        `API request failed with status ${response.status}: ${nested || flat || 'Unknown error'}`,
+      );
     }
 
     const data = await response.json();

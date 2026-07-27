@@ -215,16 +215,70 @@ export const getAdminDashboardOverview = async (): Promise<DashboardOverview> =>
  */
 export const getAllTeachers = async (): Promise<TeacherStats[]> => {
   try {
-    // First try using the RPC function that bypasses RLS
+    /** Single DB round-trip (migration `get_all_teachers_with_stats`). Avoids N× get_teacher_stats. */
+    const { data: bulkTeachers, error: bulkError } = await supabase.rpc('get_all_teachers_with_stats');
+    if (!bulkError && bulkTeachers !== null && Array.isArray(bulkTeachers)) {
+      if (bulkTeachers.length === 0) {
+        return [];
+      }
+      console.log(`RPC: get_all_teachers_with_stats — ${bulkTeachers.length} teachers (one round-trip)`);
+      return bulkTeachers.map((teacher: Record<string, unknown>) => {
+        const yoeRaw = teacher.years_of_experience;
+        const yoeNum =
+          yoeRaw != null && yoeRaw !== ''
+            ? Number(yoeRaw)
+            : null;
+        return {
+          id: teacher.id as string,
+          email: (teacher.email as string) || '',
+          full_name: (teacher.full_name as string) || 'Unknown',
+          gender: (teacher.gender as string | null) ?? null,
+          country: (teacher.country as string | null) ?? null,
+          city: (teacher.city as string | null) ?? null,
+          school_name: (teacher.school_name as string | null) ?? null,
+          school_address: (teacher.school_address as string | null) ?? null,
+          school_type: (teacher.school_type as string | null) ?? null,
+          number_of_students:
+            teacher.number_of_students != null ? Number(teacher.number_of_students) : null,
+          subjects_taught: (teacher.subjects_taught as string | null) ?? null,
+          grade_levels: (teacher.grade_levels as string | null) ?? null,
+          years_of_experience: yoeNum != null && Number.isFinite(yoeNum) ? yoeNum : null,
+          education_level: (teacher.education_level as string | null) ?? null,
+          phone_number: (teacher.phone_number as string | null) ?? null,
+          whatsapp_number: (teacher.whatsapp_number as string | null) ?? null,
+          bio: (teacher.bio as string | null) ?? null,
+          date_of_birth: (teacher.date_of_birth as string | null) ?? null,
+          avatar_url: (teacher.avatar_url as string | null) ?? null,
+          preferred_language: (teacher.preferred_language as string | null) ?? null,
+          created_at: teacher.created_at as string,
+          updated_at: (teacher.updated_at as string | null) ?? null,
+          last_login: (teacher.updated_at as string | null) ?? undefined,
+          total_students: Number(teacher.total_students) || 0,
+          total_lesson_plans: Number(teacher.total_lesson_plans) || 0,
+          total_assignments: Number(teacher.total_assignments) || 0,
+          total_chatbot_messages: Number(teacher.total_messages) || 0,
+          total_conversations: Number(teacher.total_conversations) || 0,
+          total_resources: Number(teacher.total_resources) || 0,
+          total_announcements: Number(teacher.total_announcements) || 0,
+          account_status: 'active' as const,
+          login_count: 0,
+          last_activity: (teacher.updated_at as string | null) ?? undefined,
+        };
+      });
+    }
+    if (bulkError?.message && !bulkError.message.includes('does not exist')) {
+      console.warn('get_all_teachers_with_stats unavailable, using legacy teacher fetch:', bulkError.message);
+    }
+
+    // Legacy: profiles + per-teacher stats (slow at scale — deploy migration above).
     const { data: rpcTeachers, error: rpcError } = await supabase.rpc('get_all_teachers');
-    
+
     let teachers: any[] = [];
-    
+
     if (!rpcError && rpcTeachers !== null) {
       console.log(`RPC: Found ${rpcTeachers.length} teachers (bypassed RLS)`);
       teachers = rpcTeachers;
     } else {
-      // Fallback to direct query (requires service role key for full access)
       console.log('RPC error or not available, falling back to direct query:', rpcError?.message);
       const { data: directTeachers, error } = await adminSupabase
         .from('profiles')
@@ -236,28 +290,23 @@ export const getAllTeachers = async (): Promise<TeacherStats[]> => {
         console.error('Error fetching teachers:', error.message);
         throw error;
       }
-      
+
       teachers = directTeachers || [];
     }
-    
+
     if (teachers.length === 0) {
       console.log('No teachers found in database');
       return [];
     }
 
-    console.log(`Processing ${teachers.length} teachers`);
+    console.log(`Processing ${teachers.length} teachers (legacy per-teacher stats)`);
 
-    // Get additional stats for each teacher using RPC or direct queries
     const teacherStats = await Promise.all(
       teachers.map(async (teacher) => {
-        // Try RPC function for stats first
-        const { data: rpcStats, error: rpcError } = await supabase.rpc('get_teacher_stats', { teacher_uuid: teacher.id });
-        
-        // Suppress individual teacher stats errors in console (expected if SQL not deployed)
-        if (rpcError) {
-          // Silent fallback to direct queries
-        }
-        
+        const { data: rpcStats, error: statsErr } = await supabase.rpc('get_teacher_stats', {
+          teacher_uuid: teacher.id,
+        });
+
         let stats = {
           total_students: 0,
           total_lesson_plans: 0,
@@ -267,18 +316,17 @@ export const getAllTeachers = async (): Promise<TeacherStats[]> => {
           total_resources: 0,
           total_announcements: 0,
         };
-        
-        if (!rpcError && rpcStats !== null && rpcStats.length > 0) {
+
+        if (!statsErr && rpcStats !== null && rpcStats.length > 0) {
           stats = rpcStats[0];
         } else {
-          // Fallback to direct queries
           const [
-            studentsCount, 
-            lessonPlansCount, 
-            assignmentsCount, 
+            studentsCount,
+            lessonPlansCount,
+            assignmentsCount,
             conversationsResult,
             resourcesCount,
-            announcementsCount
+            announcementsCount,
           ] = await Promise.all([
             adminSupabase.from('students').select('*', { count: 'exact', head: true }).eq('teacher_id', teacher.id),
             adminSupabase.from('lesson_plans').select('*', { count: 'exact', head: true }).eq('user_id', teacher.id),
@@ -288,7 +336,6 @@ export const getAllTeachers = async (): Promise<TeacherStats[]> => {
             adminSupabase.from('announcements').select('*', { count: 'exact', head: true }).eq('teacher_id', teacher.id),
           ]);
 
-          // Get total messages from all conversations
           let totalMessages = 0;
           const conversations = conversationsResult.data || [];
           if (conversations.length > 0) {
@@ -299,7 +346,7 @@ export const getAllTeachers = async (): Promise<TeacherStats[]> => {
               .in('conversation_id', convoIds);
             totalMessages = count || 0;
           }
-          
+
           stats = {
             total_students: studentsCount.count || 0,
             total_lesson_plans: lessonPlansCount.count || 0,
@@ -312,7 +359,6 @@ export const getAllTeachers = async (): Promise<TeacherStats[]> => {
         }
 
         return {
-          // All profile fields
           id: teacher.id,
           email: teacher.email || '',
           full_name: teacher.full_name || 'Unknown',
@@ -333,11 +379,9 @@ export const getAllTeachers = async (): Promise<TeacherStats[]> => {
           date_of_birth: teacher.date_of_birth,
           avatar_url: teacher.avatar_url,
           preferred_language: teacher.preferred_language,
-          // Timestamps
           created_at: teacher.created_at,
           updated_at: teacher.updated_at,
           last_login: teacher.updated_at,
-          // Calculated stats (using stats object)
           total_students: Number(stats.total_students) || 0,
           total_lesson_plans: Number(stats.total_lesson_plans) || 0,
           total_assignments: Number(stats.total_assignments) || 0,
@@ -349,7 +393,7 @@ export const getAllTeachers = async (): Promise<TeacherStats[]> => {
           login_count: 0,
           last_activity: teacher.updated_at,
         };
-      })
+      }),
     );
 
     return teacherStats;
@@ -357,6 +401,39 @@ export const getAllTeachers = async (): Promise<TeacherStats[]> => {
     console.error('Error fetching teachers:', error);
     return [];
   }
+};
+
+type StudentSubmissionAgg = { total: number; gradedSum: number; gradedCount: number };
+
+const mapStudentRowToStats = (student: Record<string, unknown>, agg: StudentSubmissionAgg): StudentStats => {
+  const averageScore = agg.gradedCount > 0 ? agg.gradedSum / agg.gradedCount : null;
+  const prof = student.profiles as { full_name?: string } | undefined;
+  return {
+    id: String(student.id),
+    full_name: (student.full_name as string) || 'Unknown',
+    grade_level: (student.grade_level as string) || 'N/A',
+    teacher_id: String(student.teacher_id),
+    teacher_name: (student.teacher_name as string) || prof?.full_name,
+    created_at: String(student.created_at),
+    account_status: ((student.account_status as string) || 'active') as StudentStats['account_status'],
+    total_submissions: agg.total,
+    average_score: averageScore,
+    last_activity: (student.updated_at as string) || undefined,
+    student_code: (student.student_code as string | null | undefined) ?? undefined,
+    school_name: (student.school_name as string | null | undefined) ?? undefined,
+    date_of_birth: student.date_of_birth != null ? String(student.date_of_birth) : undefined,
+    gender: (student.gender as string | null | undefined) ?? undefined,
+    nationality: (student.nationality as string | null | undefined) ?? undefined,
+    parent_name: (student.parent_name as string | null | undefined) ?? undefined,
+    parent_phone: (student.parent_phone as string | null | undefined) ?? undefined,
+    parent_email: (student.parent_email as string | null | undefined) ?? undefined,
+    class_name: (student.class_name as string | null | undefined) ?? undefined,
+    notes: (student.notes as string | null | undefined) ?? undefined,
+    last_portal_activity_at: (student.last_portal_activity_at as string | null | undefined) ?? undefined,
+    last_submission_at: (student.last_submission_at as string | null | undefined) ?? undefined,
+    auth_last_sign_in_at: (student.auth_last_sign_in_at as string | null | undefined) ?? undefined,
+    has_login_account: student.auth_user_id != null,
+  };
 };
 
 /**
@@ -369,10 +446,45 @@ export const getAllStudents = async (): Promise<StudentStats[]> => {
     
     if (!rpcError && rpcStudents !== null) {
       console.log(`RPC: Found ${rpcStudents.length} students (bypassed RLS)`);
-      
-      // Get submission stats for each student
+
+      const studentIds = (rpcStudents as { id: string }[]).map((s) => s.id).filter(Boolean);
+      const submissionAgg = new Map<string, { total: number; gradedSum: number; gradedCount: number }>();
+
+      let subsLoadFailed = false;
+      if (studentIds.length > 0) {
+        const { data: subsRows, error: subsErr } = await adminSupabase
+          .from('assignment_submissions')
+          .select('student_id, score')
+          .in('student_id', studentIds);
+
+        if (!subsErr && subsRows) {
+          for (const row of subsRows) {
+            const sid = row.student_id as string;
+            if (!sid) continue;
+            const cur = submissionAgg.get(sid) ?? { total: 0, gradedSum: 0, gradedCount: 0 };
+            cur.total += 1;
+            if (row.score != null) {
+              cur.gradedCount += 1;
+              cur.gradedSum += Number(row.score);
+            }
+            submissionAgg.set(sid, cur);
+          }
+          console.log(`Bulk-loaded ${subsRows.length} submission rows for ${studentIds.length} students`);
+        } else if (subsErr) {
+          subsLoadFailed = true;
+          console.warn('Bulk submission load failed, falling back to per-student queries:', subsErr.message);
+        }
+      }
+
+      if (!subsLoadFailed) {
+        return (rpcStudents as any[]).map((student: any) => {
+          const agg = submissionAgg.get(student.id) ?? { total: 0, gradedSum: 0, gradedCount: 0 };
+          return mapStudentRowToStats(student as Record<string, unknown>, agg);
+        });
+      }
+
       const studentStats = await Promise.all(
-        rpcStudents.map(async (student: any) => {
+        (rpcStudents as any[]).map(async (student: any) => {
           const { data: submissions } = await adminSupabase
             .from('assignment_submissions')
             .select('score')
@@ -380,23 +492,14 @@ export const getAllStudents = async (): Promise<StudentStats[]> => {
 
           const totalSubmissions = submissions?.length || 0;
           const gradedSubmissions = submissions?.filter((s: any) => s.score !== null) || [];
-          const averageScore = gradedSubmissions.length > 0
-            ? gradedSubmissions.reduce((sum: number, s: any) => sum + (s.score || 0), 0) / gradedSubmissions.length
-            : null;
-
-          return {
-            id: student.id,
-            full_name: student.full_name || 'Unknown',
-            grade_level: student.grade_level || 'N/A',
-            teacher_id: student.teacher_id,
-            teacher_name: student.teacher_name,
-            created_at: student.created_at,
-            account_status: student.account_status || 'active',
-            total_submissions: totalSubmissions,
-            average_score: averageScore,
-            last_activity: student.updated_at,
+          const gradedSum = gradedSubmissions.reduce((sum: number, s: any) => sum + (s.score || 0), 0);
+          const agg: StudentSubmissionAgg = {
+            total: totalSubmissions,
+            gradedSum,
+            gradedCount: gradedSubmissions.length,
           };
-        })
+          return mapStudentRowToStats(student as Record<string, unknown>, agg);
+        }),
       );
       return studentStats;
     }
@@ -425,22 +528,13 @@ export const getAllStudents = async (): Promise<StudentStats[]> => {
 
         const totalSubmissions = submissions?.length || 0;
         const gradedSubmissions = submissions?.filter(s => s.score !== null) || [];
-        const averageScore = gradedSubmissions.length > 0
-          ? gradedSubmissions.reduce((sum, s) => sum + (s.score || 0), 0) / gradedSubmissions.length
-          : null;
-
-        return {
-          id: student.id,
-          full_name: student.full_name,
-          grade_level: student.grade_level,
-          teacher_id: student.teacher_id,
-          teacher_name: student.profiles?.full_name,
-          created_at: student.created_at,
-          account_status: student.account_status || 'active',
-          total_submissions: totalSubmissions,
-          average_score: averageScore,
-          last_activity: student.updated_at,
+        const gradedSum = gradedSubmissions.reduce((sum, s) => sum + (s.score || 0), 0);
+        const agg: StudentSubmissionAgg = {
+          total: totalSubmissions,
+          gradedSum,
+          gradedCount: gradedSubmissions.length,
         };
+        return mapStudentRowToStats(student as unknown as Record<string, unknown>, agg);
       })
     );
 

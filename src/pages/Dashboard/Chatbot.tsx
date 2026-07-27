@@ -1,8 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useId, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import remarkBreaks from "remark-breaks";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -22,6 +23,14 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import ChatbotService from "@/services/chatbot";
 import type { ChatMessage } from "@/services/chatbot";
+import { fetchTeacherChatbotContext } from "@/services/teacherChatbotContext";
+import {
+  extractLatexSnippets,
+  downloadWorksheetPdf,
+  downloadWorksheetDocx,
+  downloadMarkdownTableExcel,
+  downloadRubricExcel,
+} from "@/services/chatbotDocumentExports";
 import { getTopicsForClassLevel } from "@/data/curriculumContent";
 import type { TopicItem } from "@/data/curriculumContent";
 import {
@@ -46,6 +55,7 @@ import {
   Zap, Star, CornerDownLeft, Mic, MicOff, Image as ImageIcon, X, History,
   ChevronLeft, Pencil, Search, PanelLeftClose, PanelLeft,
   ThumbsUp, ThumbsDown, Bookmark, BookmarkCheck, Moon, Sun, Globe, FileText,
+  Braces, FileType2, Table2,
 } from "lucide-react";
 
 /*  Constants  */
@@ -66,6 +76,34 @@ const PROMPT_KEYS = [
   { icon: Zap, key: "prompt.mistakes" },
 ];
 
+/** Shared Tailwind Typography + spacing for assistant Markdown (streaming + final). */
+function assistantProseClasses(darkMode: boolean) {
+  return cn(
+    "mama-assistant-md prose prose-sm max-w-none leading-relaxed text-[14px] sm:text-[15px]",
+    "[&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto [&_.katex-display]:max-w-full [&_.katex]:text-[0.95em]",
+    darkMode
+      ? "prose-invert text-gray-200 prose-headings:text-green-400 prose-headings:font-semibold prose-strong:text-green-200 prose-a:text-green-400 prose-li:marker:text-green-400 prose-code:bg-gray-700/90 prose-code:text-green-200 prose-pre:bg-gray-950 prose-pre:text-gray-100 prose-hr:border-gray-600 prose-blockquote:border-green-500/50 prose-blockquote:text-gray-300"
+      : "text-gray-800 prose-headings:text-[#009e60] prose-headings:font-semibold prose-strong:text-gray-900 prose-a:text-[#009e60] prose-li:marker:text-[#009e60] prose-code:bg-green-50 prose-code:text-green-900 prose-pre:bg-gray-950 prose-pre:text-gray-100 prose-hr:border-gray-200 prose-blockquote:border-[#009e60]/35 prose-blockquote:text-gray-700",
+    "prose-p:my-2.5 prose-p:leading-[1.65] prose-p:first:mt-0 prose-p:last:mb-0",
+    "prose-h1:text-lg prose-h1:mb-3 prose-h1:mt-1 prose-h1:pb-2 prose-h1:border-b",
+    darkMode ? "prose-h1:border-gray-600" : "prose-h1:border-gray-200",
+    "prose-h2:text-[1.05rem] prose-h2:mt-6 prose-h2:mb-2.5 prose-h2:pb-1.5 prose-h2:border-b prose-h2:font-semibold first:prose-h2:mt-0",
+    darkMode ? "prose-h2:border-green-500/25" : "prose-h2:border-[#009e60]/20",
+    "prose-h3:text-sm prose-h3:mt-5 prose-h3:mb-2 prose-h3:font-semibold first:prose-h3:mt-0",
+    "prose-ul:my-3 prose-ul:pl-0.5 prose-ol:my-3 prose-ol:pl-0.5",
+    "prose-li:my-1 prose-li:leading-relaxed",
+    "prose-hr:my-7",
+    "prose-blockquote:my-4 prose-blockquote:border-l-4 prose-blockquote:pl-4",
+    "prose-table:my-4 prose-table:w-full prose-table:text-sm prose-table:border-collapse",
+    darkMode
+      ? "prose-th:border-gray-600 prose-td:border-gray-700 prose-th:bg-white/[0.06]"
+      : "prose-th:border-gray-200 prose-td:border-gray-200 prose-th:bg-[#009e60]/[0.08]",
+    "prose-th:px-3 prose-th:py-2 prose-td:px-3 prose-td:py-2",
+  );
+}
+
+const REMARK_ASSISTANT = [remarkGfm, remarkMath, remarkBreaks];
+
 /*  Typing Indicator  */
 
 const TypingIndicator = () => (
@@ -81,6 +119,58 @@ const TypingIndicator = () => (
   </div>
 );
 
+/*  Mermaid (geometry / flowcharts in chat)  */
+
+const MermaidDiagram: React.FC<{ code: string; darkMode: boolean }> = ({ code, darkMode }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const stableId = useId().replace(/:/g, "");
+  useEffect(() => {
+    let cancelled = false;
+    const el = containerRef.current;
+    if (!el) return;
+    el.innerHTML = "";
+    (async () => {
+      try {
+        const { default: mermaid } = await import("mermaid");
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: darkMode ? "dark" : "default",
+          securityLevel: "strict",
+          fontFamily: "inherit",
+        });
+        if (cancelled) return;
+        const sid = `mmd-${stableId}-${String(code.length)}`;
+        const { svg } = await mermaid.render(sid, code);
+        if (!cancelled && containerRef.current) containerRef.current.innerHTML = svg;
+      } catch {
+        if (!cancelled && containerRef.current) {
+          containerRef.current.innerHTML = "";
+          const pre = document.createElement("pre");
+          pre.className = cn(
+            "text-xs p-3 whitespace-pre-wrap font-mono",
+            darkMode ? "text-amber-300" : "text-amber-800",
+          );
+          pre.textContent =
+            "Could not render this Mermaid diagram. Check syntax (flowchart TD, sequenceDiagram, …).";
+          containerRef.current.appendChild(pre);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [code, darkMode, stableId]);
+  return (
+    <div
+      ref={containerRef}
+      className={cn(
+        "min-h-[72px] flex items-center justify-center px-2 py-3 [&_svg]:max-w-full",
+        darkMode ? "bg-gray-900/50" : "bg-slate-50",
+      )}
+    />
+  );
+};
+
 /*  Code Block Component  */
 
 interface CodeBlockProps {
@@ -88,9 +178,11 @@ interface CodeBlockProps {
   className?: string;
   children?: React.ReactNode;
   darkMode: boolean;
+  /** While the assistant message is still streaming, skip Mermaid renders (partial diagrams error). */
+  deferMermaid?: boolean;
 }
 
-const CodeBlock: React.FC<CodeBlockProps> = ({ inline, className, children, darkMode }) => {
+const CodeBlock: React.FC<CodeBlockProps> = ({ inline, className, children, darkMode, deferMermaid }) => {
   const [copied, setCopied] = useState(false);
   const match = /language-(\w+)/.exec(className || "");
   const lang = match?.[1] || "";
@@ -110,14 +202,38 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ inline, className, children, dark
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const bar = (
+    <div className={cn("flex items-center justify-between px-4 py-2 text-xs font-mono", darkMode ? "bg-gray-800 text-gray-400" : "bg-gray-100 text-gray-500")}>
+      <span>{lang.toUpperCase()}</span>
+      <button type="button" onClick={handleCopy} className="flex items-center gap-1 hover:text-green-500 transition-colors">
+        {copied ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+      </button>
+    </div>
+  );
+
+  if (lang === "mermaid") {
+    if (deferMermaid) {
+      return (
+        <div className={cn("relative rounded-xl overflow-hidden my-3 border", darkMode ? "border-gray-600" : "border-gray-200")}>
+          {bar}
+          <pre className={cn("text-xs px-4 pb-3 pt-1 overflow-x-auto font-mono m-0", darkMode ? "text-gray-300 bg-gray-900/40" : "text-gray-700")}>
+            {code}
+          </pre>
+          <p className={cn("text-[10px] px-4 pb-2", darkMode ? "text-gray-500" : "text-gray-400")}>Diagram appears when the message finishes.</p>
+        </div>
+      );
+    }
+    return (
+      <div className={cn("relative rounded-xl overflow-hidden my-3 border", darkMode ? "border-gray-600" : "border-gray-200")}>
+        {bar}
+        <MermaidDiagram code={code} darkMode={darkMode} />
+      </div>
+    );
+  }
+
   return (
     <div className={cn("relative rounded-xl overflow-hidden my-3 border", darkMode ? "border-gray-600" : "border-gray-200")}>
-      <div className={cn("flex items-center justify-between px-4 py-2 text-xs font-mono", darkMode ? "bg-gray-800 text-gray-400" : "bg-gray-100 text-gray-500")}>
-        <span>{lang.toUpperCase()}</span>
-        <button onClick={handleCopy} className="flex items-center gap-1 hover:text-green-500 transition-colors">
-          {copied ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
-        </button>
-      </div>
+      {bar}
       <SyntaxHighlighter
         style={darkMode ? oneDark : oneLight}
         language={lang}
@@ -133,17 +249,12 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ inline, className, children, dark
 /*  Streaming Text  */
 
 const StreamingText: React.FC<{ text: string; darkMode: boolean }> = ({ text, darkMode }) => (
-  <div className={cn(
-    "prose prose-sm max-w-none text-[14px] sm:text-[15px]",
-    darkMode
-      ? "prose-invert prose-headings:text-green-400 prose-strong:text-green-400 prose-a:text-green-400 prose-li:marker:text-green-400 prose-code:bg-gray-700 prose-code:text-green-300 prose-pre:bg-gray-900 prose-pre:text-gray-100"
-      : "prose-headings:text-[#009e60] prose-headings:font-semibold prose-strong:text-[#009e60] prose-a:text-[#009e60] prose-li:marker:text-[#009e60] prose-code:bg-gray-100 prose-code:text-[#009e60] prose-pre:bg-gray-900 prose-pre:text-gray-100"
-  )}>
+  <div className={assistantProseClasses(darkMode)}>
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkMath]}
+      remarkPlugins={REMARK_ASSISTANT}
       rehypePlugins={[rehypeKatex]}
       components={{
-        code: (props: any) => <CodeBlock {...props} darkMode={darkMode} />,
+        code: (props: any) => <CodeBlock {...props} darkMode={darkMode} deferMermaid />,
       }}
     >
       {text}
@@ -166,6 +277,11 @@ interface MessageBubbleProps {
   onRegenerate?: () => void;
   onRate?: (rating: number) => void;
   onBookmark?: () => void;
+  /** Worksheet / export tools for finished assistant messages */
+  onAssistantCopyLatex?: (markdown: string) => void;
+  onAssistantDownloadPdf?: (markdown: string) => void;
+  onAssistantDownloadDocx?: (markdown: string) => void;
+  onAssistantDownloadExcel?: (markdown: string) => void;
   isLast: boolean;
   isAssistant: boolean;
   userName: string;
@@ -174,7 +290,24 @@ interface MessageBubbleProps {
 }
 
 const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
-  ({ message, streamingText, isStreaming, onCopy, onRegenerate, onRate, onBookmark, isLast, isAssistant, userName, darkMode, lang }) => {
+  ({
+    message,
+    streamingText,
+    isStreaming,
+    onCopy,
+    onRegenerate,
+    onRate,
+    onBookmark,
+    onAssistantCopyLatex,
+    onAssistantDownloadPdf,
+    onAssistantDownloadDocx,
+    onAssistantDownloadExcel,
+    isLast,
+    isAssistant,
+    userName,
+    darkMode,
+    lang,
+  }) => {
     const [copied, setCopied] = useState(false);
     const displayText = isStreaming && streamingText !== undefined ? streamingText : message.content;
 
@@ -186,12 +319,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
 
     const timeStr = new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-    const proseClasses = cn(
-      "prose prose-sm max-w-none text-[14px] sm:text-[15px]",
-      darkMode
-        ? "prose-invert prose-headings:text-green-400 prose-strong:text-green-400 prose-a:text-green-400 prose-li:marker:text-green-400 prose-code:bg-gray-700 prose-code:text-green-300 prose-pre:bg-gray-900 prose-pre:text-gray-100"
-        : "prose-headings:text-[#009e60] prose-headings:font-semibold prose-strong:text-[#009e60] prose-a:text-[#009e60] prose-li:marker:text-[#009e60] prose-code:bg-gray-100 prose-code:text-[#009e60] prose-pre:bg-gray-900 prose-pre:text-gray-100"
-    );
+    const proseClasses = assistantProseClasses(darkMode);
 
     return (
       <motion.div
@@ -214,7 +342,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
           )}
 
           <div className={cn(
-            "rounded-2xl px-4 py-3 shadow-sm",
+            "rounded-2xl px-4 py-3.5 sm:px-5 sm:py-4 shadow-sm",
             isAssistant
               ? darkMode
                 ? "bg-gray-800 border border-gray-700 text-gray-200 rounded-bl-md"
@@ -227,10 +355,10 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
               ) : (
                 <div className={proseClasses}>
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkMath]}
+                    remarkPlugins={REMARK_ASSISTANT}
                     rehypePlugins={[rehypeKatex]}
                     components={{
-                      code: (props: any) => <CodeBlock {...props} darkMode={darkMode} />,
+                      code: (props: any) => <CodeBlock {...props} darkMode={darkMode} deferMermaid={false} />,
                     }}
                   >
                     {displayText}
@@ -279,6 +407,67 @@ const MessageBubble: React.FC<MessageBubbleProps> = React.memo(
               )}
             </div>
           </div>
+
+          {isAssistant && !isStreaming && displayText.trim() && (onAssistantCopyLatex || onAssistantDownloadPdf || onAssistantDownloadDocx || onAssistantDownloadExcel) && (
+            <div className="flex flex-wrap items-center gap-1 mt-1.5 px-1">
+              {onAssistantCopyLatex && (
+                <button
+                  type="button"
+                  onClick={() => onAssistantCopyLatex(displayText)}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-medium transition-colors",
+                    darkMode ? "border-gray-600 text-gray-400 hover:bg-gray-800 hover:text-green-400" : "border-gray-200 text-gray-600 hover:bg-green-50 hover:text-green-700",
+                  )}
+                  title={lang === "fr" ? "Copier le code LaTeX" : "Copy LaTeX ($...$ / $$...$$)"}
+                >
+                  <Braces className="w-3 h-3 shrink-0" />
+                  LaTeX
+                </button>
+              )}
+              {onAssistantDownloadPdf && (
+                <button
+                  type="button"
+                  onClick={() => onAssistantDownloadPdf(displayText)}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-medium transition-colors",
+                    darkMode ? "border-gray-600 text-gray-400 hover:bg-gray-800 hover:text-green-400" : "border-gray-200 text-gray-600 hover:bg-green-50 hover:text-green-700",
+                  )}
+                  title={lang === "fr" ? "Télécharger PDF (feuille d'exercices)" : "Download worksheet PDF"}
+                >
+                  <FileText className="w-3 h-3 shrink-0" />
+                  PDF
+                </button>
+              )}
+              {onAssistantDownloadDocx && (
+                <button
+                  type="button"
+                  onClick={() => void onAssistantDownloadDocx(displayText)}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-medium transition-colors",
+                    darkMode ? "border-gray-600 text-gray-400 hover:bg-gray-800 hover:text-green-400" : "border-gray-200 text-gray-600 hover:bg-green-50 hover:text-green-700",
+                  )}
+                  title={lang === "fr" ? "Télécharger Word (.docx)" : "Download Word (.docx)"}
+                >
+                  <FileType2 className="w-3 h-3 shrink-0" />
+                  Word
+                </button>
+              )}
+              {onAssistantDownloadExcel && (
+                <button
+                  type="button"
+                  onClick={() => onAssistantDownloadExcel(displayText)}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-medium transition-colors",
+                    darkMode ? "border-gray-600 text-gray-400 hover:bg-gray-800 hover:text-green-400" : "border-gray-200 text-gray-600 hover:bg-green-50 hover:text-green-700",
+                  )}
+                  title={lang === "fr" ? "Exporter tableau Excel (ou modèle de grille)" : "Export Markdown table to Excel, or rubric template"}
+                >
+                  <Table2 className="w-3 h-3 shrink-0" />
+                  Excel
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {!isAssistant && (
@@ -424,6 +613,30 @@ const Chatbot: React.FC = () => {
   const [streamingText, setStreamingText] = useState("");
   const [isStreamingActive, setIsStreamingActive] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [teacherContextSummary, setTeacherContextSummary] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setTeacherContextSummary(undefined);
+      return;
+    }
+    let cancelled = false;
+    fetchTeacherChatbotContext(user.id)
+      .then((r) => {
+        if (!cancelled) setTeacherContextSummary(r.summaryMarkdown);
+      })
+      .catch(() => {
+        if (!cancelled) setTeacherContextSummary(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const worksheetExportTitle = useMemo(
+    () => `Primary ${selectedGrade || "?"} — MAMA Math`,
+    [selectedGrade],
+  );
 
   /*  Sidebar  */
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -579,7 +792,7 @@ const Chatbot: React.FC = () => {
         const response = await chatbotService.sendMessageStreaming(
           content, messages, selectedGrade,
           (chunk: string) => { fullResponseText += chunk; setStreamingText(fullResponseText); },
-          imageForMsg || undefined, language, selectedCountry, curriculumTopics
+          imageForMsg || undefined, language, selectedCountry, curriculumTopics, teacherContextSummary
         );
 
         setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: response.message || fullResponseText } : m));
@@ -602,7 +815,7 @@ const Chatbot: React.FC = () => {
         textareaRef.current?.focus();
       }
     },
-    [inputMessage, isLoading, selectedGrade, messages, chatbotService, toast, activeConvoId, user?.id, pendingImage, language, selectedCountry, curriculumTopics]
+    [inputMessage, isLoading, selectedGrade, messages, chatbotService, toast, activeConvoId, user?.id, pendingImage, language, selectedCountry, curriculumTopics, teacherContextSummary]
   );
 
   /*  Regenerate  */
@@ -625,7 +838,7 @@ const Chatbot: React.FC = () => {
       const response = await chatbotService.sendMessageStreaming(
         lastUserMsg.content, history, selectedGrade,
         (chunk) => { fullText += chunk; setStreamingText(fullText); },
-        undefined, language, selectedCountry, curriculumTopics
+        undefined, language, selectedCountry, curriculumTopics, teacherContextSummary
       );
       setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: response.message || fullText } : m));
       if (activeConvoId) {
@@ -639,7 +852,7 @@ const Chatbot: React.FC = () => {
       setIsStreamingActive(false);
       setStreamingText("");
     }
-  }, [isLoading, messages, chatbotService, selectedGrade, toast, activeConvoId, language, selectedCountry, curriculumTopics]);
+  }, [isLoading, messages, chatbotService, selectedGrade, toast, activeConvoId, language, selectedCountry, curriculumTopics, teacherContextSummary]);
 
   /*  PDF export  */
   const handleExportPdf = () => {
@@ -812,6 +1025,69 @@ const Chatbot: React.FC = () => {
   };
 
   const handleCopy = (text: string) => { navigator.clipboard.writeText(text); toast({ title: t(language, "action.copied") }); };
+
+  const handleAssistantCopyLatex = useCallback(
+    (md: string) => {
+      const latex = extractLatexSnippets(md);
+      if (!latex) {
+        toast({
+          title: language === "fr" ? "Pas de LaTeX" : "No LaTeX found",
+          description:
+            language === "fr"
+              ? "Ajoutez des formules avec $...$ ou $$...$$ pour les copier."
+              : "Add formulas using $...$ or $$...$$ to copy them.",
+          variant: "destructive",
+        });
+        return;
+      }
+      void navigator.clipboard.writeText(latex);
+      toast({ title: language === "fr" ? "LaTeX copié" : "LaTeX copied to clipboard" });
+    },
+    [toast, language],
+  );
+
+  const handleAssistantDownloadPdf = useCallback(
+    (md: string) => {
+      try {
+        downloadWorksheetPdf(md, worksheetExportTitle);
+        toast({ title: language === "fr" ? "PDF téléchargé" : "PDF downloaded" });
+      } catch {
+        toast({ title: t(language, "status.error"), variant: "destructive" });
+      }
+    },
+    [toast, language, worksheetExportTitle],
+  );
+
+  const handleAssistantDownloadDocx = useCallback(
+    async (md: string) => {
+      try {
+        await downloadWorksheetDocx(md, worksheetExportTitle);
+        toast({ title: language === "fr" ? "Word téléchargé" : "Word document downloaded" });
+      } catch {
+        toast({ title: t(language, "status.error"), variant: "destructive" });
+      }
+    },
+    [toast, language, worksheetExportTitle],
+  );
+
+  const handleAssistantDownloadExcel = useCallback(
+    (md: string) => {
+      const ok = downloadMarkdownTableExcel(md, "mama-chat-table");
+      if (ok) {
+        toast({ title: language === "fr" ? "Excel téléchargé" : "Excel spreadsheet downloaded" });
+        return;
+      }
+      downloadRubricExcel("mama-rubric");
+      toast({
+        title: language === "fr" ? "Modèle Excel" : "Excel template",
+        description:
+          language === "fr"
+            ? "Pas de tableau Markdown — grille d'évaluation type téléchargée."
+            : "No Markdown table in this reply — downloaded a rubric / grade tracker template.",
+      });
+    },
+    [toast, language],
+  );
 
   /*  Filtered conversations  */
   const filteredConvos = searchQuery
@@ -1136,6 +1412,10 @@ const Chatbot: React.FC = () => {
                       onRegenerate={msg.role === "assistant" && idx === messages.length - 1 ? handleRegenerate : undefined}
                       onRate={msg.role === "assistant" ? (rating: number) => handleRate(msg.id, msg.dbId, rating) : undefined}
                       onBookmark={msg.role === "assistant" ? () => handleBookmark(msg.id, msg.dbId) : undefined}
+                      onAssistantCopyLatex={handleAssistantCopyLatex}
+                      onAssistantDownloadPdf={handleAssistantDownloadPdf}
+                      onAssistantDownloadDocx={handleAssistantDownloadDocx}
+                      onAssistantDownloadExcel={handleAssistantDownloadExcel}
                       isLast={idx === messages.length - 1}
                       isAssistant={msg.role === "assistant"}
                       userName={userName}

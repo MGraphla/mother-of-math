@@ -30,7 +30,7 @@ const DashboardLayout = () => {
 
       <div
         className={cn(
-          "flex flex-col transition-all duration-300 ease-in-out",
+          "flex min-h-screen min-w-0 flex-1 flex-col transition-all duration-300 ease-in-out",
           isSidebarExpanded ? "lg:ml-72" : "lg:ml-20"
         )}
       >
@@ -78,7 +78,7 @@ const DashboardLayout = () => {
             </div>
           </div>
         </header>
-        <main className="flex-1 p-4 sm:p-6">
+        <main className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
           <Outlet />
         </main>
       </div>

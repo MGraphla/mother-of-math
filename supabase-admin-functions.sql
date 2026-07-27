@@ -200,7 +200,11 @@ RETURNS TABLE (
   notes TEXT,
   created_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ,
-  teacher_name TEXT
+  teacher_name TEXT,
+  last_portal_activity_at TIMESTAMPTZ,
+  last_submission_at TIMESTAMPTZ,
+  auth_user_id UUID,
+  auth_last_sign_in_at TIMESTAMPTZ
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -226,9 +230,14 @@ BEGIN
     s.notes,
     s.created_at,
     s.updated_at,
-    p.full_name as teacher_name
+    p.full_name as teacher_name,
+    s.last_portal_activity_at,
+    s.last_submission_at,
+    s.auth_user_id,
+    u.last_sign_in_at AS auth_last_sign_in_at
   FROM students s
   LEFT JOIN profiles p ON s.teacher_id = p.id
+  LEFT JOIN auth.users u ON u.id = s.auth_user_id
   ORDER BY s.created_at DESC;
 END;
 $$;
