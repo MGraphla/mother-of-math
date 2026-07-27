@@ -104,34 +104,29 @@ import {
   buildStudentWorkParentReportPlain,
   buildStudentWorkVoiceScriptForUpload,
 } from "@/lib/studentFeedbackNarrative";
+import { fetchOpenRouterChatCompletion } from "@/services/openrouterTransport";
+import {
+  buildStudentWorkAnalysisPrompt,
+  extractGradeFraction,
+  normalizeStudentWorkFeedback,
+  STUDENT_WORK_ANALYSIS_SYSTEM_PROMPT,
+  STUDENT_WORK_MAX_TOKENS,
+  STUDENT_WORK_TEMPERATURE,
+  STUDENT_WORK_VISION_DETAIL,
+} from "@/lib/studentWorkAnalysisPrompt";
 import jsPDF from "jspdf";
-
-/* ─── Direct API helper (uses fallback key for reliability) ─── */
-
-const OPENROUTER_KEY = import.meta.env.VITE_OPENROUTER_API_KEY || '';
-const OPENROUTER_URL =
-  import.meta.env.VITE_OPENROUTER_API_URL ||
-  "https://openrouter.ai/api/v1/chat/completions";
 
 const analyzeStudentImage = async (
   prompt: string,
   imageBase64: string
 ): Promise<string> => {
-  const res = await fetch(OPENROUTER_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENROUTER_KEY}`,
-      "HTTP-Referer": window.location.origin,
-      "X-Title": "Mother of Mathematics",
-    },
-    body: JSON.stringify({
-      model: "anthropic/claude-opus-4.6",
+  const res = await fetchOpenRouterChatCompletion(
+    {
+      model: "anthropic/claude-opus-4.8",
       messages: [
         {
           role: "system",
-          content:
-            "You are MAMA, an expert mathematics education specialist for Cameroon primary schools. When analyzing student work, pay extremely close attention to HOW each number and letter is written — not just whether the answer is numerically correct. Flag reversed, mirrored, inverted, or malformed characters. Describe exactly what each written character looks like. Use Markdown headings for clear formatting. For the overall score, report **correct final answers / total questions** (integers only), not partial marks out of an arbitrary total.",
+          content: STUDENT_WORK_ANALYSIS_SYSTEM_PROMPT,
         },
         {
           role: "user",
@@ -139,25 +134,31 @@ const analyzeStudentImage = async (
             { type: "text", text: prompt },
             {
               type: "image_url",
-              // After client-side resize, "auto" avoids oversized high-res tile
-              // charges; full-size photos used to trigger "Provider returned error".
-              image_url: { url: imageBase64, detail: "auto" },
+              image_url: { url: imageBase64, detail: STUDENT_WORK_VISION_DETAIL },
             },
           ],
         },
       ],
-      temperature: 0.2,
-      // Needs room for ## Analysis + ## Error Type + ## Grade + ## Remediation;
-      // 1500 tokens often cut off after Analysis so sections never appear in the UI.
-      max_tokens: 4096,
-    }),
-  });
+      temperature: STUDENT_WORK_TEMPERATURE,
+      max_tokens: STUDENT_WORK_MAX_TOKENS,
+    },
+    {
+      referer: window.location.origin,
+      title: "Mother of Mathematics",
+    },
+  );
 
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    const nested = err.error as { message?: string } | undefined;
+    const nested = err.error as { message?: string } | string | undefined;
+    const flat = typeof nested === "string" ? nested : undefined;
+    const nestedMsg =
+      nested && typeof nested === "object" && "message" in nested
+        ? (nested as { message?: string }).message
+        : undefined;
     const msg =
-      (typeof nested?.message === "string" && nested.message) ||
+      flat ||
+      (typeof nestedMsg === "string" && nestedMsg) ||
       (typeof err.message === "string" && err.message) ||
       `API error: ${res.status}`;
     throw new Error(msg);
@@ -445,110 +446,6 @@ const Upload = () => {
     return s.remediation?.trim() || undefined;
   };
 
-  /**
-   * Count questions scored in ## Analysis: lines with Qn: and a terminal verdict.
-   * Deduplicates by question number (last line for each Qn wins) so double lines or
-   * section headers do not inflate total; strips light markdown so **Q12:** still parses.
-   */
-  const extractCorrectTotalFromAnalysis = (
-    analysis: string
-  ): { correct: number; total: number } | null => {
-    if (!analysis?.trim()) return null;
-    const verdicts = new Map<number, "c" | "i" | "p">();
-
-    for (const raw of analysis.split(/\r?\n/)) {
-      let line = raw.trim();
-      if (!line) continue;
-      line = line.replace(/^#{1,6}\s+/, "").replace(/^\s*[-*•]\s+/, "");
-      line = line.replace(/^\*+/, "").replace(/\*+$/, "").trim();
-      const qm = line.match(/^Q\s*(\d+)\s*:/i);
-      if (!qm) continue;
-      const qn = parseInt(qm[1], 10);
-      if (qn < 1 || qn > 200) continue;
-
-      const tail = line.replace(/\s+$/, "");
-      const isCorrect = /Final answer is\s+Correct\.?\s*$/i.test(tail);
-      const isIncorrect = /Final answer is\s+Incorrect\.?\s*$/i.test(tail);
-      const isPartial = /Final answer is\s+Partial\.?\s*$/i.test(tail);
-      if (!isCorrect && !isIncorrect && !isPartial) continue;
-
-      let v: "c" | "i" | "p";
-      if (isCorrect) v = "c";
-      else if (isPartial) v = "p";
-      else v = "i";
-      verdicts.set(qn, v);
-    }
-
-    if (verdicts.size === 0) return null;
-    const keys = [...verdicts.keys()].sort((a, b) => a - b);
-    const total = keys.length;
-    const correct = keys.filter((k) => verdicts.get(k) === "c").length;
-    return { correct, total };
-  };
-
-  /**
-   * Score = correct final answers / total questions (integers). Prefer counts parsed from
-   * ## Analysis lines; else read C/T from ## Grade when both are whole numbers and C ≤ T.
-   */
-  const extractGradeFraction = (
-    text: string
-  ): { label: string; percent: number } | null => {
-    const s = parseAiFeedback(text);
-    const fromLines = extractCorrectTotalFromAnalysis(s.analysis);
-    if (fromLines) {
-      const { correct, total } = fromLines;
-      return {
-        label: `${correct}/${total}`,
-        percent: Math.min(100, Math.round((correct / total) * 100)),
-      };
-    }
-
-    const gradeBlob = (s.grade || '').trim();
-    if (gradeBlob) {
-      const lines = gradeBlob
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter(Boolean);
-      for (let i = lines.length - 1; i >= 0; i--) {
-        const line = lines[i].replace(/^[*\-•\s]+/, '').replace(/\*+/g, '').trim();
-        const m = line.match(/^(\d+)\s*\/\s*(\d+)\s*$/);
-        if (m) {
-          const num = parseInt(m[1], 10);
-          const den = parseInt(m[2], 10);
-          if (den > 0 && den <= 100 && num >= 0 && num <= den) {
-            return {
-              label: `${num}/${den}`,
-              percent: Math.min(100, Math.round((num / den) * 100)),
-            };
-          }
-        }
-      }
-      const loose = gradeBlob.match(/\b(\d+)\s*\/\s*(\d+)\b/);
-      if (loose) {
-        const num = parseInt(loose[1], 10);
-        const den = parseInt(loose[2], 10);
-        if (den > 0 && den <= 100 && num >= 0 && num <= den) {
-          return {
-            label: `${num}/${den}`,
-            percent: Math.min(100, Math.round((num / den) * 100)),
-          };
-        }
-      }
-    }
-
-    const pctMatch = text.match(/(\d{1,3})\s*%/);
-    if (pctMatch) {
-      const val = parseInt(pctMatch[1], 10);
-      if (val >= 0 && val <= 100) return { label: `${val}%`, percent: val };
-    }
-    const frac100 = text.match(/(\d{1,3})\s*\/\s*100\b/);
-    if (frac100) {
-      const val = parseInt(frac100[1], 10);
-      if (val >= 0 && val <= 100) return { label: `${val}/100`, percent: val };
-    }
-    return null;
-  };
-
   const extractGradeValue = (text: string): number | null =>
     extractGradeFraction(text)?.percent ?? null;
 
@@ -620,53 +517,10 @@ const Upload = () => {
         throw new Error("No image data available for analysis");
       }
 
-      const prompt = `Analyze this student's math work. Be very brief and direct. Follow this format exactly:
+      const prompt = buildStudentWorkAnalysisPrompt();
 
-SCORING (for the summary score only):
-1) Count **questions** you can identify on the page (call this T). Each numbered item or clearly separate exercise = one question.
-2) For each question, decide only whether the learner's **final answer is mathematically correct** (yes/no). If the value is right but digits are messy/mirrored, still count as **correct**.
-3) Let C = number of questions whose final answer is correct. The score shown to the teacher must be **C/T** (whole numbers only), e.g. 7/10 means 7 correct out of 10 questions.
-4) You may still describe steps/working/handwriting in ## Analysis for teaching detail, but **## Grade must be only C/T integers**, not marks out of 40, not decimals like 3.5/5.
-
-You are analysing primary school mathematics work. For each question identify:
-- what the learner intended,
-- whether working/method is reasonable,
-- whether the **final answer** is mathematically correct,
-- what error type exists (if any),
-- and the best simple remediation.
-
-## Analysis
-[One short line per question you analysed, max 40 lines if needed. Use this exact pattern so the app can count scores:
-"Q1: … — Final answer is Correct." OR "Q1: … — Final answer is Incorrect."
-Use consecutive numbers Q1, Q2, … matching the order on the page. Every line must end with exactly "Final answer is Correct." or "Final answer is Incorrect." (full stop at end).
-Use **exactly one line per question number** (do not repeat the same Qn); only the last line for each Qn is counted if you slip.]
-
-## Error Type
-[List specific issues by question. Include both academic and handwriting categories when relevant.
-Use categories like: Factual error, Procedural error, Conceptual error, Counting error, Place value, Simple operations, Patterns and sequencing, Mirroring, Reversal, Number formation, Number recognition, Number discrimination, None.
-If final answer is correct but writing is mirrored/reversed/malformed, explicitly say:
-"Answer correct, notation issue: <type>." ]
-
-## Grade
-[Write ONLY two non-negative integers: how many questions have a **correct final answer**, then slash, then **total questions analysed**.
-Format exactly: C/T with no spaces inside the fraction (example: 7/10). No words, no percentage, no decimals, no other lines.]
-
-## Remediation
-[2-4 brief bullet points.
-- Include at least one method/working remediation when steps are weak.
-- Include handwriting/number-formation remediation when mirrored/reversed/malformed symbols are found.
-- Keep language simple for primary teachers.]
-
-CRITICAL — formatting (required for the app to show results):
-- End your reply with EXACTLY these four markdown headings in this order, each on its own line: ## Analysis, ## Error Type, ## Grade, ## Remediation.
-- Do not skip any section. If there are no identifiable errors, under ## Error Type write the single word: None (or "None — work meets expectations.").
-- Under ## Grade write ONLY C/T as defined above (correct final answers / total questions). Never use mark totals like 25/40.
-- Under ## Remediation always write at least two short bullet points (use "- "), even if work is perfect (e.g. "- Keep practising neat number formation." "- Continue current study habits.").
-
-No text before ## Analysis. No extra sections after ## Remediation. Use very simple language for primary school teachers.
-`;
-
-      const responseText = await analyzeStudentImage(prompt, base64);
+      const rawResponse = await analyzeStudentImage(prompt, base64);
+      const responseText = normalizeStudentWorkFeedback(rawResponse);
       const analysis = {
         text: responseText,
         errorType: extractErrorType(responseText),

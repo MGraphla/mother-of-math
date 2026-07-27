@@ -25,9 +25,10 @@ export default defineConfig(({ mode }) => ({
         type: 'module',
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,jpg,jpeg,svg,webp}'],
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api/], // Don't intercept API routes
+        // Don't serve the SPA shell for missing static files (MIME errors on hashed chunks).
+        navigateFallbackDenylist: [/^\/api/, /^\/assets\//],
         cleanupOutdatedCaches: true,
       },
       manifest: {
@@ -46,21 +47,11 @@ export default defineConfig(({ mode }) => ({
             type: 'image/svg+xml',
           },
           {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-          },
-          {
-            src: 'pwa-512x512.png',
+            src: 'favicon.svg',
             sizes: '512x512',
-            type: 'image/png',
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
+            type: 'image/svg+xml',
             purpose: 'maskable',
-          }
+          },
         ],
       },
     })

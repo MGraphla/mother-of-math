@@ -1,7 +1,12 @@
 // src/services/aiGrading.ts
 // AI-powered automatic grading of student assignment submissions using Gemini via OpenRouter
 
-import { getApiKey } from './api';
+import {
+  getClientOpenRouterKey,
+  isOpenRouterConfigured,
+  OPENROUTER_USE_CLIENT_KEY,
+} from './openrouterEnv';
+import { fetchOpenRouterChatCompletion, probeOpenRouterEdge } from './openrouterTransport';
 import { AssignmentSubmission, StudentAssignment } from './studentService';
 import { supabase } from '@/lib/supabase';
 
@@ -181,11 +186,8 @@ export const gradeSubmissionWithAI = async (
   assignment: StudentAssignment,
   studentName: string,
 ): Promise<AiGradingResult> => {
-  const apiKey = getApiKey();
-  const apiUrl = import.meta.env.VITE_OPENROUTER_API_URL || FALLBACK_API_URL;
-
-  if (!apiKey) {
-    return { score: 0, feedback: '', success: false, error: 'No API key configured.' };
+  if (!isOpenRouterConfigured()) {
+    return { score: 0, feedback: '', success: false, error: 'AI is not configured (Supabase proxy or client key).' };
   }
 
   if (!submission.file_url) {
@@ -254,16 +256,8 @@ Do not add any extra text, introductions, or explanations. Use simple, non-techn
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': window.location.origin,
-        'X-Title': 'Mother of Math - AI Grading',
-      },
-      body: JSON.stringify({
+    const response = await fetchOpenRouterChatCompletion(
+      {
         model: GRADING_MODEL,
         messages: [
           { role: 'system', content: systemPrompt },
@@ -272,19 +266,34 @@ Do not add any extra text, introductions, or explanations. Use simple, non-techn
         temperature: 0.2,
         max_tokens: 1024,
         stream: false,
-      }),
-    });
+      },
+      {
+        referer: typeof window !== 'undefined' ? window.location.origin : undefined,
+        title: 'Mother of Math - AI Grading',
+        signal: controller.signal,
+      },
+    );
 
     clearTimeout(timeout);
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
+      const errorData = await response.json().catch(() => ({})) as {
+        error?: string | { message?: string };
+      };
       console.error('[AI Grading] API error:', response.status, errorData);
+      const msg =
+        (typeof errorData.error === 'string' && errorData.error) ||
+        (typeof errorData.error === 'object' &&
+          errorData.error &&
+          'message' in errorData.error &&
+          typeof (errorData.error as { message?: string }).message === 'string' &&
+          (errorData.error as { message: string }).message) ||
+        'Unknown error';
       return {
         score: 0,
         feedback: '',
         success: false,
-        error: `AI service returned ${response.status}: ${errorData?.error?.message || 'Unknown error'}`,
+        error: `AI service returned ${response.status}: ${msg}`,
       };
     }
 
@@ -439,8 +448,20 @@ export const checkAiGradingStatus = async (): Promise<{
   accessible: boolean;
   error?: string;
 }> => {
-  const apiKey = getApiKey();
-  
+  if (!isOpenRouterConfigured()) {
+    return { configured: false, accessible: false, error: 'AI is not configured.' };
+  }
+
+  if (!OPENROUTER_USE_CLIENT_KEY) {
+    const probe = await probeOpenRouterEdge();
+    return {
+      configured: true,
+      accessible: probe.ok,
+      error: probe.ok ? undefined : probe.error,
+    };
+  }
+
+  const apiKey = getClientOpenRouterKey();
   if (!apiKey) {
     return { configured: false, accessible: false, error: 'No API key configured.' };
   }
@@ -448,7 +469,6 @@ export const checkAiGradingStatus = async (): Promise<{
   const apiUrl = import.meta.env.VITE_OPENROUTER_API_URL || FALLBACK_API_URL;
 
   try {
-    // Simple test request to check if API is accessible
     const response = await fetch(apiUrl.replace('/chat/completions', '/models'), {
       method: 'GET',
       headers: {
@@ -460,16 +480,16 @@ export const checkAiGradingStatus = async (): Promise<{
       return { configured: true, accessible: true };
     }
 
-    return { 
-      configured: true, 
-      accessible: false, 
-      error: `API returned status ${response.status}` 
+    return {
+      configured: true,
+      accessible: false,
+      error: `API returned status ${response.status}`,
     };
-  } catch (err: any) {
-    return { 
-      configured: true, 
-      accessible: false, 
-      error: err?.message || 'Network error' 
+  } catch (err: unknown) {
+    return {
+      configured: true,
+      accessible: false,
+      error: err instanceof Error ? err.message : 'Network error',
     };
   }
 };

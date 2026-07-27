@@ -67,6 +67,25 @@ export interface StudentStats {
   total_submissions: number;
   average_score: number | null;
   last_activity?: string;
+  /** Roster / guardian (from admin RPC when available) */
+  student_code?: string | null;
+  school_name?: string | null;
+  date_of_birth?: string | null;
+  gender?: string | null;
+  nationality?: string | null;
+  parent_name?: string | null;
+  parent_phone?: string | null;
+  parent_email?: string | null;
+  class_name?: string | null;
+  notes?: string | null;
+  /** Last dashboard / magic-link portal ping (server-maintained). */
+  last_portal_activity_at?: string | null;
+  /** Latest submission timestamp (trigger-maintained). */
+  last_submission_at?: string | null;
+  /** Supabase Auth `last_sign_in_at` when the learner has a linked login account. */
+  auth_last_sign_in_at?: string | null;
+  /** True when `students.auth_user_id` is set (password / OAuth account linked). */
+  has_login_account?: boolean;
 }
 
 export interface LessonPlanStats {

@@ -11,60 +11,65 @@ import {
   BookOpen, 
   Target, 
   Zap, 
-  Users, 
-  Sparkles, 
+  AlertTriangle,
   Bell, 
   ChevronUp, 
-  Newspaper, 
-  Trophy, 
-  Star, 
-  Award, 
   Lightbulb, 
-  Heart,
-  Rocket,
-  GraduationCap,
-  School,
-  Globe,
+  ListOrdered,
+  Circle,
   Edit,
   Download,
   ArrowLeft
 } from 'lucide-react';
 
+const EASE_OUT_EXPO = [0.22, 1, 0.36, 1] as const;
+
+// Deterministic pseudo-random so SSR/client and remounts stay stable
+const seeded = (n: number) => {
+  const x = Math.sin(n * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+};
+
 const FloatingShapes = () => {
-  const shapes = Array.from({ length: 20 }).map((_, i) => ({
-    id: i,
-    x: Math.random() * 100,
-    y: Math.random() * 100,
-    size: Math.random() * 30 + 10,
-    duration: Math.random() * 15 + 15,
-    delay: Math.random() * 5,
-    rotation: Math.random() * 360,
-  }));
+  const shapes = Array.from({ length: 12 }).map((_, i) => {
+    const s = seeded(i + 1);
+    const s2 = seeded(i + 17);
+    const s3 = seeded(i + 31);
+    return {
+      id: i,
+      x: s * 90 + 5,
+      y: s2 * 85 + 5,
+      size: s3 * 28 + 14,
+      duration: 18 + s * 12,
+      delay: s2 * 4,
+      driftX: (s - 0.5) * 12,
+      driftY: (s3 - 0.5) * 14,
+    };
+  });
 
   return (
-    <div className="absolute inset-0 w-full h-full overflow-hidden z-0">
-      {shapes.map(shape => (
+    <div className="absolute inset-0 w-full h-full overflow-hidden z-0 pointer-events-none">
+      {shapes.map((shape) => (
         <motion.div
           key={shape.id}
-          className="absolute bg-gradient-to-br from-primary/20 to-green-700/20 rounded-full backdrop-blur-sm"
-          initial={{ x: `${shape.x}vw`, y: `${shape.y}vh`, scale: 0, rotate: 0 }}
+          className="absolute rounded-full bg-gradient-to-br from-emerald-400/15 to-amber-400/10"
+          initial={{ opacity: 0, scale: 0.6 }}
           animate={{
-            x: [`${shape.x}vw`, `${shape.x + (Math.random() - 0.5) * 15}vw`],
-            y: [`${shape.y}vh`, `${shape.y + (Math.random() - 0.5) * 15}vh`],
-            scale: [0, 1, 0],
-            rotate: [0, shape.rotation],
+            x: [`${shape.x}vw`, `${shape.x + shape.driftX}vw`, `${shape.x}vw`],
+            y: [`${shape.y}vh`, `${shape.y + shape.driftY}vh`, `${shape.y}vh`],
+            opacity: [0.15, 0.45, 0.15],
+            scale: [0.85, 1.1, 0.85],
           }}
           transition={{
             duration: shape.duration,
             repeat: Infinity,
-            repeatType: 'mirror',
             ease: 'easeInOut',
             delay: shape.delay,
           }}
           style={{
             width: shape.size,
             height: shape.size,
-            filter: 'blur(1px)',
+            filter: 'blur(2px)',
           }}
         />
       ))}
@@ -72,38 +77,40 @@ const FloatingShapes = () => {
   );
 };
 
-// Enhanced floating math symbols for hero
 const FloatingMathSymbols = () => {
-  const symbols = ['π', '∑', '∫', '√', '∞', 'Δ', 'θ', 'λ', '÷', '×', '+', '=', '%'];
-  const items = Array.from({ length: 15 }).map((_, i) => ({
-    id: i,
-    symbol: symbols[i % symbols.length],
-    x: Math.random() * 100,
-    y: Math.random() * 100,
-    size: Math.random() * 24 + 16,
-    duration: Math.random() * 20 + 20,
-    delay: Math.random() * 8,
-  }));
+  const symbols = ['π', '∑', '∫', '√', '∞', 'Δ', 'θ', '÷', '×', '+'];
+  const items = Array.from({ length: 10 }).map((_, i) => {
+    const s = seeded(i + 50);
+    const s2 = seeded(i + 70);
+    return {
+      id: i,
+      symbol: symbols[i % symbols.length],
+      x: 8 + s * 84,
+      y: 10 + s2 * 75,
+      size: 18 + s * 18,
+      duration: 22 + s2 * 14,
+      delay: s * 6,
+    };
+  });
 
   return (
     <div className="absolute inset-0 w-full h-full overflow-hidden z-0 pointer-events-none">
-      {items.map(item => (
+      {items.map((item) => (
         <motion.span
           key={item.id}
-          className="absolute font-bold text-primary/10 select-none"
-          initial={{ x: `${item.x}vw`, y: `${item.y}vh`, opacity: 0 }}
+          className="absolute font-serif font-semibold text-emerald-700/15 select-none"
+          style={{ left: `${item.x}%`, top: `${item.y}%`, fontSize: item.size }}
           animate={{
-            y: [`${item.y}vh`, `${item.y - 20}vh`],
-            opacity: [0, 0.15, 0],
-            rotate: [0, 360],
+            y: [0, -28, 0],
+            opacity: [0.08, 0.22, 0.08],
+            rotate: [-6, 6, -6],
           }}
           transition={{
             duration: item.duration,
             repeat: Infinity,
-            ease: 'linear',
+            ease: 'easeInOut',
             delay: item.delay,
           }}
-          style={{ fontSize: item.size }}
         >
           {item.symbol}
         </motion.span>
@@ -112,24 +119,23 @@ const FloatingMathSymbols = () => {
   );
 };
 
-// Scroll indicator component
 const ScrollIndicator = () => (
   <motion.div
     className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-20"
-    initial={{ opacity: 0, y: -20 }}
+    initial={{ opacity: 0, y: 12 }}
     animate={{ opacity: 1, y: 0 }}
-    transition={{ delay: 2, duration: 0.6 }}
+    transition={{ delay: 1.4, duration: 0.7, ease: EASE_OUT_EXPO }}
   >
     <span className="text-sm text-gray-500 font-medium">Scroll to explore</span>
     <motion.div
-      className="w-6 h-10 rounded-full border-2 border-gray-300 flex justify-center pt-2"
-      animate={{ borderColor: ['#d1d5db', '#22c55e', '#d1d5db'] }}
-      transition={{ duration: 2, repeat: Infinity }}
+      className="w-6 h-10 rounded-full border-2 border-emerald-300/70 flex justify-center pt-2"
+      animate={{ borderColor: ['rgba(110,231,183,0.7)', 'rgba(34,197,94,0.9)', 'rgba(110,231,183,0.7)'] }}
+      transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
     >
       <motion.div
         className="w-1.5 h-1.5 rounded-full bg-primary"
-        animate={{ y: [0, 16, 0] }}
-        transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+        animate={{ y: [0, 14, 0], opacity: [1, 0.4, 1] }}
+        transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
       />
     </motion.div>
   </motion.div>
@@ -298,7 +304,7 @@ const HowItWorks = () => {
 
   const steps = [
     { icon: BookOpen, title: "1. Enter Your Topic", description: "Start with any math topic, from algebra to geometry. Our AI is ready for anything you throw at it." },
-    { icon: Sparkles, title: "2. AI Drafts the Outline", description: "Instantly receive a structured lesson outline, complete with sections like Introduction, Activities, and Assessment." },
+    { icon: ListOrdered, title: "2. AI Drafts the Outline", description: "Instantly receive a structured lesson outline, complete with sections like Introduction, Activities, and Assessment." },
     { icon: Edit, title: "3. Customize & Refine", description: "You're in control. Easily drag, drop, edit, add, or remove sections to perfectly match your teaching style." },
     { icon: Lightbulb, title: "4. Generate the Full Lesson", description: "With one click, the AI expands your outline into a rich, detailed lesson plan filled with engaging content." },
     { icon: Download, title: "5. Review & Export", description: "Make final tweaks to the generated plan, then export it as a PDF or Word document for classroom use." },
@@ -322,7 +328,7 @@ const HowItWorks = () => {
         <ul className="space-y-3">
           {['Introduction', 'Key Concepts', 'Activities', 'Assessment'].map((item, i) => (
             <motion.li key={item} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.2 }} className="flex items-center text-gray-600">
-              <Sparkles className="w-4 h-4 text-primary/50 mr-3 flex-shrink-0" /> {item}
+              <Circle className="w-3 h-3 text-primary/50 mr-3 flex-shrink-0 fill-primary/20" /> {item}
             </motion.li>
           ))}
         </ul>
@@ -332,8 +338,8 @@ const HowItWorks = () => {
         <h4 className="font-bold text-gray-800 mb-4">Customizing...</h4>
         <ul className="space-y-3">
           <motion.li className="flex items-center text-gray-600 bg-green-100/50 p-2 rounded-lg border border-primary/20"><Edit className="w-4 h-4 text-primary/50 mr-3 flex-shrink-0" /> Introduction</motion.li>
-          <li className="flex items-center text-gray-600"><Sparkles className="w-4 h-4 text-gray-400 mr-3 flex-shrink-0" /> Key Concepts</li>
-          <motion.li initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="flex items-center text-gray-600"><Sparkles className="w-4 h-4 text-gray-400 mr-3 flex-shrink-0" /> Group Project (New)</motion.li>
+          <li className="flex items-center text-gray-600"><Circle className="w-3 h-3 text-gray-400 mr-3 flex-shrink-0" /> Key Concepts</li>
+          <motion.li initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="flex items-center text-gray-600"><Circle className="w-3 h-3 text-gray-400 mr-3 flex-shrink-0" /> Group Project (New)</motion.li>
         </ul>
       </div>,
       // Step 4 Visual
@@ -392,9 +398,9 @@ const HowItWorks = () => {
                       className="absolute -inset-px rounded-2xl z-0"
                       animate={{
                         boxShadow: [
-                          '0 0 20px rgba(34, 197, 94, 0.4)',
-                          '0 0 30px rgba(139, 92, 246, 0.4)',
-                          '0 0 20px rgba(34, 197, 94, 0.4)',
+                          '0 0 18px rgba(34, 197, 94, 0.28)',
+                          '0 0 28px rgba(217, 119, 6, 0.22)',
+                          '0 0 18px rgba(34, 197, 94, 0.28)',
                         ]
                       }}
                       transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
@@ -485,9 +491,9 @@ const Home = () => {
       icon: <Target className="w-8 h-8 text-primary" />,
     },
     {
-      title: 'Collaborative Platform',
-      description: 'A space for teachers and parents to connect, share insights, and support student learning journeys together.',
-      icon: <Users className="w-8 h-8 text-primary" />,
+      title: 'Math Error Analysis',
+      description: 'Spot common maths mistakes, understand why learners make them, and get targeted remediation ideas to close gaps quickly.',
+      icon: <AlertTriangle className="w-8 h-8 text-primary" />,
     },
   ];
 
@@ -579,7 +585,7 @@ const Home = () => {
       <FloatingActionButton />
 
       {/* Enhanced Hero Section */}
-      <section className="relative w-full min-h-screen bg-gradient-to-br from-green-50 via-white to-purple-50/30 flex items-center overflow-hidden">
+      <section className="relative w-full min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50/40 flex items-center overflow-hidden">
         {/* Parallax animated gradient mesh + African Kente-inspired geometric pattern */}
         <div className="absolute inset-0 z-0 overflow-hidden">
           {/* African Kente geometric weave pattern — slow counter-parallax */}
@@ -593,20 +599,26 @@ const Home = () => {
               backgroundSize: '80px 80px',
             }}
           />
-          {/* Parallax blob — green (fastest, moves up most) */}
+          {/* Parallax blob — green */}
           <motion.div
             className="absolute top-0 left-0 w-[600px] h-[600px] bg-gradient-to-br from-green-200/40 to-emerald-300/20 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2"
             style={{ y: heroLayer2Y }}
+            animate={{ scale: [1, 1.08, 1], opacity: [0.7, 1, 0.7] }}
+            transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
           />
-          {/* Parallax blob — amber/gold (medium speed) */}
+          {/* Parallax blob — amber/gold */}
           <motion.div
             className="absolute top-1/2 right-0 w-[500px] h-[500px] bg-gradient-to-bl from-amber-200/30 to-yellow-200/20 rounded-full blur-3xl translate-x-1/3"
             style={{ y: heroLayer1Y }}
+            animate={{ scale: [1, 1.06, 1], opacity: [0.6, 0.95, 0.6] }}
+            transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut', delay: 1.2 }}
           />
-          {/* Parallax blob — deep green (slowest, drifts up slightly) */}
+          {/* Parallax blob — deep green */}
           <motion.div
             className="absolute bottom-0 left-1/3 w-[400px] h-[400px] bg-gradient-to-tr from-emerald-100/30 to-green-100/20 rounded-full blur-3xl translate-y-1/2"
             style={{ y: heroLayer3Y }}
+            animate={{ scale: [1, 1.1, 1] }}
+            transition={{ duration: 14, repeat: Infinity, ease: 'easeInOut', delay: 0.6 }}
           />
           <FloatingShapes />
           <FloatingMathSymbols />
@@ -618,14 +630,13 @@ const Home = () => {
         <div className="w-full flex flex-col lg:flex-row items-center justify-between py-24 lg:py-32 px-4 sm:px-8 lg:px-16 xl:px-24 relative z-10">
           {/* Left Content */}
           <div className="w-full lg:w-1/2 text-center lg:text-left z-10 max-w-2xl mx-auto lg:mx-0 lg:max-w-none">
-            {/* Animated tagline badge */}
+            {/* Tagline badge */}
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
+              transition={{ duration: 0.7, ease: EASE_OUT_EXPO }}
             >
-              <span className="inline-flex items-center gap-2 mb-6 px-5 py-2.5 bg-gradient-to-r from-green-100 to-emerald-100 text-green-700 rounded-full font-semibold text-sm sm:text-base tracking-wide border border-green-200/50 shadow-sm">
-                <Sparkles className="w-4 h-4" />
+              <span className="inline-flex items-center mb-6 px-5 py-2.5 bg-gradient-to-r from-green-100 to-emerald-100 text-green-700 rounded-full font-semibold text-sm sm:text-base tracking-wide border border-green-200/50 shadow-sm">
                 {t('home.tagline')}
               </span>
             </motion.div>
@@ -633,35 +644,35 @@ const Home = () => {
             {/* Staggered headline */}
             <motion.h1 
               className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold mb-6 sm:mb-8 leading-[1.1] tracking-tight"
-              initial={{ opacity: 0, y: 30 }}
+              initial={{ opacity: 0, y: 36 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, delay: 0.1 }}
+              transition={{ duration: 0.85, delay: 0.12, ease: EASE_OUT_EXPO }}
             >
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-800 via-amber-600 to-green-700">
                 {t('home.heroTitle')}
               </span>{' '}
               <motion.span
-                className="relative inline-block"
+                className="relative inline-block text-emerald-600"
                 animate={{
-                  color: ["#22c55e", "#8b5cf6", "#ec4899", "#22c55e"],
+                  color: ['#059669', '#d97706', '#15803d', '#059669'],
                 }}
                 transition={{
-                  duration: 6,
+                  duration: 8,
                   repeat: Infinity,
-                  ease: "easeInOut"
+                  ease: 'easeInOut',
                 }}
               >
                 {t('home.heroMath')}
                 <motion.span
-                  className="absolute -inset-1 rounded-lg bg-gradient-to-r from-green-400/20 via-purple-400/20 to-pink-400/20 blur-xl -z-10"
+                  className="absolute -inset-1 rounded-lg bg-gradient-to-r from-emerald-400/25 via-amber-300/20 to-green-400/25 blur-xl -z-10"
                   animate={{
-                    opacity: [0.5, 0.8, 0.5],
-                    scale: [1, 1.05, 1],
+                    opacity: [0.35, 0.7, 0.35],
+                    scale: [1, 1.06, 1],
                   }}
                   transition={{
-                    duration: 3,
+                    duration: 4,
                     repeat: Infinity,
-                    ease: "easeInOut"
+                    ease: 'easeInOut',
                   }}
                 />
               </motion.span>
@@ -670,9 +681,9 @@ const Home = () => {
             {/* Subtitle */}
             <motion.p 
               className="text-lg sm:text-xl md:text-2xl text-gray-600 mb-8 sm:mb-10 leading-relaxed max-w-xl mx-auto lg:mx-0"
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.3 }}
+              transition={{ duration: 0.75, delay: 0.28, ease: EASE_OUT_EXPO }}
             >
               {t('home.heroSubtitle')}
             </motion.p>
@@ -680,9 +691,9 @@ const Home = () => {
             {/* CTA Buttons */}
             <motion.div 
               className="mx-auto grid w-full max-w-sm grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:max-w-none sm:gap-4 sm:justify-center lg:mx-0 lg:justify-start mb-10"
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.4 }}
+              transition={{ duration: 0.75, delay: 0.4, ease: EASE_OUT_EXPO }}
             >
               <motion.button 
                 onClick={handleGetStarted} 
@@ -722,12 +733,16 @@ const Home = () => {
           {/* Right Side - Flippable Card */}
           <motion.div 
             className="relative w-full lg:w-1/2 flex justify-center mt-12 lg:mt-0"
-            initial={{ opacity: 0, x: 50, rotateY: -10 }}
-            animate={{ opacity: 1, x: 0, rotateY: 0 }}
-            transition={{ duration: 0.8, delay: 0.3 }}
+            initial={{ opacity: 0, x: 56, scale: 0.96 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            transition={{ duration: 1, delay: 0.35, ease: EASE_OUT_EXPO }}
           >
             {/* Glow effect behind card */}
-            <div className="absolute inset-0 bg-gradient-to-r from-green-400/20 via-purple-400/20 to-pink-400/20 blur-3xl rounded-full scale-75" />
+            <motion.div
+              className="absolute inset-0 bg-gradient-to-r from-emerald-400/25 via-amber-300/15 to-green-400/20 blur-3xl rounded-full scale-75"
+              animate={{ opacity: [0.5, 0.85, 0.5], scale: [0.72, 0.82, 0.72] }}
+              transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+            />
             <FlippableImageCard />
           </motion.div>
         </div>
@@ -751,26 +766,26 @@ const Home = () => {
             <p className="text-3xl text-secondary mt-4 max-w-4xl mx-auto font-medium">{t('home.featuresSubtitle')}</p>
           </motion.div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8 lg:gap-10">
-            <motion.div className="bg-white rounded-3xl shadow-2xl p-12 flex flex-col items-center border-t-4 border-primary" initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-              <Zap className="w-14 h-14 text-primary mb-6" />
-              <div className="text-2xl sm:text-3xl font-extrabold text-primary mb-4 text-center">{t('home.feature1Title')}</div>
-              <div className="text-base sm:text-lg text-gray-700 text-center font-medium">{t('home.feature1Desc')}</div>
-            </motion.div>
-            <motion.div className="bg-white rounded-3xl shadow-2xl p-12 flex flex-col items-center border-t-4 border-green-700" initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
-              <BookOpen className="w-14 h-14 text-green-700 mb-6" />
-              <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-green-700 mb-4 text-center">{t('home.feature2Title')}</div>
-              <div className="text-base sm:text-lg md:text-xl text-gray-700 text-center font-medium">{t('home.feature2Desc')}</div>
-            </motion.div>
-            <motion.div className="bg-white rounded-3xl shadow-2xl p-12 flex flex-col items-center border-t-4 border-yellow-400" initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }}>
-              <Target className="w-14 h-14 text-yellow-400 mb-6" />
-              <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-yellow-400 mb-4 text-center">{t('home.feature3Title')}</div>
-              <div className="text-base sm:text-lg md:text-xl text-gray-700 text-center font-medium">{t('home.feature3Desc')}</div>
-            </motion.div>
-            <motion.div className="bg-white rounded-3xl shadow-2xl p-12 flex flex-col items-center border-t-4 border-pink-400" initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}>
-              <Users className="w-14 h-14 text-pink-400 mb-6" />
-              <div className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-pink-400 mb-4 text-center">{t('home.feature4Title')}</div>
-              <div className="text-base sm:text-lg md:text-xl text-gray-700 text-center font-medium">{t('home.feature4Desc')}</div>
-            </motion.div>
+            {[
+              { icon: Zap, titleKey: 'home.feature1Title', descKey: 'home.feature1Desc', border: 'border-primary', iconClass: 'text-primary', titleClass: 'text-primary' },
+              { icon: BookOpen, titleKey: 'home.feature2Title', descKey: 'home.feature2Desc', border: 'border-green-700', iconClass: 'text-green-700', titleClass: 'text-green-700' },
+              { icon: Target, titleKey: 'home.feature3Title', descKey: 'home.feature3Desc', border: 'border-yellow-400', iconClass: 'text-yellow-400', titleClass: 'text-yellow-400' },
+              { icon: AlertTriangle, titleKey: 'home.feature4Title', descKey: 'home.feature4Desc', border: 'border-pink-400', iconClass: 'text-pink-400', titleClass: 'text-pink-400' },
+            ].map((feature, i) => (
+              <motion.div
+                key={feature.titleKey}
+                className={`bg-white rounded-3xl shadow-2xl p-12 flex flex-col items-center border-t-4 ${feature.border}`}
+                initial={{ opacity: 0, y: 40 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.25 }}
+                transition={{ duration: 0.55, delay: i * 0.1, ease: EASE_OUT_EXPO }}
+                whileHover={{ y: -8, transition: { duration: 0.25 } }}
+              >
+                <feature.icon className={`w-14 h-14 ${feature.iconClass} mb-6`} />
+                <div className={`text-2xl sm:text-3xl font-extrabold ${feature.titleClass} mb-4 text-center`}>{t(feature.titleKey)}</div>
+                <div className="text-base sm:text-lg text-gray-700 text-center font-medium">{t(feature.descKey)}</div>
+              </motion.div>
+            ))}
           </div>
         </div>
       </section>
@@ -779,10 +794,10 @@ const Home = () => {
       <HowItWorks />
 
       {/* Testimonials Section */}
-      <section id="testimonials" className="relative py-16 sm:py-20 md:py-24 lg:py-32 px-4 sm:px-6 lg:px-8 w-full bg-gradient-to-br from-green-50 via-white to-purple-50 overflow-x-clip">
+      <section id="testimonials" className="relative py-16 sm:py-20 md:py-24 lg:py-32 px-4 sm:px-6 lg:px-8 w-full bg-gradient-to-br from-green-50 via-white to-amber-50/40 overflow-x-clip">
         {/* Decorative background shapes */}
-        <motion.div className="absolute -top-32 -left-32 w-[500px] h-[500px] bg-gradient-to-br from-primary/20 to-green-400/10 rounded-full blur-3xl z-0" animate={{ scale: [1, 1.1, 1] }} transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }} />
-        <motion.div className="absolute -bottom-32 -right-32 w-[500px] h-[500px] bg-gradient-to-br from-pink-400/10 to-primary/10 rounded-full blur-3xl z-0" animate={{ scale: [1, 1.05, 1] }} transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }} />
+        <motion.div className="absolute -top-32 -left-32 w-[500px] h-[500px] bg-gradient-to-br from-primary/20 to-green-400/10 rounded-full blur-3xl z-0" animate={{ scale: [1, 1.1, 1], x: [0, 20, 0] }} transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }} />
+        <motion.div className="absolute -bottom-32 -right-32 w-[500px] h-[500px] bg-gradient-to-br from-amber-300/15 to-primary/10 rounded-full blur-3xl z-0" animate={{ scale: [1, 1.05, 1], x: [0, -16, 0] }} transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }} />
         <div className="relative z-10 w-full">
           <span className="text-primary font-semibold mb-2 block text-center">Testimonials</span>
           <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-16 text-center">Loved by Cameroonian Educators</h2>
@@ -872,15 +887,12 @@ const Home = () => {
       <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10"></div>
       <div className="max-w-4xl mx-auto text-center relative">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 28 }}
           whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, amount: 0.5 }}
-          transition={{ duration: 0.5 }}
+          viewport={{ once: true, amount: 0.4 }}
+          transition={{ duration: 0.7, ease: EASE_OUT_EXPO }}
           className="space-y-6"
         >
-          <span className="inline-block px-4 py-2 bg-white/10 rounded-full text-sm font-semibold backdrop-blur-sm">
-            Join the Revolution
-          </span>
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-4 sm:mb-6">
             Ready to Transform Mathematics in Your Classroom?
           </h2>

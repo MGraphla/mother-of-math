@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Card, PageHeader, LoadingState, EmptyState, Badge, KpiCard, SectionTitle } from '../components/ui';
+import { stripMarkdown } from '../utils/text';
 import {
   getAllTeachers,
   getAllStudents,
@@ -320,7 +321,11 @@ const StudentsTab = ({ rows }: { rows: StudentStats[] }) => (
           <tbody>
             {rows.map((s) => (
               <tr key={s.id} className="border-b border-slate-800/40">
-                <td className="px-5 py-3 text-slate-100">{s.full_name}</td>
+                <td className="px-5 py-3">
+                  <Link to={`/monitor/learners/${s.id}`} className="font-medium text-cyan-400 hover:text-cyan-300">
+                    {s.full_name}
+                  </Link>
+                </td>
                 <td className="px-4 py-3 text-slate-300">{s.grade_level ?? '—'}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-slate-100">{s.total_submissions ?? 0}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-slate-100">
@@ -462,7 +467,7 @@ const ChatTab = ({ convos, messages }: { convos: ChatbotStats[]; messages: Conve
                     <span>{m.role === 'user' ? 'Teacher' : 'AI assistant'}</span>
                     <span>{format(new Date(m.created_at), 'MMM d, HH:mm')}</span>
                   </div>
-                  <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                  <div className="whitespace-pre-wrap break-words">{m.role === 'assistant' ? stripMarkdown(m.content) : m.content}</div>
                 </li>
               ))}
           </ul>
@@ -521,7 +526,7 @@ const UploadsTab = ({ rows }: { rows: StudentWorkStats[] }) => (
                   {w.error_type ? <Badge tone="amber">{w.error_type}</Badge> : <span className="text-slate-500">—</span>}
                 </td>
                 <td className="px-4 py-3 text-slate-300">
-                  <div className="line-clamp-2 max-w-md">{w.feedback || '—'}</div>
+                  <div className="line-clamp-2 max-w-md">{stripMarkdown(w.feedback) || '—'}</div>
                 </td>
                 <td className="px-4 py-3 text-xs text-slate-400">{format(new Date(w.created_at), 'MMM d, yyyy')}</td>
               </tr>

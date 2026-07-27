@@ -525,8 +525,8 @@ const strings: Record<Language, Record<string, string>> = {
     'home.feature2Desc': 'Access a rich library of lesson plans and materials, all perfectly aligned with the official Cameroonian curriculum.',
     'home.feature3Title': 'Student Progress Tracking',
     'home.feature3Desc': 'Monitor individual and class-wide performance with intuitive dashboards. Understand strengths and weaknesses at a glance.',
-    'home.feature4Title': 'Collaborative Platform',
-    'home.feature4Desc': 'A space for teachers and parents to connect, share insights, and support student learning journeys together.',
+    'home.feature4Title': 'Math Error Analysis',
+    'home.feature4Desc': 'Spot common maths mistakes, understand why learners make them, and get targeted remediation ideas to close gaps quickly.',
 
     // Header (Chatbot specific - keep existing)
     'app.title': 'MAMA Math',
@@ -1159,8 +1159,8 @@ const strings: Record<Language, Record<string, string>> = {
     'home.feature2Desc': 'Accédez à une riche bibliothèque de plans de cours et de matériels, tous parfaitement alignés sur le programme camerounais officiel.',
     'home.feature3Title': 'Suivi des Progrès des Élèves',
     'home.feature3Desc': 'Surveillez les performances individuelles et de classe avec des tableaux de bord intuitifs. Comprenez les forces et les faiblesses en un coup d\'œil.',
-    'home.feature4Title': 'Plateforme Collaborative',
-    'home.feature4Desc': 'Un espace pour que les enseignants et les parents se connectent, partagent des idées et soutiennent ensemble le parcours d\'apprentissage des élèves.',
+    'home.feature4Title': 'Analyse des erreurs en mathématiques',
+    'home.feature4Desc': 'Repérez les erreurs fréquentes, comprenez pourquoi les élèves les font et obtenez des pistes de remédiation ciblées pour combler les lacunes.',
 
     // Header (Chatbot specific - keep existing)
     'app.title': 'MAMA Maths',

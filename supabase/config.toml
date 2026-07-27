@@ -13,3 +13,7 @@ verify_jwt = false
 # browser CORS preflight (OPTIONS has no Bearer token → non-2xx → CORS error).
 [functions.student-work-feedback-audio]
 verify_jwt = false
+
+# JWT checked inside the function; gateway verify_jwt breaks browser OPTIONS (no Bearer).
+[functions.openrouter-proxy]
+verify_jwt = false

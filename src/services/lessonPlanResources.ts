@@ -3,7 +3,8 @@
  */
 
 import { checkRateLimit } from "@/lib/rateLimit";
-import { getApiKey } from "./api";
+import { isOpenRouterConfigured } from "./openrouterEnv";
+import { fetchOpenRouterChatCompletion } from "./openrouterTransport";
 import { uploadResourceFile, createResource } from "./resourceService";
 import { queueResourceFeaturedImageGeneration } from "./resourceFeaturedImage";
 import {
@@ -16,7 +17,6 @@ import {
   type WorksheetPart,
 } from "@/lib/generatedResourcePdf";
 
-const FALLBACK_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL = "anthropic/claude-sonnet-4.6";
 
 const JSON_SCHEMA_HINT = `Return one JSON object with exactly two keys: "quiz" and "worksheet". No markdown anywhere — only plain text inside JSON strings.
@@ -194,12 +194,12 @@ export async function createResourcesFromLessonPlan(params: {
     throw new Error("Too many AI requests. Please wait a moment and try again.");
   }
 
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error("OpenRouter API key is not configured. Check VITE_OPENROUTER_API_KEY in your environment.");
+  if (!isOpenRouterConfigured()) {
+    throw new Error(
+      "OpenRouter is not configured. Deploy openrouter-proxy and set OPENROUTER_API_KEY, or use VITE_OPENROUTER_USE_CLIENT_KEY with VITE_OPENROUTER_API_KEY for local dev.",
+    );
   }
 
-  const apiUrl = import.meta.env.VITE_OPENROUTER_API_URL || FALLBACK_API_URL;
   const displayTitle = sanitizeTitle(title);
   const payload = JSON.stringify(content);
   const truncated =
@@ -215,15 +215,8 @@ ${truncated}
 
 ${JSON_SCHEMA_HINT}`;
 
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      "HTTP-Referer": typeof window !== "undefined" ? window.location.origin : "https://mamamath.org",
-      "X-Title": "Mother of Math",
-    },
-    body: JSON.stringify({
+  const response = await fetchOpenRouterChatCompletion(
+    {
       model: MODEL,
       temperature: 0.35,
       max_tokens: 8192,
@@ -237,8 +230,13 @@ ${JSON_SCHEMA_HINT}`;
         },
         { role: "user", content: userMessage },
       ],
-    }),
-  });
+    },
+    {
+      referer:
+        typeof window !== "undefined" ? window.location.origin : "https://mamamath.org",
+      title: "Mother of Math",
+    },
+  );
 
   if (!response.ok) {
     const errBody = await response.json().catch(() => ({}));

@@ -9,6 +9,7 @@
 # Production
 /build
 /dist
+/deploy
 
 # Environment files
 .env

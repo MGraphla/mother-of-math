@@ -21,7 +21,7 @@ import MonitorErrorAnalysis from './pages/MonitorErrorAnalysis';
 import MonitorImages from './pages/MonitorImages';
 import MonitorAssignments from './pages/MonitorAssignments';
 import MonitorSchools from './pages/MonitorSchools';
-import MonitorAIInsights from './pages/MonitorAIInsights';
+import MonitorLearnersParents from './pages/MonitorLearnersParents';
 
 const MonitorRoutes = () => (
   <Routes>
@@ -33,6 +33,7 @@ const MonitorRoutes = () => (
         <Route path="overview" element={<MonitorOverview />} />
         <Route path="activity" element={<MonitorActivity />} />
         <Route path="teachers" element={<MonitorTeachers />} />
+        <Route path="learners" element={<MonitorLearnersParents />} />
         <Route path="teachers/:id" element={<MonitorTeacherDetail />} />
         <Route path="chatbot" element={<MonitorChatbot />} />
         <Route path="lesson-plans" element={<MonitorLessonPlans />} />
@@ -41,7 +42,6 @@ const MonitorRoutes = () => (
         <Route path="images" element={<MonitorImages />} />
         <Route path="assignments" element={<MonitorAssignments />} />
         <Route path="schools" element={<MonitorSchools />} />
-        <Route path="ai-insights" element={<MonitorAIInsights />} />
       </Route>
     </Route>
 

@@ -1,5 +1,5 @@
-import { ReactNode } from 'react';
-import { Loader2, Inbox, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { ReactNode, type ComponentType } from 'react';
+import { Loader2, Inbox, TrendingUp, TrendingDown, Minus, AlertCircle, RefreshCw } from 'lucide-react';
 
 /* ─── Page header ─────────────────────────────────────────── */
 export const PageHeader = ({
@@ -79,7 +79,7 @@ export const KpiCard = ({
   delta?: { value: number; direction: 'up' | 'down' | 'flat'; label?: string };
   hint?: string;
   icon?: React.ComponentType<{ className?: string }>;
-  tone?: 'cyan' | 'emerald' | 'violet' | 'amber' | 'rose' | 'sky';
+  tone?: 'cyan' | 'emerald' | 'violet' | 'amber' | 'rose' | 'sky' | 'slate';
 }) => {
   const toneMap = {
     cyan:    'from-cyan-500/20 to-cyan-500/0 ring-cyan-500/30 text-cyan-300',
@@ -88,6 +88,7 @@ export const KpiCard = ({
     amber:   'from-amber-500/20 to-amber-500/0 ring-amber-500/30 text-amber-300',
     rose:    'from-rose-500/20 to-rose-500/0 ring-rose-500/30 text-rose-300',
     sky:     'from-sky-500/20 to-sky-500/0 ring-sky-500/30 text-sky-300',
+    slate:   'from-slate-500/20 to-slate-500/0 ring-slate-500/30 text-slate-300',
   } as const;
 
   return (
@@ -143,6 +144,73 @@ export const LoadingState = ({ label = 'Loading…' }: { label?: string }) => (
     <Loader2 className="h-6 w-6 animate-spin text-cyan-400" />
     <span className="text-sm">{label}</span>
   </div>
+);
+
+/** Full-page error when the first load fails (no cached rows). */
+export const MonitorFetchErrorPage = ({
+  title,
+  subtitle,
+  icon: Icon,
+  error,
+  onRetry,
+}: {
+  title: string;
+  subtitle?: string;
+  icon?: ComponentType<{ className?: string }>;
+  error: Error;
+  onRetry: () => void;
+}) => (
+  <>
+    <PageHeader title={title} subtitle={subtitle} icon={Icon} />
+    <Card className="border-rose-500/40 bg-rose-950/30 p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex gap-3">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-400" />
+          <div>
+            <p className="text-sm font-medium text-rose-100">Could not load this view</p>
+            <p className="mt-1 max-w-xl break-words text-xs text-rose-200/85">{error.message}</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-rose-500/45 bg-rose-600/25 px-4 py-2.5 text-sm font-medium text-rose-50 transition-colors hover:bg-rose-600/35"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Try again
+        </button>
+      </div>
+    </Card>
+  </>
+);
+
+/** Inline banner when a background refresh fails but older data is still shown. */
+export const MonitorFetchErrorBanner = ({
+  error,
+  onRetry,
+}: {
+  error: Error;
+  onRetry: () => void;
+}) => (
+  <Card className="mb-5 border-rose-500/40 bg-rose-950/30 p-4">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 gap-3">
+        <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-400" />
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-rose-100">Latest refresh failed</p>
+          <p className="mt-0.5 break-words text-xs text-rose-200/80">{error.message}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-rose-500/40 bg-rose-600/20 px-3 py-2 text-sm font-medium text-rose-100 transition-colors hover:bg-rose-600/30"
+      >
+        <RefreshCw className="h-4 w-4" />
+        Retry
+      </button>
+    </div>
+  </Card>
 );
 
 export const EmptyState = ({
