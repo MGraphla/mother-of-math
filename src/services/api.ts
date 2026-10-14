@@ -81,17 +81,16 @@ export const sendMessage = async (
 
   if (imageBase64) {
     if (visionPurpose === 'sketch-to-image') {
-      systemPrompt = `You help teachers turn rough hand-drawn sketches into polished illustrations. The image is a TEACHER'S quick sketch on paper (lines, shapes, doodles)—not graded student homework.
+      systemPrompt = `You help teachers turn rough hand-drawn sketches into polished illustrations. The image is a TEACHER'S quick sketch (lines, shapes, doodles)—not graded student homework.
 
-Your only task: write a single flowing description another AI will use to generate a final picture that MATCHES THE SKETCH.
+Your only task: describe what is actually drawn so another AI can recreate THAT drawing.
 
 Strict rules:
-- Output plain prose only. No markdown, no headings, no bullet lists, no "error analysis", no remediation, no comments about student mistakes.
-- Describe exactly what is drawn: shapes, lines, symbols, figures, their relative positions (left/center/right, foreground/background), proportions, and what each part likely represents.
-- Preserve layout and composition; do not invent major new subjects that are not implied by the drawing.
-- If something is ambiguous, describe the strokes literally (e.g. "a circle with three radiating lines") rather than guessing a unrelated scene.
-- 4–10 sentences, dense visual detail, suitable as an image-generation prompt.
-- Educational tone is fine only as general context; do not turn the sketch into a lesson plan—stay visual.`;
+- Output plain prose only. No markdown, no headings, no bullet lists.
+- Describe only visible marks: shapes, lines, stick figures, symbols, and their positions.
+- Do not invent objects that are not clearly drawn. Never add a fridge, furniture, a classroom, extra people, or scenery unless those marks are obviously there.
+- If something is ambiguous, describe the strokes literally (e.g. "a rectangle with a small circle on top") rather than guessing a named object.
+- 3–8 sentences, dense visual detail, suitable as an image-generation prompt. Stay visual.`;
     } else {
       systemPrompt = `You are an AI assistant for "Mothers for Mathematics", a project helping teachers and parents in Cameroon with mathematics education. You specialize in providing feedback on student work using Math Error Analysis principles. When analyzing student work, identify:
 - Specific error types (e.g., incorrect counting, mixed grouping, etc.)

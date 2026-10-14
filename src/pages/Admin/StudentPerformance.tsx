@@ -54,7 +54,6 @@ import { getAllStudents, getAllSubmissions, getAllAssignments } from '@/services
 import { useAdminDateRange } from '@/context/AdminDateRangeContext';
 import { DateRangeSelector } from '@/components/admin/DateRangeSelector';
 import { KPICard, KPIGrid } from '@/components/admin/KPICard';
-import { motion } from 'framer-motion';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899'];
 
@@ -486,11 +485,8 @@ const StudentPerformanceAnalytics: React.FC = () => {
               </TableHeader>
               <TableBody>
                 {filteredStudents.slice(0, 50).map((student, index) => (
-                  <motion.tr
+                  <tr
                     key={student.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.02 }}
                     className="border-gray-800 hover:bg-gray-800/50"
                   >
                     <TableCell>
@@ -537,7 +533,7 @@ const StudentPerformanceAnalytics: React.FC = () => {
                         {student.performanceLevel}
                       </Badge>
                     </TableCell>
-                  </motion.tr>
+                  </tr>
                 ))}
               </TableBody>
             </Table>

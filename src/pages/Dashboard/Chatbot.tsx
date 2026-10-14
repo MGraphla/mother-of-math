@@ -50,8 +50,8 @@ import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
 import type { Language } from "@/lib/i18n";
 import {
-  Send, Bot, Copy, Check, RefreshCw, GraduationCap, Sigma, Percent, Ruler,
-  Library, Trash2, Download, MessageSquarePlus, Sparkles, ArrowDown, Lightbulb,
+  Send, Bot, Copy, Check, RefreshCw, GraduationCap, Hash, Plus, Circle,
+  Trash2, Download, MessageSquarePlus, Sparkles, ArrowDown, Lightbulb,
   Zap, Star, CornerDownLeft, Mic, MicOff, Image as ImageIcon, X, History,
   ChevronLeft, Pencil, Search, PanelLeftClose, PanelLeft,
   ThumbsUp, ThumbsDown, Bookmark, BookmarkCheck, Moon, Sun, Globe, FileText,
@@ -63,10 +63,10 @@ import {
 const GRADES = [1, 2, 3, 4, 5, 6];
 
 const TOPIC_KEYS = [
-  { icon: Sigma, titleKey: "topic.numbers", query: "Numbers & Operations", queryFr: "Nombres et Op�rations", color: "from-blue-500 to-indigo-600" },
-  { icon: Library, titleKey: "topic.geometry", query: "Geometry & Shapes", queryFr: "G�om�trie et Formes", color: "from-purple-500 to-pink-600" },
-  { icon: Ruler, titleKey: "topic.measurement", query: "Measurement", queryFr: "Mesures", color: "from-emerald-500 to-teal-600" },
-  { icon: Percent, titleKey: "topic.data", query: "Data & Graphs", queryFr: "Donn�es et Graphiques", color: "from-orange-500 to-red-500" },
+  { icon: Hash, titleKey: "topic.numbers", query: "counting objects and numbers from 1 to 20", queryFr: "compter les objets et les nombres de 1 à 20", color: "from-blue-500 to-indigo-600" },
+  { icon: Pencil, titleKey: "topic.measurement", query: "writing and forming numbers clearly", queryFr: "écrire et former les nombres clairement", color: "from-emerald-500 to-teal-600" },
+  { icon: Plus, titleKey: "topic.data", query: "simple adding with objects and counters", queryFr: "l'addition simple avec des objets et des jetons", color: "from-orange-500 to-red-500" },
+  { icon: Circle, titleKey: "topic.geometry", query: "simple shapes like circle, square and triangle", queryFr: "les formes simples comme le cercle, le carré et le triangle", color: "from-purple-500 to-pink-600" },
 ];
 
 const PROMPT_KEYS = [

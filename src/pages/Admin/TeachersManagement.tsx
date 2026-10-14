@@ -263,8 +263,7 @@ const TeachersManagement = () => {
     return (
       <div className="flex items-center justify-center h-96">
         <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+
           className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full"
         />
       </div>
@@ -335,8 +334,7 @@ const TeachersManagement = () => {
       <AnimatePresence>
         {selectedIds.size > 0 && (
           <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
+
             exit={{ opacity: 0, y: -10 }}
             className="bg-indigo-900/30 border border-indigo-700/50 rounded-lg p-4"
           >
@@ -497,11 +495,8 @@ const TeachersManagement = () => {
               </TableHeader>
               <TableBody>
                 {filteredTeachers.map((teacher, index) => (
-                  <motion.tr
+                  <tr
                     key={teacher.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.02 }}
                     className={`border-gray-800 hover:bg-gray-800/50 ${selectedIds.has(teacher.id) ? 'bg-indigo-900/20' : ''}`}
                   >
                     <TableCell>
@@ -598,7 +593,7 @@ const TeachersManagement = () => {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
-                  </motion.tr>
+                  </tr>
                 ))}
               </TableBody>
             </Table>
@@ -615,8 +610,7 @@ const TeachersManagement = () => {
       {selectedTeacher && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
+
             className="bg-gray-900 border border-gray-800 rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
           >
             <div className="p-6">

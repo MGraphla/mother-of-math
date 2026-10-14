@@ -1,4 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { GradientShimmer } from "@/components/ui/gradient-shimmer";
 import { motion } from "framer-motion";
 
 const examplePrompts = [
@@ -12,8 +13,21 @@ const WelcomeMessage = ({ onExamplePrompt }: { onExamplePrompt?: (prompt: string
   return (
     <Card className="mb-8 shadow-xl border-2 border-mama-purple/10 bg-gradient-to-br from-mama-light to-white animate-fade-in">
       <CardHeader className="pb-2">
-        <CardTitle className="text-2xl md:text-3xl font-extrabold bg-gradient-to-r from-mama-purple via-pink-500 to-[#e0218a] bg-clip-text text-transparent drop-shadow-lg">
-          Welcome to Mother Of Mathematics!
+        <CardTitle className="text-2xl md:text-3xl font-extrabold text-mama-purple drop-shadow-lg">
+          Welcome to{" "}
+          <GradientShimmer
+            gradient="bubble"
+            easing="smooth"
+            duration={1.45}
+            spread={3}
+            angle={105}
+            pauseBetween={1000}
+            baseColor="currentColor"
+            className="text-2xl md:text-3xl font-extrabold text-mama-purple"
+          >
+            Mother Of Mathematics
+          </GradientShimmer>
+          !
         </CardTitle>
         <CardDescription className="text-lg text-mama-purple/80">What do you want to teach today?</CardDescription>
       </CardHeader>

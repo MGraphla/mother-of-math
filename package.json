@@ -11,7 +11,11 @@
     "build:hostinger:zip": "node scripts/prepare-hostinger.mjs --zip",
     "preview:prod": "vite preview --host",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "mobile:start": "npm --prefix apps/mobile run start",
+    "mobile:android": "npm --prefix apps/mobile run android",
+    "mobile:ios": "npm --prefix apps/mobile run ios",
+    "mobile:web": "npm --prefix apps/mobile run web"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

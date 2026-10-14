@@ -47,6 +47,25 @@ const AuthCallback = () => {
     const errorCode = params.get("error_code") || hashParams.get("error_code");
     const errorDesc = params.get("error_description") || hashParams.get("error_description");
 
+    /**
+     * Mobile app Google OAuth uses this HTTPS page as a bridge (`?app=motherofmath`).
+     * The PKCE verifier lives on the phone — exchanging the code here hangs on
+     * "Checking session…". Hand the URL to the app immediately and do not exchange.
+     */
+    const forceAppBridge =
+      params.get("app") === "motherofmath" ||
+      params.get("mobile_app") === "1";
+    const pkceForBridge = params.get("code");
+    const hasHashToken = hashParams.has("access_token");
+    if (forceAppBridge && (pkceForBridge || hasHashToken || errorParam)) {
+      hasNavigated.current = true;
+      const search = window.location.search;
+      const hash = window.location.hash;
+      window.location.href = `motherofmath://auth/callback${search}${hash}`;
+      setStepText("Opening the Mama Math app…");
+      return;
+    }
+
     if (errorParam) {
       setStatus("error");
       const isRecoveryError = errorCode === "otp_expired" || errorCode === "otp_disabled"

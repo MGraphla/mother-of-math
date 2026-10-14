@@ -20,6 +20,7 @@ const StudentLogin = lazy(() => import('@/pages/StudentLogin'));
 
 // Auth Pages
 const AuthCallback = lazy(() => import('@/pages/Auth/AuthCallback'));
+const MobileAuthBridge = lazy(() => import('@/pages/Auth/MobileAuthBridge'));
 const AuthSuccess = lazy(() => import('@/pages/Auth/AuthSuccess'));
 const SignIn = lazy(() => import('@/pages/Auth/SignIn'));
 const SignUp = lazy(() => import('@/pages/Auth/SignUp'));
@@ -115,6 +116,7 @@ const AppContent = () => {
         <Route path="/enroll/:code" element={<ClassEnroll />} />
         <Route path="/auth-success" element={<AuthSuccess />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/auth/mobile-callback" element={<MobileAuthBridge />} />
 
         {/* Partner Monitor (read-only dashboard for implementing partners) */}
         <Route path="/monitor/*" element={<MonitorRoutes />} />

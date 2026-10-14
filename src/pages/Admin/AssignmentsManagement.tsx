@@ -104,8 +104,7 @@ const AssignmentsManagement = () => {
     return (
       <div className="flex items-center justify-center h-96">
         <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+
           className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full"
         />
       </div>
@@ -223,11 +222,8 @@ const AssignmentsManagement = () => {
               </TableHeader>
               <TableBody>
                 {filteredAssignments.map((assignment, index) => (
-                  <motion.tr
+                  <tr
                     key={assignment.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.02 }}
                     className="border-gray-800 hover:bg-gray-800/50"
                   >
                     <TableCell>
@@ -276,7 +272,7 @@ const AssignmentsManagement = () => {
                         : '-'}
                     </TableCell>
                     <TableCell>{getStatusBadge(assignment.status)}</TableCell>
-                  </motion.tr>
+                  </tr>
                 ))}
               </TableBody>
             </Table>

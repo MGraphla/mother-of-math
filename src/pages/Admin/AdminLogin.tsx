@@ -53,24 +53,20 @@ const AdminLogin = () => {
     >
       {/* Background decorations */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <motion.div 
-          className="absolute top-[-100px] right-[-100px] w-[400px] h-[400px] rounded-full"
-          animate={{ scale: [1, 1.1, 1], opacity: [0.1, 0.2, 0.1] }}
-          transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+        <div
+          className="absolute top-[-100px] right-[-100px] w-[400px] h-[400px] rounded-full opacity-[0.15]"
           style={{ background: 'radial-gradient(circle, rgba(99,102,241,0.3) 0%, transparent 70%)' }}
         />
-        <motion.div 
-          className="absolute bottom-[-100px] left-[-100px] w-[500px] h-[500px] rounded-full"
-          animate={{ scale: [1, 1.15, 1], opacity: [0.1, 0.15, 0.1] }}
-          transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
+        <div
+          className="absolute bottom-[-100px] left-[-100px] w-[500px] h-[500px] rounded-full opacity-[0.12]"
           style={{ background: 'radial-gradient(circle, rgba(236,72,153,0.2) 0%, transparent 70%)' }}
         />
       </div>
 
       <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.95 }}
+        initial={{ opacity: 0, y: 16, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.5, ease: 'easeOut' }}
+        transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
         className="relative z-10 w-full max-w-md"
       >
         <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-700/50 rounded-2xl shadow-2xl overflow-hidden">
@@ -143,11 +139,7 @@ const AdminLogin = () => {
               className="w-full h-12 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/20 transition-all"
             >
               {isSubmitting ? (
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                  className="w-5 h-5 border-2 border-white border-t-transparent rounded-full"
-                />
+                <span className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
                   <Shield className="w-4 h-4 mr-2" />

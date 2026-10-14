@@ -548,10 +548,10 @@ const strings: Record<Language, Record<string, string>> = {
     'welcome.conversations': 'conversations',
 
     // Topics
-    'topic.numbers': 'Numbers & Operations',
-    'topic.geometry': 'Geometry & Shapes',
-    'topic.measurement': 'Measurement',
-    'topic.data': 'Data & Graphs',
+    'topic.numbers': 'Counting',
+    'topic.geometry': 'Simple Shapes',
+    'topic.measurement': 'Writing Numbers',
+    'topic.data': 'Adding',
 
     // Quick prompts
     'prompt.lesson': 'Lesson plan ideas',
@@ -1182,10 +1182,10 @@ const strings: Record<Language, Record<string, string>> = {
     'welcome.conversations': 'conversations',
 
     // Topics
-    'topic.numbers': 'Nombres & Opérations',
-    'topic.geometry': 'Géométrie & Formes',
-    'topic.measurement': 'Mesures',
-    'topic.data': 'Données & Graphiques',
+    'topic.numbers': 'Compter',
+    'topic.geometry': 'Formes simples',
+    'topic.measurement': 'Écrire les nombres',
+    'topic.data': 'Addition',
 
     // Quick prompts
     'prompt.lesson': 'Idées de plans de cours',

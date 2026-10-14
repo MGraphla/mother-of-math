@@ -1,0 +1,82 @@
+{
+  "expo": {
+    "name": "Mama Math",
+    "slug": "mother-of-math-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "motherofmath",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ecfdf5"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.motherofmath.mobile",
+      "infoPlist": {
+        "CFBundleDisplayName": "Mama Math",
+        "CFBundleName": "Mama Math",
+        "NSCameraUsageDescription": "MamaMath needs camera access to photograph student work for AI analysis.",
+        "NSPhotoLibraryUsageDescription": "MamaMath needs photo library access to upload and save lesson materials.",
+        "NSPhotoLibraryAddUsageDescription": "MamaMath needs permission to save downloaded lesson notes to your library.",
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": true
+      }
+    },
+    "android": {
+      "package": "com.motherofmath.mobile",
+      "label": "Mama Math",
+      "adaptiveIcon": {
+        "backgroundColor": "#F2FAF5",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": ["BROWSABLE", "DEFAULT"],
+          "data": [{ "scheme": "motherofmath" }]
+        }
+      ],
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-sharing",
+      "expo-localization",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow MamaMath to access your photos for uploads and analysis.",
+          "cameraPermission": "Allow MamaMath to use your camera for student work uploads."
+        }
+      ],
+      "expo-font",
+      "expo-splash-screen"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "1ffa88a5-62ce-4e74-b9d8-389303cbc7c5"
+      },
+      "router": {}
+    },
+    "owner": "mrgraph"
+  }
+}

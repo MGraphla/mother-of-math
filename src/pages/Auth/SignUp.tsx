@@ -281,6 +281,8 @@ const SignUp = () => {
     try {
       setIsSubmitting(true);
       setErrorMessage("");
+      // Lets /auth/callback know this OAuth started on the website (not the mobile app).
+      sessionStorage.setItem("oauth_surface", "web");
       await signInWithGoogle();
     } catch (error: any) {
       setErrorMessage(error.message || "Failed to sign in with Google.");
@@ -755,67 +757,49 @@ const SignUp = () => {
   return (
     <div className="relative flex items-center justify-center min-h-screen p-4 overflow-hidden" style={{ background: 'linear-gradient(135deg, #064e3b 0%, #065f46 30%, #047857 55%, #1a3a2a 100%)' }}>
 
-      {/* African Kente geometric pattern overlay - slowly drifting */}
-      <motion.div
-        className="absolute inset-[-20%] opacity-[0.06] pointer-events-none"
-        animate={{ x: [0, 30, 0], y: [0, 20, 0] }}
-        transition={{ duration: 25, repeat: Infinity, ease: 'easeInOut' }}
+      {/* African Kente geometric pattern overlay */}
+      <div
+        className="absolute inset-0 opacity-[0.06] pointer-events-none"
         style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='80' height='80' fill='none'/%3E%3Cline x1='0' y1='20' x2='80' y2='20' stroke='%23fbbf24' stroke-width='2'/%3E%3Cline x1='0' y1='40' x2='80' y2='40' stroke='%2334d399' stroke-width='2'/%3E%3Cline x1='0' y1='60' x2='80' y2='60' stroke='%23fbbf24' stroke-width='2'/%3E%3Cline x1='20' y1='0' x2='20' y2='80' stroke='%2334d399' stroke-width='2'/%3E%3Cline x1='40' y1='0' x2='40' y2='80' stroke='%23fbbf24' stroke-width='2'/%3E%3Cline x1='60' y1='0' x2='60' y2='80' stroke='%2334d399' stroke-width='2'/%3E%3Cpolygon points='20%2C14 26%2C20 20%2C26 14%2C20' fill='%23fbbf24'/%3E%3Cpolygon points='40%2C34 46%2C40 40%2C46 34%2C40' fill='%2334d399'/%3E%3Cpolygon points='60%2C14 66%2C20 60%2C26 54%2C20' fill='%23fbbf24'/%3E%3Cpolygon points='20%2C54 26%2C60 20%2C66 14%2C60' fill='%2334d399'/%3E%3Cpolygon points='60%2C54 66%2C60 60%2C66 54%2C60' fill='%23fbbf24'/%3E%3C/svg%3E")`, backgroundRepeat: 'repeat', backgroundSize: '80px 80px' }}
       />
 
-      {/* Animated amber/gold glowing orbs */}
-      <motion.div className="absolute top-[-80px] right-[-80px] w-[420px] h-[420px] rounded-full pointer-events-none" animate={{ scale: [1, 1.15, 1], opacity: [0.25, 0.4, 0.25] }} transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }} style={{ background: 'radial-gradient(circle, rgba(251,191,36,0.5) 0%, rgba(245,158,11,0.15) 60%, transparent 100%)' }} />
-      <motion.div className="absolute bottom-[-100px] left-[-100px] w-[500px] h-[500px] rounded-full pointer-events-none" animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.35, 0.2] }} transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut', delay: 2 }} style={{ background: 'radial-gradient(circle, rgba(52,211,153,0.4) 0%, rgba(16,185,129,0.1) 60%, transparent 100%)' }} />
-      <motion.div className="absolute top-1/2 left-[-60px] w-[300px] h-[300px] rounded-full pointer-events-none" animate={{ scale: [1, 1.1, 1], opacity: [0.15, 0.28, 0.15] }} transition={{ duration: 11, repeat: Infinity, ease: 'easeInOut', delay: 4 }} style={{ background: 'radial-gradient(circle, rgba(251,191,36,0.35) 0%, transparent 70%)' }} />
+      {/* Static amber/gold glowing orbs */}
+      <div className="absolute top-[-80px] right-[-80px] w-[420px] h-[420px] rounded-full pointer-events-none opacity-[0.32]" style={{ background: 'radial-gradient(circle, rgba(251,191,36,0.5) 0%, rgba(245,158,11,0.15) 60%, transparent 100%)' }} />
+      <div className="absolute bottom-[-100px] left-[-100px] w-[500px] h-[500px] rounded-full pointer-events-none opacity-[0.27]" style={{ background: 'radial-gradient(circle, rgba(52,211,153,0.4) 0%, rgba(16,185,129,0.1) 60%, transparent 100%)' }} />
+      <div className="absolute top-1/2 left-[-60px] w-[300px] h-[300px] rounded-full pointer-events-none opacity-[0.21]" style={{ background: 'radial-gradient(circle, rgba(251,191,36,0.35) 0%, transparent 70%)' }} />
 
       {/* Top-left decorative triangle accent */}
       <div className="absolute top-0 left-0 w-0 h-0 pointer-events-none" style={{ borderLeft: '120px solid rgba(251,191,36,0.12)', borderBottom: '120px solid transparent' }} />
       {/* Bottom-right decorative triangle accent */}
       <div className="absolute bottom-0 right-0 w-0 h-0 pointer-events-none" style={{ borderRight: '150px solid rgba(52,211,153,0.1)', borderTop: '150px solid transparent' }} />
 
-      {/* Floating math symbols - with rotation */}
+      {/* Static math symbols */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {['π', '∑', '√', '∞', 'Δ', '÷', '×', '+', '=', '%', '∫', 'θ'].map((sym, i) => (
-          <motion.span
+          <span
             key={i}
             className="absolute font-bold text-white/10 select-none"
             style={{ left: `${(i * 8.3) % 100}%`, top: `${(i * 13 + 10) % 90}%`, fontSize: `${20 + (i % 3) * 12}px` }}
-            animate={{ y: [0, -40, 0], opacity: [0.05, 0.2, 0.05], rotate: [0, 360] }}
-            transition={{ duration: 12 + i * 1.5, repeat: Infinity, ease: 'easeInOut', delay: i * 0.5 }}
           >
             {sym}
-          </motion.span>
+          </span>
         ))}
       </div>
 
-      {/* Shooting sparkle particles */}
+      {/* Static sparkle accents */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {Array.from({ length: 8 }).map((_, i) => (
-          <motion.div
+          <div
             key={`sparkle-${i}`}
-            className="absolute w-1 h-1 bg-amber-300 rounded-full"
-            style={{ left: `${10 + i * 11}%`, top: '-5%' }}
-            animate={{
-              y: ['0vh', '110vh'],
-              x: [0, (i % 2 === 0 ? 30 : -30)],
-              opacity: [0, 1, 1, 0],
-              scale: [0.5, 1.2, 1, 0.5],
-            }}
-            transition={{
-              duration: 4 + i * 0.8,
-              repeat: Infinity,
-              ease: 'linear',
-              delay: i * 1.2,
-            }}
+            className="absolute w-1 h-1 bg-amber-300/70 rounded-full"
+            style={{ left: `${10 + i * 11}%`, top: `${12 + ((i * 17) % 70)}%` }}
           />
         ))}
       </div>
 
-      {/* Pulsing glow behind the card */}
-      <motion.div
-        className="absolute w-[600px] h-[600px] rounded-full pointer-events-none"
-        animate={{ scale: [1, 1.15, 1], opacity: [0.12, 0.25, 0.12] }}
-        transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+      {/* Static glow behind the card */}
+      <div
+        className="absolute w-[600px] h-[600px] rounded-full pointer-events-none opacity-[0.18]"
         style={{ background: 'radial-gradient(circle, rgba(251,191,36,0.2) 0%, transparent 60%)' }}
       />
       {/* Decorative background */}
@@ -823,9 +807,9 @@ const SignUp = () => {
       <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-emerald-200/30 rounded-full blur-3xl translate-x-1/3 translate-y-1/3 pointer-events-none" />
 
       <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
+        initial={{ opacity: 0, y: 16, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
         className="relative z-10 w-full max-w-lg"
       >
         <div className="bg-white/80 backdrop-blur-xl border border-white/60 rounded-3xl shadow-2xl shadow-green-900/5 overflow-hidden">

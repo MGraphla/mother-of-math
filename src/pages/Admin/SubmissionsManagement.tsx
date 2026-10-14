@@ -105,8 +105,7 @@ const SubmissionsManagement = () => {
     return (
       <div className="flex items-center justify-center h-96">
         <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+
           className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full"
         />
       </div>
@@ -222,11 +221,8 @@ const SubmissionsManagement = () => {
               </TableHeader>
               <TableBody>
                 {filteredSubmissions.map((submission, index) => (
-                  <motion.tr
+                  <tr
                     key={submission.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.01 }}
                     className="border-gray-800 hover:bg-gray-800/50"
                   >
                     <TableCell>
@@ -269,7 +265,7 @@ const SubmissionsManagement = () => {
                         ? format(new Date(submission.graded_at), 'MMM d, HH:mm')
                         : '-'}
                     </TableCell>
-                  </motion.tr>
+                  </tr>
                 ))}
               </TableBody>
             </Table>

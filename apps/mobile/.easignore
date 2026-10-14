@@ -1,0 +1,34 @@
+# Large / generated folders (not needed for EAS cloud build)
+.expo-export-apk-check
+.expo-export-check
+.expo-export-ios
+.expo
+node_modules
+.git
+android
+ios
+dist
+web-build
+*.apk
+*.aab
+*.hbc
+
+# Local secrets — EAS preview environment already has EXPO_PUBLIC_* vars
+.env
+.env*.local
+
+# Debug / OS
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.DS_Store
+*.pem
+*.tsbuildinfo
+.kotlin
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+.metro-health-check*

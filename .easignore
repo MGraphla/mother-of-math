@@ -1,0 +1,20 @@
+# EAS archives from the git root. Exclude bulky generated files only.
+node_modules
+**/node_modules
+.git
+dist
+**/dist
+deploy
+apps/mobile/android
+apps/mobile/ios
+apps/mobile/.expo
+apps/mobile/.expo-export-apk-check
+apps/mobile/.expo-export-check
+apps/mobile/.expo-export-ios
+*.apk
+*.aab
+*.hbc
+*.zip
+.env
+**/.env
+**/.env*.local

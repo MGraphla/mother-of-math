@@ -92,6 +92,7 @@ const GenerateImages = () => {
   const [selectedImage, setSelectedImage] = useState<StoredImage | null>(null);
   const [generationsToday, setGenerationsToday] = useState(0);
   const MAX_GENERATIONS_PER_DAY = 5;
+  const generatingLock = useRef(false);
 
   // Canvas Drawing State
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -181,8 +182,22 @@ const GenerateImages = () => {
     }
   }, [activeTab]);
 
+  const isCanvasBlank = (canvas: HTMLCanvasElement) => {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return true;
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] < 250 || data[i + 1] < 250 || data[i + 2] < 250) return false;
+    }
+    return true;
+  };
+
+  const requestedCount = () => Math.min(4, Math.max(1, Math.round(Number(numImages) || 1)));
+
   const handleGenerateFromSketch = async () => {
-    if (generationsToday + numImages > MAX_GENERATIONS_PER_DAY) {
+    if (generatingLock.current) return;
+    const count = requestedCount();
+    if (generationsToday + count > MAX_GENERATIONS_PER_DAY) {
       const remaining = Math.max(0, MAX_GENERATIONS_PER_DAY - generationsToday);
       toast.error(`Daily limit reached. You can only generate ${remaining} more images today.`);
       return;
@@ -190,14 +205,19 @@ const GenerateImages = () => {
 
     const canvas = canvasRef.current;
     if (!canvas) return;
+    if (isCanvasBlank(canvas)) {
+      toast.error("Draw something on the board first so the AI can follow your sketch.");
+      return;
+    }
     // PNG keeps thin pen strokes sharp; JPEG blurs small sketch lines and confuses vision models.
     const sketchBase64 = canvas.toDataURL("image/png");
 
+    generatingLock.current = true;
     setIsGenerating(true);
     try {
-      toast.info("Analyzing your sketch...");
+      toast.info("Looking at your sketch...");
       const description = await sendMessage(
-        "Describe only what is drawn in this sketch—shapes, figures, layout, and spatial relationships—so an image model can recreate it faithfully. Do not analyze math mistakes; this is a teacher's rough drawing, not learner homework.",
+        "Describe only the marks that are actually drawn in this sketch—shapes, figures, lines, layout, and spatial relationships. Do not name objects that are not clearly drawn. Do not invent a fridge, furniture, a classroom, people, or any other scene. If something is unclear, describe the strokes literally.",
         sketchBase64,
         "text",
         "sketch-to-image",
@@ -208,23 +228,21 @@ const GenerateImages = () => {
           ? String((description as { text: string }).text ?? "").trim()
           : String(description ?? "").trim();
 
-      if (!descText) {
-        toast.error("Could not read your sketch. Try drawing with a darker pen or clearer lines, then try again.");
-        return;
-      }
-
-      const enhancedPrompt = enhancePrompt(descText, true);
+      const sketchPrompt = enhancePrompt(
+        descText || "Recreate the attached sketch exactly as drawn.",
+        true,
+      );
       const selectedRatio = ASPECT_RATIOS.find((r) => r.id === aspectRatio)?.ratio || "4:3";
 
       const generatedImages: string[] = [];
-      for (let i = 0; i < numImages; i++) {
-        toast.info(`Generating image ${i + 1} of ${numImages} from sketch...`);
-        const imageUrl = await generateSlideImage(enhancedPrompt, selectedRatio);
+      for (let i = 0; i < count; i++) {
+        toast.info(`Generating image ${i + 1} of ${count} from sketch...`);
+        const imageUrl = await generateSlideImage(sketchPrompt, selectedRatio, sketchBase64);
         
         if (imageUrl) {
           const saved = await imageStorage.saveImage(imageUrl, {
             prompt: "Generated from Teacher Sketch",
-            enhancedPrompt: enhancedPrompt,
+            enhancedPrompt: sketchPrompt,
             aspectRatio: selectedRatio,
             style: artStyle,
           });
@@ -245,6 +263,7 @@ const GenerateImages = () => {
       console.error("Sketch generation error:", error);
       toast.error("An error occurred while generating images from sketch.");
     } finally {
+      generatingLock.current = false;
       setIsGenerating(false);
     }
   };
@@ -262,11 +281,12 @@ const GenerateImages = () => {
     const styleText = styleMap[artStyle] || styleMap.illustration;
     
     if (isFromSketch) {
-      return `Recreate this scene as a polished illustration. Stay very close to this description—same subjects, composition, and spatial layout: ${basePrompt}
+      return `Look at the attached teacher sketch and recreate ONLY what is drawn as a polished illustration.
+Stay very close to this description of the sketch—same subjects, composition, and spatial layout: ${basePrompt}
 
 Rendering style: ${styleText}.
-If the description is clearly a classroom or school activity, show an African/Cameroonian school setting; if it is something else (diagram, object, nature, abstract layout), keep that subject—do not force a classroom.
-Use green (#009e60) and brown (#4b371c) as natural accents where they fit; do not let palette override what is described.
+Do not add objects that are not in the sketch: no fridge, no extra furniture, no extra people, no classroom, and no scenery unless it is clearly drawn.
+If the sketch is simple or abstract, polish those exact marks. Do not replace them with a different invented scene.
 High quality, professional. NO text, NO words, NO letters, NO numbers overlaid on the image.`;
     }
 
@@ -278,17 +298,20 @@ NO text, NO words, NO letters overlaid on the image.`;
   };
 
   const handleGenerate = async () => {
+    if (generatingLock.current) return;
     if (!prompt.trim()) {
       toast.error("Please enter a prompt");
       return;
     }
 
-    if (generationsToday + numImages > MAX_GENERATIONS_PER_DAY) {
+    const count = requestedCount();
+    if (generationsToday + count > MAX_GENERATIONS_PER_DAY) {
       const remaining = MAX_GENERATIONS_PER_DAY - generationsToday;
       toast.error(`Daily limit reached. You can only generate ${remaining > 0 ? remaining : 0} more images today.`);
       return;
     }
 
+    generatingLock.current = true;
     setIsGenerating(true);
     const selectedRatio = ASPECT_RATIOS.find((r) => r.id === aspectRatio)?.ratio || "4:3";
     const enhancedPrompt = enhancePrompt(prompt);
@@ -296,8 +319,8 @@ NO text, NO words, NO letters overlaid on the image.`;
     try {
       const generatedImages: string[] = [];
 
-      for (let i = 0; i < numImages; i++) {
-        toast.info(`Generating image ${i + 1} of ${numImages}...`);
+      for (let i = 0; i < count; i++) {
+        toast.info(`Generating image ${i + 1} of ${count}...`);
         const imageUrl = await generateSlideImage(enhancedPrompt, selectedRatio);
 
         if (imageUrl) {
@@ -327,11 +350,10 @@ NO text, NO words, NO letters overlaid on the image.`;
       console.error("Generation error:", error);
       toast.error("An error occurred while generating images");
     } finally {
+      generatingLock.current = false;
       setIsGenerating(false);
     }
   };
-
-  const handleToggleFavorite = async (image: StoredImage) => {
     const newStatus = !image.is_favorite;
     const success = await imageStorage.toggleFavorite(image.id, newStatus);
     if (success) {
@@ -490,7 +512,6 @@ NO text, NO words, NO letters overlaid on the image.`;
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid grid-cols-2 sm:grid-cols-4 h-auto w-full gap-1 p-1 sm:inline-flex sm:w-auto">
           <TabsTrigger value="generate" className="gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2">
-            <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
             <span className="truncate">Text to Image</span>
           </TabsTrigger>
           <TabsTrigger value="sketch" className="gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2">
@@ -512,9 +533,8 @@ NO text, NO words, NO letters overlaid on the image.`;
           </TabsTrigger>
         </TabsList>
 
-        <div className="mt-2 sm:mt-4 mb-2 text-xs sm:text-sm font-medium text-amber-600 bg-amber-50 p-2 rounded-lg max-w-full sm:max-w-fit flex items-center gap-2">
-          <span>⚠️</span>
-          <span>Daily Limit: {generationsToday} / {MAX_GENERATIONS_PER_DAY} images generated today.</span>
+        <div className="mt-2 sm:mt-4 mb-2 text-xs sm:text-sm font-medium text-primary bg-primary/10 p-2 rounded-lg max-w-full sm:max-w-fit">
+          Daily Limit: {generationsToday} / {MAX_GENERATIONS_PER_DAY} images generated today.
         </div>
 
         {/* Generate Tab */}
@@ -524,8 +544,7 @@ NO text, NO words, NO letters overlaid on the image.`;
             <div className="lg:col-span-2 space-y-3 sm:space-y-4">
               <Card>
                 <CardContent className="p-4 sm:p-6 space-y-3 sm:space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-5 w-5 text-primary" />
+                  <div>
                     <h2 className="font-semibold text-lg">Create Your Image</h2>
                   </div>
                   <p className="text-sm text-muted-foreground">
@@ -582,10 +601,7 @@ NO text, NO words, NO letters overlaid on the image.`;
                     Generating...
                   </>
                 ) : (
-                  <>
-                    <Sparkles className="h-5 w-5" />
-                    Generate {numImages} Image{numImages > 1 ? "s" : ""}
-                  </>
+                  <>Generate {numImages} Image{numImages > 1 ? "s" : ""}</>
                 )}
               </Button>
             </div>
@@ -631,7 +647,7 @@ NO text, NO words, NO letters overlaid on the image.`;
                     </div>
                     <Slider
                       value={[numImages]}
-                      onValueChange={(v) => setNumImages(v[0])}
+                      onValueChange={(v) => setNumImages(Math.min(4, Math.max(1, Math.round(v[0]) || 1)))}
                       min={1}
                       max={4}
                       step={1}
@@ -670,8 +686,7 @@ NO text, NO words, NO letters overlaid on the image.`;
               {/* Pro Tips */}
               <Card className="bg-primary/5 border-primary/20">
                 <CardContent className="p-4 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Lightbulb className="h-4 w-4 text-primary" />
+                  <div>
                     <span className="font-medium text-sm">Pro Tips</span>
                   </div>
                   <ul className="text-xs text-muted-foreground space-y-1">

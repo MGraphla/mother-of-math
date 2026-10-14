@@ -11,6 +11,7 @@ const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json());
 
+
 // Initialize OpenAI client with the API key from process.env
 const openrouter = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
@@ -46,6 +47,7 @@ app.post("/analyze", async (req, res) => {
       2.  **Strengths:** Identify 2-3 specific things the user did well. Quote parts of their answers to support your points.
       3.  **Areas for Improvement:** Identify 2-3 areas where the user could improve. Provide actionable suggestions and re-frame their responses where appropriate.
       4.  **Concluding Remarks:** End with an encouraging and motivational statement.
+
 
       Your feedback should be formatted in clear Markdown.
     `;

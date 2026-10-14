@@ -13,7 +13,8 @@ const REQUEST_TIMEOUT_MS = 60_000; // 60 seconds per image
  */
 export const generateSlideImage = async (
   prompt: string,
-  aspectRatio: string = '16:9'
+  aspectRatio: string = '16:9',
+  referenceImage?: string,
 ): Promise<string | null> => {
   if (!isOpenRouterConfigured()) {
     console.warn('[ImageGen] OpenRouter not configured');
@@ -27,7 +28,18 @@ export const generateSlideImage = async (
     const response = await fetchOpenRouterChatCompletion(
       {
         model: IMAGE_MODEL,
-        messages: [{ role: 'user', content: prompt }],
+        n: 1,
+        messages: [
+          {
+            role: 'user',
+            content: referenceImage
+              ? [
+                  { type: 'text', text: prompt },
+                  { type: 'image_url', image_url: { url: referenceImage } },
+                ]
+              : prompt,
+          },
+        ],
         modalities: ['image', 'text'],
         stream: false,
         image_config: {

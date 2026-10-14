@@ -127,11 +127,9 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
 };
 
 export const upsertUserProfile = async (profile: Partial<UserProfile> & { id: string }) => {
-  // Strip fields that may not exist in the DB schema yet to avoid PGRST204 errors.
-  const { number_of_classes: _nc, ...safeProfile } = profile as Record<string, unknown>;
   const { error } = await supabase
     .from('profiles')
-    .upsert({ ...safeProfile, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+    .upsert({ ...profile, updated_at: new Date().toISOString() }, { onConflict: 'id' });
 
   if (error) {
     console.error('Error upserting user profile:', error);

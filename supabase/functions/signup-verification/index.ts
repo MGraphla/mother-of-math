@@ -1,4 +1,4 @@
-v// Supabase Edge Function: signup verification (SMS / WhatsApp).
+// Supabase Edge Function: signup verification (SMS / WhatsApp).
 // Secrets: INFOBIP_BASE_URL, INFOBIP_API_KEY, INFOBIP_SMS_FROM, INFOBIP_WHATSAPP_FROM,
 //         SIGNUP_OTP_PEPPER (optional but recommended)
 
@@ -22,6 +22,14 @@ function smsSignupOtp(code: string): string {
 }
 function smsResetOtp(code: string): string {
   return `MM reset ${code} 10m`;
+}
+
+function emailResetOtpText(code: string): string {
+  return `Your Mama Math password reset code is ${code}. It expires in 10 minutes. If you did not request this, you can ignore this email.`;
+}
+
+function emailResetOtpHtml(code: string): string {
+  return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#F6F8FA;font-family:Arial,Helvetica,sans-serif;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F6F8FA;padding:32px 16px;"><tr><td align="center"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:16px;border:1px solid #E4E4E7;"><tr><td style="padding:28px 32px 8px;font-size:13px;letter-spacing:1.4px;font-weight:800;color:#009E3F;">MAMA MATH</td></tr><tr><td style="padding:0 32px 8px;font-size:22px;font-weight:800;color:#22222A;">Your password reset code</td></tr><tr><td style="padding:0 32px 20px;font-size:15px;line-height:1.5;color:#71717A;">Enter this code in the Mama Math app to choose a new password. It expires in 10 minutes.</td></tr><tr><td align="center" style="padding:0 32px 28px;"><div style="display:inline-block;background:#F2FAF5;border:1px solid #CCECD9;border-radius:14px;padding:16px 24px;font-size:32px;letter-spacing:10px;font-weight:800;color:#008033;">${code}</div></td></tr><tr><td style="padding:0 32px 28px;font-size:12px;line-height:1.5;color:#A1A1AA;">If you did not ask to reset your password, you can ignore this email. Do not share this code with anyone.</td></tr></table></td></tr></table></body></html>`;
 }
 
 function json(body: unknown, _status = 200) {
@@ -173,6 +181,148 @@ async function sendInfobipWhatsappText(
   }
 }
 
+async function sendInfobipEmail(
+  baseUrl: string,
+  apiKey: string,
+  from: string,
+  to: string,
+  subject: string,
+  text: string,
+  html: string,
+): Promise<void> {
+  const url = `${baseUrl.replace(/\/$/, "")}/email/3/send`;
+  const form = new FormData();
+  form.append("from", from);
+  form.append("to", to);
+  form.append("subject", subject);
+  form.append("text", text);
+  form.append("html", html);
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `App ${apiKey}`,
+      Accept: "application/json",
+    },
+    body: form,
+  });
+  const errTxt = await res.text();
+  if (!res.ok) {
+    throw new Error(`Email send failed (${res.status}): ${errTxt.slice(0, 500)}`);
+  }
+  try {
+    const payload = JSON.parse(errTxt) as {
+      requestError?: unknown;
+      messages?: Array<{ status?: { groupId?: number; groupName?: string } }>;
+    };
+    if (payload.requestError) {
+      throw new Error(`Email send rejected: ${errTxt.slice(0, 400)}`);
+    }
+    const messages = payload.messages ?? [];
+    if (messages.length === 0) {
+      throw new Error("Email send returned no messages.");
+    }
+    const rejected = messages.some((m) => (m.status?.groupId ?? 0) >= 4);
+    if (rejected) {
+      throw new Error(`Email send rejected: ${errTxt.slice(0, 400)}`);
+    }
+  } catch (e) {
+    if (e instanceof SyntaxError) return;
+    throw e;
+  }
+}
+
+async function sendResetCodeByInfobip(
+  baseUrl: string,
+  apiKey: string,
+  preferredFrom: string,
+  to: string,
+  code: string,
+): Promise<boolean> {
+  if (!baseUrl || !apiKey) return false;
+  const froms = [
+    preferredFrom,
+    "Mama Math <noreply@mamamath.org>",
+    "noreply@mamamath.org",
+  ].filter((v, i, arr) => v && arr.indexOf(v) === i);
+  let lastErr = "";
+  for (const from of froms) {
+    try {
+      await sendInfobipEmail(
+        baseUrl,
+        apiKey,
+        from,
+        to,
+        "Your Mama Math password reset code",
+        emailResetOtpText(code),
+        emailResetOtpHtml(code),
+      );
+      return true;
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e);
+      console.error("Infobip reset email failed", from, lastErr);
+    }
+  }
+  return false;
+}
+
+/** Sends the recovery mail (must contain {{ .Token }}, never a login-link template). */
+async function sendGoTrueRecoveryEmail(
+  supabaseUrl: string,
+  serviceKey: string,
+  email: string,
+): Promise<boolean> {
+  const res = await fetch(`${supabaseUrl}/auth/v1/recover`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${serviceKey}`,
+      apikey: serviceKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email }),
+  });
+  if (res.ok) return true;
+  const errTxt = await res.text();
+  console.error("GoTrue recovery email failed", res.status, errTxt.slice(0, 400));
+  return false;
+}
+
+/** Last-resort mailer: email OTP. Template must show {{ .Token }}, not a magic link. */
+async function sendGoTrueEmailOtp(
+  supabaseUrl: string,
+  serviceKey: string,
+  email: string,
+): Promise<boolean> {
+  const res = await fetch(`${supabaseUrl}/auth/v1/otp`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${serviceKey}`,
+      apikey: serviceKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email, create_user: false }),
+  });
+  if (res.ok) return true;
+  const errTxt = await res.text();
+  console.error("GoTrue email OTP failed", res.status, errTxt.slice(0, 400));
+  return false;
+}
+
+/** Prefer profiles, then GoTrue admin paging. */
+async function findRegisteredUser(
+  admin: ReturnType<typeof createClient>,
+  supabaseUrl: string,
+  serviceKey: string,
+  email: string,
+): Promise<{ id: string } | null> {
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("id")
+    .ilike("email", email)
+    .maybeSingle();
+  if (profile?.id) return { id: profile.id as string };
+  return await findUserByEmail(supabaseUrl, serviceKey, email);
+}
+
 /** Look up a single auth user by email using the GoTrue REST API (the JS SDK `listUsers` has no email filter). */
 async function findUserByEmail(
   supabaseUrl: string,
@@ -286,6 +436,7 @@ Deno.serve(async (req: Request) => {
     // Falls back to the regular smsFrom if the dedicated secret isn't set.
     const recoveryFrom = Deno.env.get("INFOBIP_SMS_RECOVERY_FROM") || smsFrom;
     const waFrom = Deno.env.get("INFOBIP_WHATSAPP_FROM") ?? "";
+    const emailFrom = (Deno.env.get("INFOBIP_EMAIL_FROM") ?? Deno.env.get("RESET_EMAIL_FROM") ?? "").trim();
     const pepper = Deno.env.get("SIGNUP_OTP_PEPPER") ?? "";
 
     if (!supabaseUrl || !serviceKey) {
@@ -1271,6 +1422,48 @@ Deno.serve(async (req: Request) => {
       }
 
       return json({ ok: true, channel_used: channel });
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // EMAIL PASSWORD RESET — 6-digit code to the registered inbox
+    // ──────────────────────────────────────────────────────────
+
+    if (action === "start_password_reset_by_email" || action === "resend_password_reset_by_email") {
+      const email = normalizeEmail(String((body as Record<string, unknown>).email ?? (body as Record<string, unknown>).email_token ?? ""));
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return json({ ok: false, error: "Valid email is required." });
+      }
+
+      const existingUser = await findRegisteredUser(admin, supabaseUrl, serviceKey, email);
+      if (!existingUser) {
+        return json({
+          ok: false,
+          not_registered: true,
+          error: "No account found for this email. Create an account to continue.",
+        });
+      }
+
+      // Infobip Email reports HTTP success but the message never reaches the inbox
+      // (unverified sender / email channel). GoTrue's mailer already delivers to this
+      // project, so password-reset codes go through Auth templates that include {{ .Token }}.
+      await admin.from("signup_phone_verification_challenges").delete().eq("email", email);
+
+      const recovered = await sendGoTrueRecoveryEmail(supabaseUrl, serviceKey, email);
+      if (recovered) {
+        console.log("password_reset_email_via", "recover");
+        return json({ ok: true, email_token: email, delivery: "recovery" });
+      }
+
+      const otped = await sendGoTrueEmailOtp(supabaseUrl, serviceKey, email);
+      if (otped) {
+        console.log("password_reset_email_via", "otp");
+        return json({ ok: true, email_token: email, delivery: "email_otp" });
+      }
+
+      return json({
+        ok: false,
+        error: "Could not send a verification code to this email. Please wait a minute and try again.",
+      });
     }
 
     return json(
