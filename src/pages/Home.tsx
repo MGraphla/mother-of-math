@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence, useTransform, useMotionValue } from 'framer-motion';
+import { motion, AnimatePresence, useTransform, useMotionValue, useScroll, useSpring } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { FluidCursorTrail, BRAND_CURSOR_COLOR } from '@/components/ui/fluid-cursor-trail';
-import { AuroraHero } from '@/components/ui/aurora-hero';
 import FluidCursorTrailDemo from '@/components/ui/fluid-cursor-trail-demo';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
@@ -27,17 +26,120 @@ import {
 
 const EASE_OUT_EXPO = [0.23, 1, 0.32, 1] as const;
 
+// Deterministic pseudo-random so SSR/client and remounts stay stable
+const seeded = (n: number) => {
+  const x = Math.sin(n * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+const FloatingShapes = () => {
+  const shapes = Array.from({ length: 12 }).map((_, i) => {
+    const s = seeded(i + 1);
+    const s2 = seeded(i + 17);
+    const s3 = seeded(i + 31);
+    return {
+      id: i,
+      x: s * 90 + 5,
+      y: s2 * 85 + 5,
+      size: s3 * 28 + 14,
+      duration: 18 + s * 12,
+      delay: s2 * 4,
+      driftX: (s - 0.5) * 12,
+      driftY: (s3 - 0.5) * 14,
+    };
+  });
+
+  return (
+    <div className="absolute inset-0 w-full h-full overflow-hidden z-0 pointer-events-none">
+      {shapes.map((shape) => (
+        <motion.div
+          key={shape.id}
+          className="absolute rounded-full bg-gradient-to-br from-emerald-400/15 to-amber-400/10"
+          initial={{ opacity: 0, scale: 0.6 }}
+          animate={{
+            x: [`${shape.x}vw`, `${shape.x + shape.driftX}vw`, `${shape.x}vw`],
+            y: [`${shape.y}vh`, `${shape.y + shape.driftY}vh`, `${shape.y}vh`],
+            opacity: [0.15, 0.45, 0.15],
+            scale: [0.85, 1.1, 0.85],
+          }}
+          transition={{
+            duration: shape.duration,
+            repeat: Infinity,
+            ease: 'easeInOut',
+            delay: shape.delay,
+          }}
+          style={{
+            width: shape.size,
+            height: shape.size,
+            filter: 'blur(2px)',
+          }}
+        />
+      ))}
+    </div>
+  );
+};
+
+const FloatingMathSymbols = () => {
+  const symbols = ['π', '∑', '∫', '√', '∞', 'Δ', 'θ', '÷', '×', '+'];
+  const items = Array.from({ length: 10 }).map((_, i) => {
+    const s = seeded(i + 50);
+    const s2 = seeded(i + 70);
+    return {
+      id: i,
+      symbol: symbols[i % symbols.length],
+      x: 8 + s * 84,
+      y: 10 + s2 * 75,
+      size: 18 + s * 18,
+      duration: 22 + s2 * 14,
+      delay: s * 6,
+    };
+  });
+
+  return (
+    <div className="absolute inset-0 w-full h-full overflow-hidden z-0 pointer-events-none">
+      {items.map((item) => (
+        <motion.span
+          key={item.id}
+          className="absolute font-serif font-semibold text-emerald-700/15 select-none"
+          style={{ left: `${item.x}%`, top: `${item.y}%`, fontSize: item.size }}
+          animate={{
+            y: [0, -28, 0],
+            opacity: [0.08, 0.22, 0.08],
+            rotate: [-6, 6, -6],
+          }}
+          transition={{
+            duration: item.duration,
+            repeat: Infinity,
+            ease: 'easeInOut',
+            delay: item.delay,
+          }}
+        >
+          {item.symbol}
+        </motion.span>
+      ))}
+    </div>
+  );
+};
+
 const ScrollIndicator = () => (
   <motion.div
     className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-20"
     initial={{ opacity: 0, y: 12 }}
     animate={{ opacity: 1, y: 0 }}
-    transition={{ delay: 0.4, duration: 0.3, ease: EASE_OUT_EXPO }}
+    transition={{ delay: 1.4, duration: 0.7, ease: EASE_OUT_EXPO }}
   >
-    <span className="text-sm text-white/70 font-medium">Scroll to explore</span>
-    <div className="w-6 h-10 rounded-full border-2 border-white/40 flex justify-center pt-2">
-      <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-    </div>
+    <span className="text-sm text-gray-500 font-medium">Scroll to explore</span>
+    <motion.div
+      className="w-6 h-10 rounded-full border-2 border-emerald-300/70 flex justify-center pt-2"
+      animate={{ borderColor: ['rgba(110,231,183,0.7)', 'rgba(34,197,94,0.9)', 'rgba(110,231,183,0.7)'] }}
+      transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
+    >
+      <motion.div
+        className="w-1.5 h-1.5 rounded-full bg-primary"
+        animate={{ y: [0, 14, 0], opacity: [1, 0.4, 1] }}
+        transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+      />
+    </motion.div>
   </motion.div>
 );
 
@@ -348,6 +450,16 @@ const HowItWorks = () => {
 const Home = () => {
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const { scrollYProgress } = useScroll();
+  const y = useTransform(scrollYProgress, [0, 1], [0, -100]);
+  const springY = useSpring(y, { stiffness: 100, damping: 30 });
+
+  // Multi-layer parallax for hero background
+  const heroLayer1Y = useTransform(scrollYProgress, [0, 0.5], [0, -80]);
+  const heroLayer2Y = useTransform(scrollYProgress, [0, 0.5], [0, -140]);
+  const heroLayer3Y = useTransform(scrollYProgress, [0, 0.5], [0, 40]);
+  const heroPatternX = useTransform(scrollYProgress, [0, 0.5], [0, -30]);
+
   const handleGetStarted = () => {
     navigate('/sign-up');
   };
@@ -469,8 +581,49 @@ const Home = () => {
       <Header />
       <FloatingActionButton />
 
-      <AuroraHero>
-        <div className="relative flex min-h-screen w-full flex-col items-center justify-center">
+      {/* Enhanced Hero Section */}
+      <section className="relative w-full min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50/40 flex items-center overflow-hidden">
+        {/* Parallax animated gradient mesh + African Kente-inspired geometric pattern */}
+        <div className="absolute inset-0 z-0 overflow-hidden">
+          {/* African Kente geometric weave pattern — slow counter-parallax */}
+          <motion.div
+            className="absolute -inset-[10%] opacity-[0.07]"
+            style={{
+              y: heroLayer3Y,
+              x: heroPatternX,
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='80' height='80' fill='none'/%3E%3Cline x1='0' y1='20' x2='80' y2='20' stroke='%2322c55e' stroke-width='1.5'/%3E%3Cline x1='0' y1='40' x2='80' y2='40' stroke='%23d97706' stroke-width='1.5'/%3E%3Cline x1='0' y1='60' x2='80' y2='60' stroke='%2322c55e' stroke-width='1.5'/%3E%3Cline x1='20' y1='0' x2='20' y2='80' stroke='%23d97706' stroke-width='1.5'/%3E%3Cline x1='40' y1='0' x2='40' y2='80' stroke='%2322c55e' stroke-width='1.5'/%3E%3Cline x1='60' y1='0' x2='60' y2='80' stroke='%23d97706' stroke-width='1.5'/%3E%3Cpolygon points='20%2C14 26%2C20 20%2C26 14%2C20' fill='%2322c55e'/%3E%3Cpolygon points='40%2C34 46%2C40 40%2C46 34%2C40' fill='%23d97706'/%3E%3Cpolygon points='60%2C14 66%2C20 60%2C26 54%2C20' fill='%2322c55e'/%3E%3Cpolygon points='20%2C54 26%2C60 20%2C66 14%2C60' fill='%23d97706'/%3E%3Cpolygon points='60%2C54 66%2C60 60%2C66 54%2C60' fill='%2322c55e'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'repeat',
+              backgroundSize: '80px 80px',
+            }}
+          />
+          {/* Parallax blob — green */}
+          <motion.div
+            className="absolute top-0 left-0 w-[600px] h-[600px] bg-gradient-to-br from-green-200/40 to-emerald-300/20 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2"
+            style={{ y: heroLayer2Y }}
+            animate={{ scale: [1, 1.08, 1], opacity: [0.7, 1, 0.7] }}
+            transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          {/* Parallax blob — amber/gold */}
+          <motion.div
+            className="absolute top-1/2 right-0 w-[500px] h-[500px] bg-gradient-to-bl from-amber-200/30 to-yellow-200/20 rounded-full blur-3xl translate-x-1/3"
+            style={{ y: heroLayer1Y }}
+            animate={{ scale: [1, 1.06, 1], opacity: [0.6, 0.95, 0.6] }}
+            transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut', delay: 1.2 }}
+          />
+          {/* Parallax blob — deep green */}
+          <motion.div
+            className="absolute bottom-0 left-1/3 w-[400px] h-[400px] bg-gradient-to-tr from-emerald-100/30 to-green-100/20 rounded-full blur-3xl translate-y-1/2"
+            style={{ y: heroLayer3Y }}
+            animate={{ scale: [1, 1.1, 1] }}
+            transition={{ duration: 14, repeat: Infinity, ease: 'easeInOut', delay: 0.6 }}
+          />
+          <FloatingShapes />
+          <FloatingMathSymbols />
+        </div>
+        
+        {/* Grid pattern overlay */}
+        <div className="absolute inset-0 z-0 opacity-[0.02]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23000000\' fill-opacity=\'1\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }} />
+        
         <div className="w-full flex flex-col lg:flex-row items-center justify-between py-24 lg:py-32 px-4 sm:px-8 lg:px-16 xl:px-24 relative z-10">
           {/* Left Content */}
           <div className="w-full lg:w-1/2 text-center lg:text-left z-10 max-w-2xl mx-auto lg:mx-0 lg:max-w-none">
@@ -478,9 +631,9 @@ const Home = () => {
             <motion.div
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, ease: EASE_OUT_EXPO }}
+              transition={{ duration: 0.7, ease: EASE_OUT_EXPO }}
             >
-              <span className="inline-flex items-center mb-6 px-5 py-2.5 bg-white/10 text-white rounded-full font-semibold text-sm sm:text-base tracking-wide border border-white/20 shadow-sm backdrop-blur-sm">
+              <span className="inline-flex items-center mb-6 px-5 py-2.5 bg-gradient-to-r from-green-100 to-emerald-100 text-green-700 rounded-full font-semibold text-sm sm:text-base tracking-wide border border-green-200/50 shadow-sm">
                 {t('home.tagline')}
               </span>
             </motion.div>
@@ -490,23 +643,44 @@ const Home = () => {
               className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold mb-6 sm:mb-8 leading-[1.1] tracking-tight"
               initial={{ opacity: 0, y: 36 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.05, ease: EASE_OUT_EXPO }}
+              transition={{ duration: 0.85, delay: 0.12, ease: EASE_OUT_EXPO }}
             >
-              <span className="text-white">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-800 via-amber-600 to-green-700">
                 {t('home.heroTitle')}
               </span>{' '}
-              <span className="relative inline-block text-emerald-300">
+              <motion.span
+                className="relative inline-block text-emerald-600"
+                animate={{
+                  color: ['#059669', '#d97706', '#15803d', '#059669'],
+                }}
+                transition={{
+                  duration: 8,
+                  repeat: Infinity,
+                  ease: 'easeInOut',
+                }}
+              >
                 {t('home.heroMath')}
-                <span className="absolute -inset-1 rounded-lg bg-gradient-to-r from-emerald-400/30 via-fuchsia-400/20 to-sky-400/25 blur-xl -z-10 opacity-70" />
-              </span>
+                <motion.span
+                  className="absolute -inset-1 rounded-lg bg-gradient-to-r from-emerald-400/25 via-amber-300/20 to-green-400/25 blur-xl -z-10"
+                  animate={{
+                    opacity: [0.35, 0.7, 0.35],
+                    scale: [1, 1.06, 1],
+                  }}
+                  transition={{
+                    duration: 4,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                  }}
+                />
+              </motion.span>
             </motion.h1>
             
             {/* Subtitle */}
             <motion.p 
-              className="text-lg sm:text-xl md:text-2xl text-white/75 mb-8 sm:mb-10 leading-relaxed max-w-xl mx-auto lg:mx-0"
+              className="text-lg sm:text-xl md:text-2xl text-gray-600 mb-8 sm:mb-10 leading-relaxed max-w-xl mx-auto lg:mx-0"
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.1, ease: EASE_OUT_EXPO }}
+              transition={{ duration: 0.75, delay: 0.28, ease: EASE_OUT_EXPO }}
             >
               {t('home.heroSubtitle')}
             </motion.p>
@@ -516,7 +690,7 @@ const Home = () => {
               className="mx-auto grid w-full max-w-sm grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:max-w-none sm:gap-4 sm:justify-center lg:mx-0 lg:justify-start mb-10"
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.15, ease: EASE_OUT_EXPO }}
+              transition={{ duration: 0.75, delay: 0.4, ease: EASE_OUT_EXPO }}
             >
               <motion.button 
                 onClick={handleGetStarted} 
@@ -539,7 +713,7 @@ const Home = () => {
               
               <motion.button 
                 onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })} 
-                className="group w-full min-w-0 bg-white/10 backdrop-blur-sm text-white border-2 border-white/25 hover:border-white/50 hover:bg-white/20 px-3 py-3 sm:px-8 sm:py-4 rounded-full text-sm sm:text-lg font-bold shadow-lg transition-all duration-300 flex items-center justify-center whitespace-nowrap"
+                className="group w-full min-w-0 bg-white/80 backdrop-blur-sm text-gray-700 border-2 border-gray-200 hover:border-primary/50 hover:bg-green-50/50 px-3 py-3 sm:px-8 sm:py-4 rounded-full text-sm sm:text-lg font-bold shadow-lg transition-all duration-300 flex items-center justify-center whitespace-nowrap"
                 whileHover={{ scale: 1.02, y: -2 }} 
                 whileTap={{ scale: 0.98 }}
               >
@@ -558,18 +732,21 @@ const Home = () => {
             className="relative w-full lg:w-1/2 flex justify-center mt-12 lg:mt-0"
             initial={{ opacity: 0, x: 56, scale: 0.96 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
-            transition={{ duration: 0.3, delay: 0.15, ease: EASE_OUT_EXPO }}
+            transition={{ duration: 1, delay: 0.35, ease: EASE_OUT_EXPO }}
           >
             {/* Glow effect behind card */}
-            <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/25 via-amber-300/15 to-green-400/20 blur-3xl rounded-full scale-75 opacity-70" />
+            <motion.div
+              className="absolute inset-0 bg-gradient-to-r from-emerald-400/25 via-amber-300/15 to-green-400/20 blur-3xl rounded-full scale-75"
+              animate={{ opacity: [0.5, 0.85, 0.5], scale: [0.72, 0.82, 0.72] }}
+              transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+            />
             <FlippableImageCard />
           </motion.div>
         </div>
         
         {/* Scroll indicator */}
         <ScrollIndicator />
-        </div>
-      </AuroraHero>
+      </section>
 
       {/* Features Section */}
       <section id="features" className="pt-8 sm:pt-12 md:pt-16 pb-16 sm:pb-20 md:pb-24 px-4 bg-gradient-to-b from-gray-50 to-sky-50 overflow-hidden w-full">
