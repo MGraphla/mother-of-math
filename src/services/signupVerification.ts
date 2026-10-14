@@ -1,7 +1,16 @@
 import { supabase } from "@/lib/supabase";
+import { AuthFlowError } from "@/lib/authErrors";
 
 /** Phone OTP is sent via SMS only (WhatsApp removed from product UI). */
 export type SignupPhoneChannel = "sms";
+
+/** Converts an `{ ok: false }` body into a typed error the screens can branch on. */
+function bodyFailure(data: Record<string, unknown>, fallback: string): AuthFlowError {
+  const message = bodyErrorFrom(data) || fallback;
+  if (data.not_registered === true) return new AuthFlowError(message, "not_registered");
+  if (data.already_registered === true) return new AuthFlowError(message, "already_registered");
+  return new AuthFlowError(message);
+}
 
 function bodyErrorFrom(data: unknown): string {
   return data && typeof data === "object" && "error" in data
@@ -39,7 +48,7 @@ export async function invokeSignupVerification(
   if (!error) {
     const d = data as Record<string, unknown>;
     if (d && "ok" in d && d.ok === false) {
-      throw new Error(bodyError || "Request failed.");
+      throw bodyFailure(d, "Request failed.");
     }
     return d ?? {};
   }
@@ -73,7 +82,7 @@ export async function invokeSignupVerification(
     });
   } catch (e) {
     const extra = e instanceof Error ? e.message : String(e);
-    throw new Error(`${primaryMsg} (${extra})`);
+    throw new AuthFlowError(`No connection. Check your internet and try again. (${extra})`, "network");
   }
 
   const text = await res.text();
@@ -91,7 +100,7 @@ export async function invokeSignupVerification(
     throw new Error(be || `Edge function HTTP ${res.status}`);
   }
   if (parsed && "ok" in parsed && parsed.ok === false) {
-    throw new Error(be || "Request failed.");
+    throw bodyFailure(parsed, "Request failed.");
   }
   return parsed;
 }

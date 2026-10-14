@@ -31,11 +31,10 @@ export function normalizePhoneToE164(phone: string, country: string): string {
   return digits.startsWith("234") ? `+${digits}` : `+${digits}`;
 }
 
-/** Mask middle digits for display (e.g. +237 •••••8912). */
+/** Mask middle digits for display, e.g. +237 ••• 3456 (same format as the server). */
 export function maskE164(e164: string): string {
   const d = e164.replace(/\D/g, "");
   if (d.length < 6) return e164;
-  const cc = d.slice(0, Math.min(4, d.length - 6));
-  const tail = d.slice(-4);
-  return `+${cc} ••••• ${tail}`;
+  const cc = d.slice(0, Math.min(3, Math.max(1, d.length - 6)));
+  return `+${cc} ••• ${d.slice(-4)}`;
 }

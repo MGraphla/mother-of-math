@@ -1,379 +1,149 @@
-import { useState, useRef, useEffect } from "react";
-import { useNavigate, useLocation, Link } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import { useAuth } from "@/context/AuthContext";
-import { BookHeart, Mail, CheckCircle2, Loader2, RotateCcw, ShieldCheck, Send } from "lucide-react";
-import { maskE164 } from "@/lib/phone";
+import { useEffect, useRef, useState } from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
+import { useAuth, getPostAuthPath, readPendingVerification } from '@/context/AuthContext';
+import { toAuthError } from '@/lib/authErrors';
+import { supabase } from '@/lib/supabase';
+import {
+  AuthLayout,
+  AuthStatus,
+  CodeInput,
+  FormMessage,
+  PasswordField,
+  PrimaryButton,
+  TextButton,
+  TextLink,
+} from '@/components/auth/AuthUI';
+import { fill, useAuthCopy } from './authCopy';
 
-type VerificationChannel = "email" | "sms";
+const RESEND_SECONDS = 60;
 
 const VerifyEmail = () => {
+  const c = useAuthCopy();
   const navigate = useNavigate();
-  const location = useLocation();
-  const {
-    verifyOtp,
-    verifySignupPhoneOtp,
-    resendOtp,
-    resendSignupPhoneOtp,
-    profile,
-  } = useAuth();
+  const { verifySignupCode, resendSignupCode, hasPendingPassword } = useAuth();
+  const [pending] = useState(readPendingVerification);
 
-  const navState = location.state as {
-    email?: string;
-    verificationChannel?: VerificationChannel;
-    password?: string;
-    maskedDestination?: string;
-  } | null;
-
-  const email: string =
-    navState?.email ?? sessionStorage.getItem("verify_email") ?? "";
-
-  const verificationChannel: VerificationChannel =
-    navState?.verificationChannel ??
-    (sessionStorage.getItem("verify_channel") as VerificationChannel) ??
-    "email";
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [done, setDone] = useState(false);
+  const [cooldown, setCooldown] = useState(RESEND_SECONDS);
+  const inFlight = useRef(false);
 
   useEffect(() => {
-    if (email) sessionStorage.setItem("verify_email", email);
-    sessionStorage.setItem("verify_channel", verificationChannel);
-  }, [email, verificationChannel]);
+    if (cooldown <= 0) return;
+    const id = window.setTimeout(() => setCooldown((s) => s - 1), 1000);
+    return () => window.clearTimeout(id);
+  }, [cooldown]);
 
-  const [token, setToken] = useState("");
-  const [loginPassword, setLoginPassword] = useState(navState?.password ?? "");
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [isResending, setIsResending] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
+  if (!pending) return <Navigate to="/sign-up" replace />;
 
-  const inputRef = useRef<HTMLInputElement>(null);
-  const passwordRef = useRef<HTMLInputElement>(null);
+  const needsPassword = pending.channel === 'sms' && !hasPendingPassword;
+  const destination = pending.channel === 'email' ? pending.email : pending.maskedPhone || pending.email;
 
-  useEffect(() => {
-    if (!email) navigate("/sign-up", { replace: true });
-  }, [email, navigate]);
+  const submit = async (value = code) => {
+    if (inFlight.current) return;
+    if (value.length !== 6) return setError(c.errCode);
+    if (needsPassword && !password) return setError(c.errPasswordShort);
 
-  useEffect(() => {
-    if (resendCooldown <= 0) return;
-    const id = setInterval(() => setResendCooldown((c) => c - 1), 1000);
-    return () => clearInterval(id);
-  }, [resendCooldown]);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  const masked =
-    navState?.maskedDestination ??
-    (sessionStorage.getItem("verify_dest_e164")
-      ? maskE164(sessionStorage.getItem("verify_dest_e164")!)
-      : "");
-
-  const headline =
-    verificationChannel === "email" ? "Check your email" : "Check your text messages";
-
-  const subline =
-    verificationChannel === "email"
-      ? "We sent a verification code to"
-      : "We sent a verification code via SMS to";
-
-  const channelIcon =
-    verificationChannel === "email" ? (
-      <Mail className="h-7 w-7 text-white" />
-    ) : (
-      <Send className="h-7 w-7 text-white" />
-    );
-
-  const hintBelowCode =
-    verificationChannel === "email"
-      ? "Paste the full code from your email"
-      : "Enter the code from your SMS";
-
-  const handleVerify = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    const trimmed = token.trim();
-    if (trimmed.length < 6) {
-      setError("Please enter your verification code.");
-      return;
-    }
-
-    if (verificationChannel !== "email") {
-      if (!loginPassword) {
-        setError("Enter the password you used when creating your account to finish signing in.");
-        passwordRef.current?.focus();
-        return;
-      }
-    }
-
-    setIsVerifying(true);
-    setError("");
+    inFlight.current = true;
+    setVerifying(true);
+    setError('');
+    setNotice('');
     try {
-      if (verificationChannel === "email") {
-        await verifyOtp(email, trimmed);
-      } else {
-        await verifySignupPhoneOtp(email, trimmed, loginPassword);
-      }
-
-      setSuccess(true);
-      sessionStorage.removeItem("verify_email");
-      sessionStorage.removeItem("verify_channel");
-      sessionStorage.removeItem("verify_country");
-      sessionStorage.removeItem("verify_dest_e164");
-
-      const pendingRaw = sessionStorage.getItem("pending_profile");
-      let role: string | null = null;
-      if (pendingRaw) {
-        try {
-          role = JSON.parse(pendingRaw).role;
-        } catch {
-          /* ignore */
-        }
-      }
-      if (!role) {
-        role = profile?.role ?? null;
-      }
-
-      const dashPath =
-        role === "student"
-          ? "/student"
-          : role === "parent"
-            ? "/parent-dashboard"
-            : "/dashboard";
-
-      setTimeout(() => {
-        navigate(dashPath, { replace: true });
-      }, 1800);
-    } catch (err: unknown) {
-      console.error("OTP verification error:", err);
-      setError(err instanceof Error ? err.message : "Invalid or expired code. Please try again.");
-      setToken("");
-      inputRef.current?.focus();
+      const profile = await verifySignupCode(value, password || undefined);
+      setDone(true);
+      const { data } = await supabase.auth.getSession();
+      navigate(getPostAuthPath(data.session?.user ?? null, profile), { replace: true });
+    } catch (err) {
+      setError(toAuthError(err).message);
+      setCode('');
     } finally {
-      setIsVerifying(false);
+      inFlight.current = false;
+      setVerifying(false);
     }
   };
 
-  const handleResend = async () => {
-    if (resendCooldown > 0) return;
-    setIsResending(true);
-    setError("");
+  const resend = async () => {
+    setError('');
+    setNotice('');
     try {
-      if (verificationChannel === "email") {
-        await resendOtp(email);
-      } else {
-        const country = sessionStorage.getItem("verify_country") ?? "Cameroon";
-        const dest = sessionStorage.getItem("verify_dest_e164") ?? "";
-        if (!dest) {
-          throw new Error("Missing phone destination. Go back to sign-up and try again.");
-        }
-        await resendSignupPhoneOtp(
-          email,
-          "sms",
-          dest,
-          country,
-        );
-      }
-      setResendCooldown(60);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to resend code.");
-    } finally {
-      setIsResending(false);
+      await resendSignupCode();
+      setNotice(c.codeResent);
+      setCooldown(RESEND_SECONDS);
+    } catch (err) {
+      setError(toAuthError(err).message);
     }
   };
+
+  if (done) return <AuthStatus title={c.verified} />;
 
   return (
-    <div className="relative flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-50 via-green-50/30 to-emerald-50/40 p-4 overflow-hidden">
-      <div className="absolute top-20 -left-20 h-72 w-72 rounded-full bg-green-200/40 blur-3xl pointer-events-none" />
-      <div className="absolute bottom-20 -right-20 h-72 w-72 rounded-full bg-emerald-200/40 blur-3xl pointer-events-none" />
-
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="relative z-10 w-full max-w-md"
+    <AuthLayout
+      title={c.codeTitle}
+      subtitle={
+        <>
+          {c.codeSentTo} <span className="font-semibold text-[#1F2420] break-all">{destination}</span>
+        </>
+      }
+      footer={<TextLink to="/sign-up">{c.differentEmail}</TextLink>}
+    >
+      <form
+        noValidate
+        className="space-y-5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
       >
-        <div className="border border-white/60 bg-white/80 backdrop-blur-xl shadow-2xl rounded-3xl overflow-hidden">
-          <div className="text-center pb-2 bg-gradient-to-b from-green-50/80 to-transparent pt-8 px-6">
-            <Link to="/" className="inline-flex items-center justify-center gap-2 mb-4">
-              <div className="bg-gradient-to-br from-green-500 to-emerald-600 p-2 rounded-xl shadow-lg shadow-green-500/20">
-                <BookHeart className="h-5 w-5 text-white" />
-              </div>
-              <span className="text-lg font-extrabold bg-gradient-to-r from-green-600 to-emerald-500 bg-clip-text text-transparent">
-                Mama Math
-              </span>
-            </Link>
+        <CodeInput
+          label={c.codeLabel}
+          value={code}
+          invalid={!!error}
+          disabled={verifying}
+          onChange={(v) => {
+            setCode(v);
+            setError('');
+          }}
+          onComplete={(v) => {
+            if (!needsPassword) void submit(v);
+          }}
+        />
 
-            <AnimatePresence mode="wait">
-              {success ? (
-                <motion.div
-                  key="success"
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="flex flex-col items-center gap-3 pb-8"
-                >
-                  <div className="h-16 w-16 rounded-full bg-green-100 flex items-center justify-center ring-4 ring-green-200">
-                    <CheckCircle2 className="h-8 w-8 text-green-600" />
-                  </div>
-                  <h2 className="text-2xl font-bold text-gray-900">You&apos;re verified!</h2>
-                  <p className="text-gray-500 text-sm">
-                    Your account is ready. Redirecting to your dashboard...
-                  </p>
-                  <Loader2 className="h-5 w-5 animate-spin text-green-500 mt-2" />
-                </motion.div>
-              ) : (
-                <motion.div key="form" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                  <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-green-500 to-emerald-600 shadow-lg shadow-green-500/20">
-                    {channelIcon}
-                  </div>
-                  <h2 className="text-2xl font-bold text-gray-900">{headline}</h2>
-                  <p className="text-gray-500 text-sm mt-1 mb-1">{subline}</p>
-                  <p className="font-semibold text-gray-800 text-sm">
-                    {verificationChannel === "email" ? email : masked || "your number"}
-                  </p>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+        {needsPassword && (
+          <PasswordField
+            label={c.passwordToFinish}
+            hint={c.passwordToFinishHint}
+            showLabel={c.show}
+            hideLabel={c.hide}
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setError('');
+            }}
+          />
+        )}
 
-          {!success && (
-            <div className="px-6 pb-8 pt-4 space-y-5">
-              <form onSubmit={handleVerify} className="space-y-5">
-                <div className="space-y-2">
-                  <label htmlFor="verification-code" className="block text-sm font-medium text-gray-700 text-center">
-                    Enter verification code
-                  </label>
-                  <input
-                    ref={inputRef}
-                    id="verification-code"
-                    type="text"
-                    inputMode="numeric"
-                    value={token}
-                    onChange={(e) => {
-                      setToken(e.target.value.replace(/[^0-9]/g, ""));
-                      setError("");
-                    }}
-                    placeholder="Enter your code here"
-                    className={`w-full h-14 text-center text-2xl font-bold tracking-[0.3em] rounded-xl border-2 transition-all duration-200 outline-none bg-white/70
-                      ${token ? "border-green-400 bg-green-50/30" : "border-gray-200"}
-                      focus:border-green-500 focus:ring-4 focus:ring-green-500/20
-                      ${error ? "border-red-300 bg-red-50/30" : ""}
-                      placeholder:text-gray-300 placeholder:text-base placeholder:tracking-normal placeholder:font-normal
-                    `}
-                    autoComplete="one-time-code"
-                    autoFocus
-                  />
-                  <div className="flex items-center justify-center gap-1.5 text-xs text-gray-400">
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                    <span>{hintBelowCode}</span>
-                  </div>
-                </div>
+        <FormMessage>{error}</FormMessage>
+        <FormMessage tone="success">{notice}</FormMessage>
 
-                {verificationChannel !== "email" && (
-                  <div className="space-y-2">
-                    <label htmlFor="verify-password" className="block text-sm font-medium text-gray-700 text-center">
-                      Your password
-                    </label>
-                    <input
-                      ref={passwordRef}
-                      id="verify-password"
-                      type="password"
-                      autoComplete="current-password"
-                      value={loginPassword}
-                      onChange={(e) => {
-                        setLoginPassword(e.target.value);
-                        setError("");
-                      }}
-                      placeholder="Same password as on sign-up"
-                      className={`w-full h-12 text-center rounded-xl border-2 transition-all duration-200 outline-none bg-white/70 px-3 text-sm
-                        ${loginPassword ? "border-green-400 bg-green-50/30" : "border-gray-200"}
-                        focus:border-green-500 focus:ring-4 focus:ring-green-500/20`}
-                    />
-                    <p className="text-xs text-gray-400 text-center">
-                      We use this only to sign you in after the code is confirmed. If you refreshed the page, enter it
-                      again here.
-                    </p>
-                  </div>
-                )}
+        <PrimaryButton loading={verifying} loadingText={c.verifying}>
+          {c.verify}
+        </PrimaryButton>
 
-                <AnimatePresence>
-                  {error && (
-                    <motion.p
-                      initial={{ opacity: 0, y: -5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -5 }}
-                      className="text-sm text-red-600 text-center bg-red-50 border border-red-100 p-3 rounded-xl"
-                    >
-                      {error}
-                    </motion.p>
-                  )}
-                </AnimatePresence>
-
-                <button
-                  type="submit"
-                  disabled={
-                    isVerifying ||
-                    token.length < 6 ||
-                    (verificationChannel !== "email" && !loginPassword)
-                  }
-                  className="w-full h-12 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold text-base
-                    shadow-lg shadow-green-600/25 hover:shadow-green-600/40
-                    transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0
-                    disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0
-                    flex items-center justify-center gap-2"
-                >
-                  {isVerifying ? (
-                    <>
-                      <Loader2 className="h-5 w-5 animate-spin text-white" />
-                      <span className="text-white">Verifying...</span>
-                    </>
-                  ) : (
-                    <span className="text-white">Verify account</span>
-                  )}
-                </button>
-              </form>
-
-              <div className="text-center space-y-2 pt-1">
-                <p className="text-sm text-gray-500">Didn&apos;t receive the code?</p>
-                <button
-                  type="button"
-                  onClick={handleResend}
-                  disabled={isResending || resendCooldown > 0}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm
-                    bg-green-50 text-green-700 border border-green-200
-                    hover:bg-green-100 hover:border-green-300
-                    transition-all duration-200
-                    disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isResending ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-green-700" />
-                  ) : (
-                    <RotateCcw className="h-4 w-4 text-green-700" />
-                  )}
-                  <span className="text-green-700">
-                    {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend code"}
-                  </span>
-                </button>
-              </div>
-
-              <p className="text-xs text-gray-400 text-center">
-                {verificationChannel === "email" ? (
-                  <>
-                    Check your spam/junk folder if you don&apos;t see the email.{" "}
-                    <Link to="/sign-up" className="text-green-600 hover:underline font-medium">
-                      Try different email
-                    </Link>
-                  </>
-                ) : (
-                  <Link to="/sign-up" className="text-green-600 hover:underline font-medium">
-                    Back to sign-up
-                  </Link>
-                )}
-              </p>
-            </div>
+        <p className="text-center text-sm text-[#5F6B63]">
+          {cooldown > 0 ? (
+            fill(c.resendIn, { s: cooldown })
+          ) : (
+            <TextButton onClick={resend}>{c.resend}</TextButton>
           )}
-        </div>
-      </motion.div>
-    </div>
+          {pending.channel === 'email' ? <span className="block mt-1">{c.checkSpam}</span> : null}
+        </p>
+      </form>
+    </AuthLayout>
   );
 };
 

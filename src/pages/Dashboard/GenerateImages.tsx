@@ -354,6 +354,8 @@ NO text, NO words, NO letters overlaid on the image.`;
       setIsGenerating(false);
     }
   };
+
+  const handleToggleFavorite = async (image: StoredImage) => {
     const newStatus = !image.is_favorite;
     const success = await imageStorage.toggleFavorite(image.id, newStatus);
     if (success) {

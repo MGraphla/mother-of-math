@@ -1,1007 +1,371 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { useAuth } from "@/context/AuthContext";
-import { normalizePhoneToE164, maskE164 } from "@/lib/phone";
-import { useLanguage } from "@/context/LanguageContext";
-import GoogleIcon from "@/components/icons/GoogleIcon";
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth, getPostAuthPath, type VerificationChannel } from '@/context/AuthContext';
+import { toAuthError } from '@/lib/authErrors';
+import { maskE164, normalizePhoneToE164 } from '@/lib/phone';
 import {
-  User,
-  Mail,
-  Lock,
-  Phone,
-  MapPin,
-  School,
-  Briefcase,
-  Calendar,
-  GraduationCap,
-  Users,
-  Globe,
-  ChevronRight,
-  ChevronLeft,
-  Check,
-  Eye,
-  EyeOff,
-  Sparkles,
-  ShieldCheck,
-  Send,
-  type LucideIcon,
-} from "lucide-react";
+  CLASS_COUNTS,
+  COUNTRIES,
+  EDUCATION_LEVELS,
+  GENDERS,
+  GRADE_LEVELS,
+  LANGUAGES,
+  PHONE_RULES,
+  SCHOOL_TYPES,
+  STUDENT_COUNTS,
+  parseOptionalInt,
+  toOptions,
+} from '@/lib/profileOptions';
+import {
+  AuthLayout,
+  Choice,
+  Divider,
+  Field,
+  FormMessage,
+  GoogleButton,
+  PasswordField,
+  PrimaryButton,
+  SecondaryButton,
+  SelectField,
+  TextLink,
+} from '@/components/auth/AuthUI';
+import { EMAIL_RE, fill, useAuthCopy } from './authCopy';
 
-// ── Country list ──────────────────────────────────────────
-const COUNTRIES = [
-  "Cameroon", "Nigeria"
-];
-
-const SCHOOL_TYPES = [
-  "Public / Government",
-  "Private",
-  "Faith-based / Mission",
-  "International",
-  "Community",
-  "Home School",
-  "Other",
-];
-
-const EDUCATION_LEVELS = [
-  "High School Diploma",
-  "Associate Degree",
-  "Bachelor's Degree",
-  "Master's Degree",
-  "PhD / Doctorate",
-  "Teaching Certificate",
-  "Other",
-];
-
-const LANGUAGES = [
-  "English",
-  "French",
-  "Pidgin English",
-  "Fulfulde",
-  "Ewondo",
-  "Duala",
-  "Bassa",
-  "Other",
-];
-
-const GRADE_LEVELS = [
-  "Primary 1",
-  "Primary 2",
-  "Primary 3",
-  "Primary 4",
-  "Primary 5",
-  "Primary 6",
-];
-
-// ── Step configuration ────────────────────────────────────
-const STEPS = [
-  { id: 1, title: "Account", icon: Lock },
-  { id: 2, title: "Personal", icon: User },
-  { id: 3, title: "School", icon: School },
-  { id: 4, title: "Contact", icon: Phone },
-  { id: 5, title: "Verify", icon: ShieldCheck },
-];
-
-type VerificationDelivery = "email" | "sms";
-
-// ── Animations ────────────────────────────────────────────
-const stepVariants = {
-  enter: (dir: number) => ({ x: dir > 0 ? 60 : -60, opacity: 0 }),
-  center: { x: 0, opacity: 1 },
-  exit: (dir: number) => ({ x: dir > 0 ? -60 : 60, opacity: 0 }),
-};
+type Role = 'teacher' | 'parent';
+type Step = 'account' | 'about' | 'school' | 'verify';
 
 const SignUp = () => {
+  const c = useAuthCopy();
   const navigate = useNavigate();
-  const { signUp, signUpWithPhoneVerification, signInWithGoogle } = useAuth();
-  const { t } = useLanguage();
+  const { signUp, signInWithGoogle, user, profile, isLoading } = useAuth();
 
-  // Form state
-  const [step, setStep] = useState(1);
-  const [direction, setDirection] = useState(1);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [step, setStep] = useState<Step>('account');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState<'submit' | 'google' | null>(null);
 
-  // Step 1 – Account
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [role, setRole] = useState<"teacher" | "parent">("teacher");
+  const [role, setRole] = useState<Role>('teacher');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
-  // Step 2 – Personal
-  const [fullName, setFullName] = useState("");
-  const [dateOfBirth, setDateOfBirth] = useState("");
-  const [gender, setGender] = useState("");
-  const [country, setCountry] = useState("Cameroon");
-  const [city, setCity] = useState("");
-  const [preferredLanguage, setPreferredLanguage] = useState("English");
-  const [bio, setBio] = useState("");
+  const [fullName, setFullName] = useState('');
+  const [country, setCountry] = useState('Cameroon');
+  const [phone, setPhone] = useState('');
+  const [city, setCity] = useState('');
+  const [language, setLanguage] = useState('English');
+  const [gender, setGender] = useState('');
 
-  // Step 3 – School
-  const [schoolName, setSchoolName] = useState("");
-  const [schoolAddress, setSchoolAddress] = useState("");
-  const [schoolType, setSchoolType] = useState("");
-  const [numberOfStudents, setNumberOfStudents] = useState("");
-  const [numberOfClasses, setNumberOfClasses] = useState("");
-  const [subjectsTaught, setSubjectsTaught] = useState("");
-  const [gradeLevels, setGradeLevels] = useState("");
-  const [yearsOfExperience, setYearsOfExperience] = useState("");
-  const [educationLevel, setEducationLevel] = useState("");
+  const [schoolName, setSchoolName] = useState('');
+  const [schoolType, setSchoolType] = useState('');
+  const [classes, setClasses] = useState('');
+  const [students, setStudents] = useState('');
+  const [grades, setGrades] = useState('');
+  const [subjects, setSubjects] = useState('');
+  const [experience, setExperience] = useState('');
+  const [education, setEducation] = useState('');
 
-  // Step 4 – Contact
-  const [phoneNumber, setPhoneNumber] = useState("");
+  const [channel, setChannel] = useState<VerificationChannel>('email');
 
-  // Step 5 – Where to receive verification code
-  const [verificationChannel, setVerificationChannel] =
-    useState<VerificationDelivery>("email");
+  // Already signed in (e.g. back button after verifying) → straight to the app.
+  useEffect(() => {
+    if (!isLoading && user && !busy) navigate(getPostAuthPath(user, profile), { replace: true });
+  }, [isLoading, user, profile, busy, navigate]);
 
-  // ── Navigation ────────────────────────────────────────
+  const steps: Step[] = useMemo(
+    () => (role === 'teacher' ? ['account', 'about', 'school', 'verify'] : ['account', 'about', 'verify']),
+    [role],
+  );
+  const index = steps.indexOf(step);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [step]);
+
+  const phoneRule = PHONE_RULES[country];
+
+  const validate = (s: Step): string => {
+    if (s === 'account') {
+      if (!EMAIL_RE.test(email.trim())) return c.errEmail;
+      if (password.length < 8) return c.errPasswordShort;
+    }
+    if (s === 'about') {
+      if (!fullName.trim()) return c.errName;
+      if (phoneRule && !phoneRule.pattern.test(phone.replace(/\s+/g, ''))) {
+        return fill(c.errPhone, { country, example: phoneRule.example });
+      }
+    }
+    if (s === 'school' && !schoolName.trim()) return c.errSchool;
+    return '';
+  };
+
   const goNext = () => {
-    if (!validateStep()) return;
-    setDirection(1);
-    setStep((s) => Math.min(s + 1, 5));
+    const msg = validate(step);
+    if (msg) return setError(msg);
+    setError('');
+    setStep(steps[index + 1]);
   };
+
   const goBack = () => {
-    setDirection(-1);
-    setStep((s) => Math.max(s - 1, 1));
+    setError('');
+    if (index > 0) setStep(steps[index - 1]);
   };
 
-  const validateStep = (): boolean => {
-    setErrorMessage("");
-    if (step === 1) {
-      if (!email || !password || !confirmPassword) {
-        setErrorMessage(t('auth.error.fillAllRequired') || "Please fill in all required fields.");
-        return false;
-      }
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        setErrorMessage(t('auth.error.invalidEmail') || "Please enter a valid email address.");
-        return false;
-      }
-      if (password.length < 8) {
-        setErrorMessage(t('auth.error.passwordLength') || "Password must be at least 8 characters.");
-        return false;
-      }
-      if (password !== confirmPassword) {
-        setErrorMessage(t('auth.error.passwordMismatch') || "Passwords do not match.");
-        return false;
-      }
-    }
-    if (step === 2) {
-      if (!fullName.trim()) {
-        setErrorMessage(t('auth.error.fullNameRequired') || "Full name is required.");
-        return false;
-      }
-      if (!country) {
-        setErrorMessage(t('auth.error.countryRequired') || "Country is required.");
-        return false;
-      }
-    }
-    if (step === 3) {
-      if (!schoolName.trim()) {
-        setErrorMessage(t('auth.error.schoolNameRequired') || "School name is required.");
-        return false;
-      }
-    }
-    if (step === 4) {
-      if (!phoneNumber.trim()) {
-        setErrorMessage(t('auth.error.phoneRequired') || "Phone number is required.");
-        return false;
-      }
-      if (phoneNumber) {
-        if (country === "Cameroon") {
-          const cameroonRegex = /^(?:\+237|237)?\s*?[26]\d{8}$/;
-          if (!cameroonRegex.test(phoneNumber.replace(/\s+/g, ''))) {
-            setErrorMessage(t('auth.error.invalidPhoneCameroon') || "Please enter a valid Cameroon phone number (e.g., +237 6XX XXX XXX).");
-            return false;
-          }
-        } else if (country === "Nigeria") {
-          const nigeriaRegex = /^(?:\+234|234)?\s*?[789][01]\d{8}$|^0[789][01]\d{8}$/;
-          if (!nigeriaRegex.test(phoneNumber.replace(/\s+/g, ''))) {
-            setErrorMessage(t('auth.error.invalidPhoneNigeria') || "Please enter a valid Nigeria phone number (e.g., +234 8XX XXX XXXX).");
-            return false;
-          }
-        }
-      }
-    }
-    return true;
-  };
-
-  // ── Submit ────────────────────────────────────────────
   const handleSubmit = async () => {
-    if (!validateStep()) return;
-    setIsSubmitting(true);
-    setErrorMessage("");
-    const profilePayload = {
-      full_name: fullName,
-      role,
-      date_of_birth: dateOfBirth || null,
-      gender: gender || null,
-      country: country || null,
-      city: city || null,
-      school_name: schoolName || null,
-      school_address: schoolAddress || null,
-      school_type: schoolType || null,
-      number_of_students: numberOfStudents ? parseInt(numberOfStudents) : null,
-      number_of_classes: numberOfClasses ? parseInt(numberOfClasses) : null,
-      subjects_taught: subjectsTaught || null,
-      grade_levels: gradeLevels || null,
-      years_of_experience: yearsOfExperience ? parseInt(yearsOfExperience) : null,
-      education_level: educationLevel || null,
-      phone_number: phoneNumber || null,
-      whatsapp_number: null,
-      bio: bio || null,
-      preferred_language: preferredLanguage || null,
-    };
+    for (const s of steps) {
+      const msg = validate(s);
+      if (msg) {
+        setStep(s);
+        return setError(msg);
+      }
+    }
+    setError('');
+    setBusy('submit');
     try {
-      sessionStorage.setItem("verify_email", email);
-      sessionStorage.setItem("verify_channel", verificationChannel);
-
-      if (verificationChannel === "email") {
-        await signUp(email, password, profilePayload);
-        navigate("/verify-email", { state: { email, verificationChannel: "email" as const } });
+      const teacher = role === 'teacher';
+      const pending = await signUp(
+        {
+          email,
+          password,
+          role,
+          full_name: fullName.trim(),
+          country,
+          phone_number: phone.trim(),
+          city: city.trim() || null,
+          preferred_language: language,
+          gender: gender || null,
+          school_name: teacher ? schoolName.trim() : null,
+          school_type: teacher ? schoolType || null : null,
+          number_of_classes: teacher ? parseOptionalInt(classes) : null,
+          number_of_students: teacher ? parseOptionalInt(students) : null,
+          grade_levels: teacher ? grades || null : null,
+          subjects_taught: teacher ? subjects.trim() || null : null,
+          years_of_experience: teacher ? parseOptionalInt(experience) : null,
+          education_level: teacher ? education || null : null,
+        },
+        channel,
+      );
+      if (pending) {
+        navigate('/verify-email');
         return;
       }
-
-      const destinationRaw = phoneNumber.trim();
-      const destE164 = normalizePhoneToE164(destinationRaw, country);
-      sessionStorage.setItem("verify_country", country);
-      sessionStorage.setItem("verify_dest_e164", destE164);
-
-      await signUpWithPhoneVerification(
-        email,
-        password,
-        profilePayload,
-        verificationChannel,
-        destinationRaw,
-        country,
-      );
-
-      navigate("/verify-email", {
-        state: {
-          email,
-          verificationChannel,
-          password,
-          maskedDestination: maskE164(destE164),
-        },
-      });
-    } catch (error: any) {
-      setErrorMessage(error.message || "Failed to create account.");
-    } finally {
-      setIsSubmitting(false);
+      // No verification required: AuthProvider loads the profile, then route.
+      setBusy(null);
+    } catch (err) {
+      const ae = toAuthError(err);
+      setError(ae.message);
+      // Send the user back to the field that needs fixing.
+      if (ae.code === 'already_registered') setStep('account');
+      else if (/phone/i.test(ae.message)) setStep('about');
+      setBusy(null);
     }
   };
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogle = async () => {
+    setError('');
+    setBusy('google');
     try {
-      setIsSubmitting(true);
-      setErrorMessage("");
-      // Lets /auth/callback know this OAuth started on the website (not the mobile app).
-      sessionStorage.setItem("oauth_surface", "web");
       await signInWithGoogle();
-    } catch (error: any) {
-      setErrorMessage(error.message || "Failed to sign in with Google.");
-    } finally {
-      setIsSubmitting(false);
+    } catch (err) {
+      setError(toAuthError(err).message);
+      setBusy(null);
     }
   };
 
-  // ── Shared input classes ──────────────────────────────
-  const inputClass =
-    "h-11 bg-white/70 border border-gray-200 rounded-xl px-4 text-sm focus:ring-2 focus:ring-green-500/30 focus:border-green-500 transition-all placeholder:text-gray-400";
-  const selectClass =
-    "h-11 w-full bg-white/70 border border-gray-200 rounded-xl px-3 text-sm focus:ring-2 focus:ring-green-500/30 focus:border-green-500 transition-all appearance-none cursor-pointer";
-  const labelClass = "text-sm font-medium text-gray-700 flex items-center gap-1.5";
-
-  // ── Render steps ──────────────────────────────────────
-  const renderStep = () => {
-    switch (step) {
-      case 1:
-        return (
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="email" className={labelClass}>
-                <Mail className="h-3.5 w-3.5 text-green-600" /> Email address *
-              </Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className={inputClass}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="password" className={labelClass}>
-                <Lock className="h-3.5 w-3.5 text-green-600" /> Password *
-              </Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Min. 8 characters"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className={`${inputClass} pr-10`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              {/* Password strength indicator */}
-              {password && (
-                <div className="flex gap-1 mt-1">
-                  {[1, 2, 3, 4].map((i) => (
-                    <div
-                      key={i}
-                      className={`h-1 flex-1 rounded-full transition-colors ${
-                        password.length >= i * 3
-                          ? password.length >= 12
-                            ? "bg-green-500"
-                            : password.length >= 8
-                            ? "bg-yellow-500"
-                            : "bg-red-400"
-                          : "bg-gray-200"
-                      }`}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="confirmPassword" className={labelClass}>
-                <Lock className="h-3.5 w-3.5 text-green-600" /> Confirm password *
-              </Label>
-              <div className="relative">
-                <Input
-                  id="confirmPassword"
-                  type={showConfirm ? "text" : "password"}
-                  placeholder="Re-enter your password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  className={`${inputClass} pr-10`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirm(!showConfirm)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 2:
-        return (
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="fullName" className={labelClass}>
-                <User className="h-3.5 w-3.5 text-green-600" /> Full name *
-              </Label>
-              <Input
-                id="fullName"
-                placeholder="e.g. Ngwa Emilia Tanyi"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                required
-                className={inputClass}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="dateOfBirth" className={labelClass}>
-                  <Calendar className="h-3.5 w-3.5 text-green-600" /> Date of birth
-                </Label>
-                <Input
-                  id="dateOfBirth"
-                  type="date"
-                  value={dateOfBirth}
-                  onChange={(e) => setDateOfBirth(e.target.value)}
-                  className={inputClass}
-                  max={new Date().toISOString().split('T')[0]}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="gender" className={labelClass}>Gender</Label>
-                <select
-                  id="gender"
-                  value={gender}
-                  onChange={(e) => setGender(e.target.value)}
-                  className={selectClass}
-                >
-                  <option value="">Select</option>
-                  <option value="Female">Female</option>
-                  <option value="Male">Male</option>
-                  <option value="Other">Other</option>
-                  <option value="Prefer not to say">Prefer not to say</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="preferredLanguage" className={labelClass}>
-                  <Globe className="h-3.5 w-3.5 text-green-600" /> Language
-                </Label>
-                <select
-                  id="preferredLanguage"
-                  value={preferredLanguage}
-                  onChange={(e) => setPreferredLanguage(e.target.value)}
-                  className={selectClass}
-                >
-                  {LANGUAGES.map((l) => (
-                    <option key={l} value={l}>{l}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="country" className={labelClass}>
-                  <Globe className="h-3.5 w-3.5 text-green-600" /> Country *
-                </Label>
-                <select
-                  id="country"
-                  value={country}
-                  onChange={(e) => setCountry(e.target.value)}
-                  className={selectClass}
-                >
-                  {COUNTRIES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="city" className={labelClass}>
-                  <MapPin className="h-3.5 w-3.5 text-green-600" /> City / Town
-                </Label>
-                <Input
-                  id="city"
-                  placeholder="e.g. Yaoundé"
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="bio" className={labelClass}>Short bio</Label>
-              <textarea
-                id="bio"
-                placeholder="Tell us a little about yourself and your teaching journey... (optional)"
-                value={bio}
-                onChange={(e) => setBio(e.target.value)}
-                rows={3}
-                className="w-full bg-white/70 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-green-500/30 focus:border-green-500 transition-all placeholder:text-gray-400 resize-none"
-              />
-            </div>
-          </div>
-        );
-
-      case 3:
-        return (
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="schoolName" className={labelClass}>
-                <School className="h-3.5 w-3.5 text-green-600" /> School name *
-              </Label>
-              <Input
-                id="schoolName"
-                placeholder="e.g. Government Bilingual High School"
-                value={schoolName}
-                onChange={(e) => setSchoolName(e.target.value)}
-                className={inputClass}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="schoolAddress" className={labelClass}>
-                <MapPin className="h-3.5 w-3.5 text-green-600" /> School address / location
-              </Label>
-              <Input
-                id="schoolAddress"
-                placeholder="e.g. Molyko, Buea"
-                value={schoolAddress}
-                onChange={(e) => setSchoolAddress(e.target.value)}
-                className={inputClass}
-              />
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="schoolType" className={labelClass}>School type</Label>
-                <select
-                  id="schoolType"
-                  value={schoolType}
-                  onChange={(e) => setSchoolType(e.target.value)}
-                  className={selectClass}
-                >
-                  <option value="">Select</option>
-                  {SCHOOL_TYPES.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="numberOfClasses" className={labelClass}>
-                  <Briefcase className="h-3.5 w-3.5 text-green-600" /> No. of classes
-                </Label>
-                <select
-                  id="numberOfClasses"
-                  value={numberOfClasses}
-                  onChange={(e) => setNumberOfClasses(e.target.value)}
-                  className={selectClass}
-                >
-                  <option value="">Select...</option>
-                  <option value="1">1 class</option>
-                  <option value="2">2 classes</option>
-                  <option value="3">3 classes</option>
-                  <option value="4">4 classes</option>
-                  <option value="5">5+ classes</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="numberOfStudents" className={labelClass}>
-                  <Users className="h-3.5 w-3.5 text-green-600" /> No. of students
-                </Label>
-                <select
-                  id="numberOfStudents"
-                  value={numberOfStudents}
-                  onChange={(e) => setNumberOfStudents(e.target.value)}
-                  className={selectClass}
-                >
-                  <option value="">Select...</option>
-                  <option value="20">1-20 students</option>
-                  <option value="50">21-50 students</option>
-                  <option value="100">51-100 students</option>
-                  <option value="200">101-200 students</option>
-                  <option value="500">200+ students</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="subjectsTaught" className={labelClass}>Subjects taught</Label>
-                <Input
-                  id="subjectsTaught"
-                  placeholder="e.g. Math, Science"
-                  value={subjectsTaught}
-                  onChange={(e) => setSubjectsTaught(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="gradeLevels" className={labelClass}>Grade levels</Label>
-                <select
-                  id="gradeLevels"
-                  value={gradeLevels}
-                  onChange={(e) => setGradeLevels(e.target.value)}
-                  className={selectClass}
-                >
-                  <option value="">Select</option>
-                  {GRADE_LEVELS.map((g) => (
-                    <option key={g} value={g}>{g}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="yearsOfExperience" className={labelClass}>
-                  <Briefcase className="h-3.5 w-3.5 text-green-600" /> Years of experience
-                </Label>
-                <Input
-                  id="yearsOfExperience"
-                  type="number"
-                  placeholder="e.g. 5"
-                  value={yearsOfExperience}
-                  onChange={(e) => setYearsOfExperience(e.target.value)}
-                  className={inputClass}
-                  min="0"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="educationLevel" className={labelClass}>
-                  <GraduationCap className="h-3.5 w-3.5 text-green-600" /> Education level
-                </Label>
-                <select
-                  id="educationLevel"
-                  value={educationLevel}
-                  onChange={(e) => setEducationLevel(e.target.value)}
-                  className={selectClass}
-                >
-                  <option value="">Select</option>
-                  {EDUCATION_LEVELS.map((l) => (
-                    <option key={l} value={l}>{l}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 4:
-        return (
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="phoneNumber" className={labelClass}>
-                <Phone className="h-3.5 w-3.5 text-green-600" /> Mobile phone number *
-              </Label>
-              <Input
-                id="phoneNumber"
-                type="tel"
-                placeholder={country === "Nigeria" ? "+234 8XX XXX XXXX" : "+237 6XX XXX XXX"}
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                className={inputClass}
-              />
-            </div>
-
-            {/* Summary preview */}
-            <div className="mt-4 rounded-xl bg-gradient-to-br from-green-50 to-emerald-50 border border-green-100 p-4 space-y-2">
-              <h4 className="text-sm font-semibold text-green-800 flex items-center gap-1.5">
-                <Sparkles className="h-4 w-4" /> Account Summary
-              </h4>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600">
-                <span className="font-medium text-gray-700">Name:</span>
-                <span className="truncate">{fullName || "—"}</span>
-                <span className="font-medium text-gray-700">Email:</span>
-                <span className="truncate">{email || "—"}</span>
-                <span className="font-medium text-gray-700">Role:</span>
-                <span className="capitalize">{role}</span>
-                <span className="font-medium text-gray-700">Country:</span>
-                <span>{country || "—"}</span>
-                <span className="font-medium text-gray-700">School:</span>
-                <span className="truncate">{schoolName || "—"}</span>
-                <span className="font-medium text-gray-700">Phone:</span>
-                <span>{phoneNumber || "—"}</span>
-              </div>
-            </div>
-
-            <p className="text-xs text-gray-400 text-center">
-              By creating an account you agree to our{" "}
-              <a href="#" className="underline hover:text-green-600">Terms of Service</a> and{" "}
-              <a href="#" className="underline hover:text-green-600">Privacy Policy</a>.
-            </p>
-          </div>
-        );
-
-      case 5: {
-        const channelCard = (
-          ch: VerificationDelivery,
-          Icon: LucideIcon,
-          title: string,
-          desc: string,
-        ) => {
-          const active = verificationChannel === ch;
-          return (
-            <button
-              key={ch}
-              type="button"
-              onClick={() => setVerificationChannel(ch)}
-              className={`w-full text-left rounded-xl border-2 p-4 transition-all duration-200 flex gap-3 items-start
-                ${
-                  active
-                    ? "border-green-500 bg-green-50/80 shadow-md shadow-green-500/10"
-                    : "border-gray-200 bg-white/60 hover:border-green-200 hover:bg-green-50/30"
-                }`}
-            >
-              <div
-                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
-                  active ? "bg-green-600 text-white" : "bg-gray-100 text-gray-600"
-                }`}
-              >
-                <Icon className="h-5 w-5" />
-              </div>
-              <div>
-                <div className="font-semibold text-gray-900">{title}</div>
-                <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{desc}</p>
-              </div>
-            </button>
-          );
-        };
-
-        return (
-          <div className="space-y-4">
-            <p className="text-sm text-gray-600">
-              Choose how you want to receive your <span className="font-medium">one-time verification code</span> to
-              activate your account.
-            </p>
-            <div className="space-y-3">
-              {channelCard(
-                "email",
-                Mail,
-                "Email",
-                `We will send the code to ${email || "your email address"}.`,
-              )}
-              {channelCard(
-                "sms",
-                Send,
-                "Text message (SMS)",
-                `Uses your mobile number: ${phoneNumber || "—"}.`,
-              )}
-            </div>
-            {verificationChannel === "sms" && (
-              <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
-                Standard message rates may apply. Your code will arrive within a few seconds.
-              </p>
-            )}
-          </div>
-        );
-      }
-
-      default:
-        return null;
-    }
+  const titles: Record<Step, string> = {
+    account: c.signUpTitle,
+    about: c.aboutTitle,
+    school: c.schoolTitle,
+    verify: c.verifyChoiceTitle,
   };
+
+  const maskedPhone = phone.trim() ? maskE164(normalizePhoneToE164(phone, country)) : '';
 
   return (
-    <div className="relative flex items-center justify-center min-h-screen p-4 overflow-hidden" style={{ background: 'linear-gradient(135deg, #064e3b 0%, #065f46 30%, #047857 55%, #1a3a2a 100%)' }}>
-
-      {/* African Kente geometric pattern overlay */}
-      <div
-        className="absolute inset-0 opacity-[0.06] pointer-events-none"
-        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='80' height='80' fill='none'/%3E%3Cline x1='0' y1='20' x2='80' y2='20' stroke='%23fbbf24' stroke-width='2'/%3E%3Cline x1='0' y1='40' x2='80' y2='40' stroke='%2334d399' stroke-width='2'/%3E%3Cline x1='0' y1='60' x2='80' y2='60' stroke='%23fbbf24' stroke-width='2'/%3E%3Cline x1='20' y1='0' x2='20' y2='80' stroke='%2334d399' stroke-width='2'/%3E%3Cline x1='40' y1='0' x2='40' y2='80' stroke='%23fbbf24' stroke-width='2'/%3E%3Cline x1='60' y1='0' x2='60' y2='80' stroke='%2334d399' stroke-width='2'/%3E%3Cpolygon points='20%2C14 26%2C20 20%2C26 14%2C20' fill='%23fbbf24'/%3E%3Cpolygon points='40%2C34 46%2C40 40%2C46 34%2C40' fill='%2334d399'/%3E%3Cpolygon points='60%2C14 66%2C20 60%2C26 54%2C20' fill='%23fbbf24'/%3E%3Cpolygon points='20%2C54 26%2C60 20%2C66 14%2C60' fill='%2334d399'/%3E%3Cpolygon points='60%2C54 66%2C60 60%2C66 54%2C60' fill='%23fbbf24'/%3E%3C/svg%3E")`, backgroundRepeat: 'repeat', backgroundSize: '80px 80px' }}
-      />
-
-      {/* Static amber/gold glowing orbs */}
-      <div className="absolute top-[-80px] right-[-80px] w-[420px] h-[420px] rounded-full pointer-events-none opacity-[0.32]" style={{ background: 'radial-gradient(circle, rgba(251,191,36,0.5) 0%, rgba(245,158,11,0.15) 60%, transparent 100%)' }} />
-      <div className="absolute bottom-[-100px] left-[-100px] w-[500px] h-[500px] rounded-full pointer-events-none opacity-[0.27]" style={{ background: 'radial-gradient(circle, rgba(52,211,153,0.4) 0%, rgba(16,185,129,0.1) 60%, transparent 100%)' }} />
-      <div className="absolute top-1/2 left-[-60px] w-[300px] h-[300px] rounded-full pointer-events-none opacity-[0.21]" style={{ background: 'radial-gradient(circle, rgba(251,191,36,0.35) 0%, transparent 70%)' }} />
-
-      {/* Top-left decorative triangle accent */}
-      <div className="absolute top-0 left-0 w-0 h-0 pointer-events-none" style={{ borderLeft: '120px solid rgba(251,191,36,0.12)', borderBottom: '120px solid transparent' }} />
-      {/* Bottom-right decorative triangle accent */}
-      <div className="absolute bottom-0 right-0 w-0 h-0 pointer-events-none" style={{ borderRight: '150px solid rgba(52,211,153,0.1)', borderTop: '150px solid transparent' }} />
-
-      {/* Static math symbols */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {['π', '∑', '√', '∞', 'Δ', '÷', '×', '+', '=', '%', '∫', 'θ'].map((sym, i) => (
-          <span
-            key={i}
-            className="absolute font-bold text-white/10 select-none"
-            style={{ left: `${(i * 8.3) % 100}%`, top: `${(i * 13 + 10) % 90}%`, fontSize: `${20 + (i % 3) * 12}px` }}
-          >
-            {sym}
-          </span>
-        ))}
-      </div>
-
-      {/* Static sparkle accents */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={`sparkle-${i}`}
-            className="absolute w-1 h-1 bg-amber-300/70 rounded-full"
-            style={{ left: `${10 + i * 11}%`, top: `${12 + ((i * 17) % 70)}%` }}
-          />
-        ))}
-      </div>
-
-      {/* Static glow behind the card */}
-      <div
-        className="absolute w-[600px] h-[600px] rounded-full pointer-events-none opacity-[0.18]"
-        style={{ background: 'radial-gradient(circle, rgba(251,191,36,0.2) 0%, transparent 60%)' }}
-      />
-      {/* Decorative background */}
-      <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-green-200/30 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-emerald-200/30 rounded-full blur-3xl translate-x-1/3 translate-y-1/3 pointer-events-none" />
-
-      <motion.div
-        initial={{ opacity: 0, y: 16, scale: 0.97 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-        className="relative z-10 w-full max-w-lg"
+    <AuthLayout
+        title={titles[step]}
+        subtitle={step === 'verify' ? c.verifyChoiceSub : undefined}
+        progress={{ step: index + 1, total: steps.length }}
+        wide={step === 'school'}
+        footer={
+          <p>
+            {c.haveAccount} <TextLink to="/sign-in">{c.signIn}</TextLink>
+          </p>
+        }
       >
-        <div className="bg-white/80 backdrop-blur-xl border border-white/60 rounded-3xl shadow-2xl shadow-green-900/5 overflow-hidden">
-          {/* Header */}
-          <div className="relative px-6 pt-8 pb-6 text-center bg-gradient-to-b from-green-50/80 to-transparent">
-            <Link to="/" className="inline-flex items-center gap-2 mb-4">
-              <div className="w-10 h-10 rounded-full overflow-hidden shadow-lg shadow-green-500/20 flex-shrink-0">
-                <img src="/mama%20math.svg" alt="MAMA" className="w-full h-full object-cover" />
+        <form
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (step === 'verify') void handleSubmit();
+            else goNext();
+          }}
+          className="space-y-4"
+        >
+          {step === 'account' && (
+            <>
+              <Choice<Role>
+                label={c.iAm}
+                value={role}
+                onChange={setRole}
+                options={[
+                  { value: 'teacher', label: c.teacher },
+                  { value: 'parent', label: c.parent },
+                ]}
+              />
+              <Field
+                label={c.email}
+                type="email"
+                autoComplete="email"
+                inputMode="email"
+                autoCapitalize="none"
+                spellCheck={false}
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setError('');
+                }}
+                required
+              />
+              <PasswordField
+                label={c.password}
+                showLabel={c.show}
+                hideLabel={c.hide}
+                autoComplete="new-password"
+                hint={c.passwordHint}
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setError('');
+                }}
+                minLength={8}
+                required
+              />
+            </>
+          )}
+
+          {step === 'about' && (
+            <>
+              <Field
+                label={c.fullName}
+                autoComplete="name"
+                autoCapitalize="words"
+                value={fullName}
+                onChange={(e) => {
+                  setFullName(e.target.value);
+                  setError('');
+                }}
+                autoFocus
+                required
+              />
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] gap-3">
+                <SelectField
+                  label={c.country}
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  options={toOptions(COUNTRIES)}
+                />
+                <Field
+                  label={c.phone}
+                  type="tel"
+                  autoComplete="tel"
+                  inputMode="tel"
+                  placeholder={phoneRule?.example}
+                  value={phone}
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                    setError('');
+                  }}
+                  required
+                />
               </div>
-              <span className="text-lg font-extrabold bg-gradient-to-r from-green-600 to-emerald-500 bg-clip-text text-transparent">
-                Mama Math
-              </span>
-            </Link>
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">
-              {t('auth.createYourAccount')}
-            </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              {t('auth.joinEducators')}
-            </p>
+              <Field
+                label={c.city}
+                optional
+                optionalLabel={c.optional}
+                autoComplete="address-level2"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <SelectField
+                  label={c.language}
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  options={toOptions(LANGUAGES)}
+                />
+                <SelectField
+                  label={c.gender}
+                  optional
+                  optionalLabel={c.optional}
+                  value={gender}
+                  onChange={(e) => setGender(e.target.value)}
+                  options={toOptions(GENDERS)}
+                  placeholder={c.select}
+                />
+              </div>
+            </>
+          )}
+
+          {step === 'school' && (
+            <>
+              <Field
+                label={c.schoolName}
+                autoCapitalize="words"
+                value={schoolName}
+                onChange={(e) => {
+                  setSchoolName(e.target.value);
+                  setError('');
+                }}
+                autoFocus
+                required
+              />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <SelectField label={c.schoolType} optional optionalLabel={c.optional} value={schoolType} onChange={(e) => setSchoolType(e.target.value)} options={toOptions(SCHOOL_TYPES)} placeholder={c.select} />
+                <SelectField label={c.grades} optional optionalLabel={c.optional} value={grades} onChange={(e) => setGrades(e.target.value)} options={toOptions(GRADE_LEVELS)} placeholder={c.select} />
+                <SelectField label={c.classes} optional optionalLabel={c.optional} value={classes} onChange={(e) => setClasses(e.target.value)} options={CLASS_COUNTS} placeholder={c.select} />
+                <SelectField label={c.students} optional optionalLabel={c.optional} value={students} onChange={(e) => setStudents(e.target.value)} options={STUDENT_COUNTS} placeholder={c.select} />
+                <Field label={c.subjects} optional optionalLabel={c.optional} value={subjects} onChange={(e) => setSubjects(e.target.value)} />
+                <Field label={c.experience} optional optionalLabel={c.optional} type="number" inputMode="numeric" min={0} max={60} value={experience} onChange={(e) => setExperience(e.target.value)} />
+                <SelectField className="sm:col-span-2" label={c.education} optional optionalLabel={c.optional} value={education} onChange={(e) => setEducation(e.target.value)} options={toOptions(EDUCATION_LEVELS)} placeholder={c.select} />
+              </div>
+            </>
+          )}
+
+          {step === 'verify' && (
+            <Choice<VerificationChannel>
+              value={channel}
+              onChange={setChannel}
+              options={[
+                { value: 'email', label: c.byEmail, detail: email.trim().toLowerCase() },
+                { value: 'sms', label: c.bySms, detail: maskedPhone },
+              ]}
+            />
+          )}
+
+          <FormMessage>{error}</FormMessage>
+
+          <div className={index > 0 ? 'grid grid-cols-[auto_1fr] gap-3' : ''}>
+            {index > 0 ? (
+              <SecondaryButton onClick={goBack} disabled={busy !== null} className="w-auto px-6">
+                {c.back}
+              </SecondaryButton>
+            ) : null}
+            <PrimaryButton
+              loading={busy === 'submit'}
+              loadingText={c.creating}
+              disabled={busy !== null}
+            >
+              {step === 'verify' ? c.createSubmit : c.next}
+            </PrimaryButton>
           </div>
+        </form>
 
-          {/* Step progress bar */}
-          <div className="px-6 pb-2">
-            <div className="flex items-center justify-between mb-2">
-              {STEPS.map((s, i) => {
-                const Icon = s.icon;
-                const isActive = step === s.id;
-                const isDone = step > s.id;
-                return (
-                  <div key={s.id} className="flex items-center flex-1 last:flex-initial">
-                    <button
-                      onClick={() => {
-                        if (s.id < step) {
-                          setDirection(-1);
-                          setStep(s.id);
-                        }
-                      }}
-                      className={`flex flex-col items-center gap-1 transition-all ${
-                        isActive
-                          ? "text-green-600"
-                          : isDone
-                          ? "text-green-500 cursor-pointer"
-                          : "text-gray-300"
-                      }`}
-                    >
-                      <div
-                        className={`flex items-center justify-center w-9 h-9 rounded-full border-2 transition-all duration-300 ${
-                          isActive
-                            ? "border-green-500 bg-green-50 shadow-md shadow-green-500/20"
-                            : isDone
-                            ? "border-green-400 bg-green-500 text-white"
-                            : "border-gray-200 bg-white"
-                        }`}
-                      >
-                        {isDone ? (
-                          <Check className="h-4 w-4 text-white" />
-                        ) : (
-                          <Icon className="h-4 w-4" />
-                        )}
-                      </div>
-                      <span className="text-[10px] font-medium hidden sm:block">{s.title}</span>
-                    </button>
-                    {i < STEPS.length - 1 && (
-                      <div className="flex-1 mx-2 hidden sm:block">
-                        <div
-                          className={`h-0.5 rounded-full transition-colors duration-500 ${
-                            step > s.id ? "bg-green-400" : "bg-gray-200"
-                          }`}
-                        />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Form content */}
-          <div className="px-6 pb-6">
-            <AnimatePresence mode="wait" custom={direction}>
-              <motion.div
-                key={step}
-                custom={direction}
-                variants={stepVariants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{ duration: 0.25, ease: "easeInOut" }}
-              >
-                {renderStep()}
-              </motion.div>
-            </AnimatePresence>
-
-            {/* Error message */}
-            <AnimatePresence>
-              {errorMessage && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  className="mt-3 p-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm"
-                >
-                  {errorMessage}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Navigation buttons */}
-            <div className="flex items-center justify-between mt-6 gap-3">
-              {step > 1 ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={goBack}
-                  className="rounded-xl border-gray-200 text-gray-600 hover:bg-gray-50 px-5"
-                >
-                  <ChevronLeft className="h-4 w-4 mr-1" /> Back
-                </Button>
-              ) : (
-                <div />
-              )}
-
-              {step < 5 ? (
-                <Button
-                  type="button"
-                  onClick={goNext}
-                  className="rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-lg shadow-green-500/25 px-6"
-                >
-                  Next <ChevronRight className="h-4 w-4 ml-1" />
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={isSubmitting}
-                  className="rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-lg shadow-green-500/25 px-8"
-                >
-                  {isSubmitting ? (
-                    <span className="flex items-center gap-2">
-                      <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      {t('auth.signingUp')}
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1">
-                      {t('auth.createAccount')} <Sparkles className="h-4 w-4 ml-1" />
-                    </span>
-                  )}
-                </Button>
-              )}
-            </div>
-
-            {/* Divider */}
-            {step === 1 && (
-              <>
-                <div className="relative my-6">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-200" />
-                  </div>
-                  <div className="relative flex justify-center text-xs">
-                    <span className="bg-white px-3 text-gray-400 font-medium">{t('auth.orContinueWith')}</span>
-                  </div>
-                </div>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full h-11 rounded-xl border-gray-200 hover:bg-gray-50 font-medium text-gray-700 transition-all"
-                  onClick={handleGoogleSignIn}
-                  disabled={isSubmitting}
-                >
-                  <GoogleIcon className="mr-2 h-4 w-4" />
-                  {t('auth.continueWithGoogle')}
-                </Button>
-              </>
-            )}
-          </div>
-
-          {/* Footer */}
-          <div className="border-t border-gray-100 px-6 py-4 text-center bg-gray-50/50">
-            <p className="text-sm text-gray-500">
-              {t('auth.alreadyHaveAccount')}{" "}
-              <Link
-                to="/sign-in"
-                className="font-semibold text-green-600 hover:text-green-700 hover:underline transition-colors"
-              >
-                {t('auth.signIn')}
-              </Link>
-            </p>
-          </div>
-        </div>
-      </motion.div>
-    </div>
+        {step === 'account' && (
+          <>
+            <Divider label={c.or} />
+            <GoogleButton label={c.google} onClick={handleGoogle} disabled={busy !== null} />
+          </>
+        )}
+    </AuthLayout>
   );
 };
 

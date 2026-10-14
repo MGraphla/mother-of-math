@@ -5,9 +5,12 @@ import { CheckCircle2, Mail, Send } from "lucide-react-native";
 import { AuthShell } from "../../src/components/AuthShell";
 import {
   clearVerifySession,
+  needsProfileCompletion,
+  peekSignupPassword,
   readVerifySession,
   useAuth,
 } from "../../src/context/AuthContext";
+import { supabase } from "../../src/lib/supabase";
 import { getDashboardRouteByRole } from "../../src/coreAdapters/auth";
 import { maskE164 } from "../../src/lib/phone";
 import { colors, layout, radius, space } from "../../src/theme/tokens";
@@ -19,7 +22,6 @@ export default function VerifyEmailScreen() {
   const params = useLocalSearchParams<{
     email?: string;
     channel?: string;
-    password?: string;
     masked?: string;
   }>();
   const {
@@ -38,7 +40,9 @@ export default function VerifyEmailScreen() {
   const [country, setCountry] = useState("Cameroon");
   const [destE164, setDestE164] = useState("");
   const [token, setToken] = useState("");
-  const [loginPassword, setLoginPassword] = useState(params.password ?? "");
+  const [loginPassword, setLoginPassword] = useState(peekSignupPassword() ?? "");
+  // Ask for the password only if the app was restarted since sign-up.
+  const [askPassword] = useState(() => !peekSignupPassword());
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -107,11 +111,17 @@ export default function VerifyEmailScreen() {
       setSuccess(true);
       await clearVerifySession();
 
+      const {
+        data: { session: current },
+      } = await supabase.auth.getSession();
+      const finalProfile = nextProfile ?? profile;
       setTimeout(() => {
-        router.replace(
-          getDashboardRouteByRole(nextProfile ?? profile ?? { role: "teacher" }) as never,
-        );
-      }, 1400);
+        if (needsProfileCompletion(current?.user ?? null, finalProfile)) {
+          router.replace("/(auth)/complete-profile");
+          return;
+        }
+        router.replace(getDashboardRouteByRole(finalProfile ?? { role: "teacher" }) as never);
+      }, 1000);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Invalid or expired code. Please try again.",
@@ -232,7 +242,7 @@ export default function VerifyEmailScreen() {
         }
       />
 
-      {channel === "sms" ? (
+      {channel === "sms" && askPassword ? (
         <Input
           label="Password"
           value={loginPassword}

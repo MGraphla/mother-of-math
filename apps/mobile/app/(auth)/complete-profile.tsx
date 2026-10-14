@@ -12,8 +12,7 @@ import {
 } from "lucide-react-native";
 import { AuthShell } from "../../src/components/AuthShell";
 import {
-  isProfileComplete,
-  needsGoogleExtraProfile,
+  needsProfileCompletion,
   useAuth,
   userHasGoogleIdentity,
 } from "../../src/context/AuthContext";
@@ -85,15 +84,12 @@ export default function CompleteProfileScreen() {
       router.replace(getDashboardRouteByRole(profile) as never);
       return;
     }
-    if (profile && !userHasGoogleIdentity(user) && isProfileComplete(profile)) {
+    if (profile && !submitting && !needsProfileCompletion(user, profile)) {
       router.replace(getDashboardRouteByRole(profile) as never);
     }
-  }, [user, profile]);
+  }, [user, profile, submitting]);
 
-  const googleNeedsWizard = useMemo(
-    () => needsGoogleExtraProfile(user, profile),
-    [user, profile],
-  );
+  const googleNeedsWizard = useMemo(() => userHasGoogleIdentity(user), [user]);
 
   const validateStep = (): boolean => {
     setErrorMessage("");
@@ -107,7 +103,7 @@ export default function CompleteProfileScreen() {
         return false;
       }
     }
-    if (step === 2 && !schoolName.trim()) {
+    if (step === 2 && role === "teacher" && !schoolName.trim()) {
       setErrorMessage("School name is required.");
       return false;
     }
@@ -188,7 +184,7 @@ export default function CompleteProfileScreen() {
   return (
     <AuthShell
       title={googleNeedsWizard ? "Complete your profile" : "Finish setup"}
-      subtitle="These are the same details as the sign-up form. Google already gave us your name and email."
+      subtitle="A few details to set up your dashboard."
       progress={{ step, total: 3, label: STEP_LABELS[step - 1] }}
       onBack={handleBack}
       onStepPress={(s) => {
@@ -300,7 +296,7 @@ export default function CompleteProfileScreen() {
             }}
             placeholder="e.g. Government Bilingual High School"
             autoCapitalize="words"
-            required
+            required={role === "teacher"}
             icon={<School size={18} color={colors.brandDark} />}
           />
           <Input

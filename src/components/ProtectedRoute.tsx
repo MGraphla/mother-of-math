@@ -1,5 +1,5 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
-import { useAuth, needsGoogleExtraProfile } from '@/context/AuthContext';
+import { useAuth, needsProfileCompletion, getDashboardPath } from '@/context/AuthContext';
 import { LoadingAnimation } from '@/components/ui/LoadingAnimation';
 
 interface ProtectedRouteProps {
@@ -7,27 +7,24 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute = ({ allowedRoles }: ProtectedRouteProps = {}) => {
-  const { isAuthenticated, isLoading, profile, user } = useAuth();
+  const { isLoading, profile, user } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
     return <LoadingAnimation fullScreen message="Verifying access..." />;
   }
 
-  if (!isAuthenticated) {
+  if (!user) {
     return <Navigate to="/sign-in" state={{ from: location }} replace />;
   }
 
-  // Role-based access control
-  if (allowedRoles && allowedRoles.length > 0 && profile?.role) {
-    if (!allowedRoles.includes(profile.role)) {
-      return <Navigate to="/dashboard" replace />;
-    }
+  if (needsProfileCompletion(user, profile)) {
+    return <Navigate to="/complete-profile" replace />;
   }
 
-  // Complete Profile is only for Google OAuth users, once, until they submit the wizard.
-  if (profile?.role !== 'student' && needsGoogleExtraProfile(user, profile)) {
-    return <Navigate to="/complete-profile" replace />;
+  // Send people to their own dashboard (never to the route they were just refused).
+  if (allowedRoles?.length && (!profile?.role || !allowedRoles.includes(profile.role))) {
+    return <Navigate to={getDashboardPath(profile)} replace />;
   }
 
   return <Outlet />;

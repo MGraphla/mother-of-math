@@ -104,7 +104,6 @@ interface AuthContextType {
     country: string,
   ) => Promise<void>;
   signOut: () => Promise<void>;
-  resetPassword: (email: string) => Promise<void>;
   refreshProfile: () => Promise<Profile | null>;
   updateProfile: (patch: Partial<Profile>) => Promise<Profile | null>;
 }
@@ -120,20 +119,12 @@ const VERIFY_DEST_KEY = "verify_dest_e164";
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const REQUIRED_PROFILE_FIELDS: (keyof Profile)[] = [
-  "full_name",
-  "role",
-  "country",
-  "school_name",
-  "phone_number",
-];
-
+/** Minimum details a teacher/parent needs (same rule as the web app). */
 export const isProfileComplete = (profile: Profile | null): boolean => {
   if (!profile) return false;
-  return REQUIRED_PROFILE_FIELDS.every((f) => {
-    const v = profile[f];
-    return v !== null && v !== undefined && v !== "";
-  });
+  const filled = (v: unknown) => v !== null && v !== undefined && String(v).trim() !== "";
+  const base = filled(profile.full_name) && filled(profile.country) && filled(profile.phone_number);
+  return profile.role === "teacher" ? base && filled(profile.school_name) : base;
 };
 
 export const userHasGoogleIdentity = (user: User | null): boolean => {
@@ -141,22 +132,45 @@ export const userHasGoogleIdentity = (user: User | null): boolean => {
   return user.identities.some((i) => i.provider === "google");
 };
 
-export const needsGoogleExtraProfile = (user: User | null, profile: Profile | null): boolean => {
-  if (!user || !userHasGoogleIdentity(user)) return false;
-  if (profile?.role === "student") return false;
+/** True when the user must finish /complete-profile before using the app. */
+export const needsProfileCompletion = (user: User | null, profile: Profile | null): boolean => {
+  if (!user) return false;
   if (!profile) return true;
-  return profile.google_extra_profile_completed === false;
+  if (profile.role !== "teacher" && profile.role !== "parent") return false;
+  return profile.google_extra_profile_completed === false || !isProfileComplete(profile);
 };
 
-const fetchProfile = async (userId: string): Promise<Profile | null> => {
-  const { data } = await supabase.from("profiles").select(PROFILE_COLUMNS).eq("id", userId).single();
-  if (data) return data as Profile;
+/** Thrown by signIn when the account exists but the email was never verified. */
+export class EmailNotConfirmedError extends Error {
+  constructor() {
+    super("Your email is not verified yet.");
+    this.name = "EmailNotConfirmedError";
+  }
+}
 
+// The sign-up password is kept in memory only (never in route params or storage)
+// so SMS sign-ups can be signed in right after the code is confirmed.
+let pendingSignupPassword: string | null = null;
+export const peekSignupPassword = () => pendingSignupPassword;
+
+/** Email buttons open the website's /auth/confirm, which works on any device. */
+const SITE_URL = (process.env.EXPO_PUBLIC_SITE_URL ?? "https://mamamath.org").replace(/\/$/, "");
+
+const fetchProfile = async (userId: string): Promise<Profile | null> => {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select(PROFILE_COLUMNS)
+    .eq("id", userId)
+    .maybeSingle();
+  if (data) return data as Profile;
+  if (!error) return null;
+
+  // Older databases may lack a column — retry with the core fields.
   const { data: minimal } = await supabase
     .from("profiles")
     .select("id,full_name,email,role")
     .eq("id", userId)
-    .single();
+    .maybeSingle();
   return (minimal as Profile | null) ?? null;
 };
 
@@ -178,9 +192,20 @@ const syncAvatarFromAuthUser = async (user: User, profile: Profile | null): Prom
 };
 
 const loadProfile = async (user: User): Promise<Profile | null> => {
-  const profile = await fetchProfile(user.id);
+  let profile = await fetchProfile(user.id);
+  if (!profile) {
+    // Creates the row from the verified account's sign-up details (DB function).
+    const { error } = await supabase.rpc("ensure_my_profile");
+    if (!error) profile = await fetchProfile(user.id);
+  }
   return syncAvatarFromAuthUser(user, profile);
 };
+
+/** Codes already exchanged (single-use) — Linking and openAuthSessionAsync can both deliver one. */
+const handledAuthCodes = new Set<string>();
+let googleFlowActive = false;
+
+const isAuthUrl = (url: string) => /[?#&](code|access_token|error)=/.test(url);
 
 const createSessionFromUrl = async (url: string) => {
   const { params, errorCode } = QueryParams.getQueryParams(url);
@@ -200,8 +225,16 @@ const createSessionFromUrl = async (url: string) => {
   }
 
   if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(String(code));
-    if (error) throw error;
+    const key = String(code);
+    if (handledAuthCodes.has(key)) return;
+    handledAuthCodes.add(key);
+    const { error } = await supabase.auth.exchangeCodeForSession(key);
+    if (error) {
+      // Another path may have exchanged it a moment earlier.
+      const { data } = await supabase.auth.getSession();
+      if (data.session) return;
+      throw error;
+    }
     return;
   }
 
@@ -347,13 +380,13 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
       }, 0);
     });
 
-    const linkingSub = Linking.addEventListener("url", ({ url }) => {
+    const handleIncoming = (url: string | null) => {
+      // The Google flow handles its own redirect; other links (enroll, etc.) aren't auth.
+      if (!url || googleFlowActive || !isAuthUrl(url)) return;
       void createSessionFromUrl(url).catch((e) => console.warn("Deep link auth failed:", e));
-    });
-
-    Linking.getInitialURL().then((url) => {
-      if (url) void createSessionFromUrl(url).catch(() => undefined);
-    });
+    };
+    const linkingSub = Linking.addEventListener("url", ({ url }) => handleIncoming(url));
+    void Linking.getInitialURL().then(handleIncoming);
 
     return () => {
       sub.subscription.unsubscribe();
@@ -398,7 +431,13 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
             email: cleanEmail,
             password,
           });
-          if (error) throw new Error(error.message || "Invalid login credentials");
+          if (error) {
+            if (/email not confirmed/i.test(error.message)) throw new EmailNotConfirmedError();
+            if (/invalid login credentials/i.test(error.message)) {
+              throw new Error("Wrong email or password.");
+            }
+            throw new Error(error.message || "Wrong email or password.");
+          }
           if (!data.user) throw new Error("Sign in succeeded but no user was returned.");
           const nextProfile = await seedProfileFromAuthUser(data.user);
           setSession(data.session);
@@ -406,11 +445,13 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
           setProfile(nextProfile);
           return nextProfile;
         } catch (error) {
+          if (error instanceof EmailNotConfirmedError) throw error;
           throw toFriendlyNetworkError(error);
         }
       },
 
       signInWithGoogle: async () => {
+        googleFlowActive = true;
         try {
           await assertSupabaseReachable(getSupabaseUrl());
 
@@ -489,6 +530,8 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
           return next;
         } catch (error) {
           throw toFriendlyNetworkError(error);
+        } finally {
+          googleFlowActive = false;
         }
       },
 
@@ -507,7 +550,7 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
           email: cleanEmail,
           password,
           options: {
-            emailRedirectTo: Linking.createURL("auth/verify-email"),
+            emailRedirectTo: `${SITE_URL}/auth/confirm`,
             data: metadataFromProfile(profileData),
           },
         });
@@ -563,6 +606,7 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
           profile: metadataFromProfile(profileData),
         });
 
+        pendingSignupPassword = password;
         await AsyncStorage.setItem(
           PENDING_PROFILE_KEY,
           JSON.stringify({ email: cleanEmail, ...profileData }),
@@ -627,6 +671,7 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
           password,
         });
         if (error) throw new Error(error.message);
+        pendingSignupPassword = null;
 
         const verifiedUser = data.user;
         if (!verifiedUser) throw new Error("Sign-in succeeded but no user was returned.");
@@ -649,7 +694,7 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
         const { error } = await supabase.auth.resend({
           type: "signup",
           email: email.trim(),
-          options: { emailRedirectTo: Linking.createURL("auth/verify-email") },
+          options: { emailRedirectTo: `${SITE_URL}/auth/confirm` },
         });
         if (error) throw new Error(error.message);
       },
@@ -669,13 +714,6 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
         setSession(null);
         setUser(null);
         setProfile(null);
-        if (error) throw new Error(error.message);
-      },
-
-      resetPassword: async (email) => {
-        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-          redirectTo: Linking.createURL("auth/reset-password"),
-        });
         if (error) throw new Error(error.message);
       },
 

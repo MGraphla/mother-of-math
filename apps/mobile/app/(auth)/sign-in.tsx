@@ -5,7 +5,12 @@ import { useNetworkState } from "expo-network";
 import { Lock, Mail, Sparkles, WifiOff } from "lucide-react-native";
 import { AuthDivider, AuthShell } from "../../src/components/AuthShell";
 import { GoogleIcon } from "../../src/components/icons/GoogleIcon";
-import { needsGoogleExtraProfile, useAuth } from "../../src/context/AuthContext";
+import {
+  EmailNotConfirmedError,
+  needsProfileCompletion,
+  storeVerifySession,
+  useAuth,
+} from "../../src/context/AuthContext";
 import { useLanguage } from "../../src/context/LanguageContext";
 import { getDashboardRouteByRole } from "../../src/coreAdapters/auth";
 import { supabase } from "../../src/lib/supabase";
@@ -13,7 +18,7 @@ import { colors, layout, radius, space } from "../../src/theme/tokens";
 import { Button, Input, Text } from "../../src/ui";
 
 export default function SignInScreen() {
-  const { signIn, signInWithGoogle } = useAuth();
+  const { signIn, signInWithGoogle, resendSignupOtp } = useAuth();
   const { t } = useLanguage();
   const network = useNetworkState();
   const offline =
@@ -25,6 +30,7 @@ export default function SignInScreen() {
   const [errorMessage, setErrorMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [unverified, setUnverified] = useState(false);
 
   const navigateAfterAuth = async (
     nextProfile: NonNullable<Awaited<ReturnType<typeof signIn>>>,
@@ -32,15 +38,30 @@ export default function SignInScreen() {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    if (needsGoogleExtraProfile(session?.user ?? null, nextProfile)) {
+    if (needsProfileCompletion(session?.user ?? null, nextProfile)) {
       router.replace("/(auth)/complete-profile");
       return;
     }
     router.replace(getDashboardRouteByRole(nextProfile) as never);
   };
 
+  const handleSendCode = async () => {
+    const cleanEmail = email.trim().toLowerCase();
+    setSubmitting(true);
+    try {
+      await resendSignupOtp(cleanEmail);
+      await storeVerifySession({ email: cleanEmail, channel: "email" });
+      router.push({ pathname: "/(auth)/verify-email", params: { email: cleanEmail, channel: "email" } });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not send a code.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleSignIn = async () => {
     setErrorMessage("");
+    setUnverified(false);
     if (!email.trim() || !password) {
       setErrorMessage("Please fill in all required fields.");
       return;
@@ -59,6 +80,7 @@ export default function SignInScreen() {
       }
       await navigateAfterAuth(nextProfile);
     } catch (error) {
+      if (error instanceof EmailNotConfirmedError) setUnverified(true);
       setErrorMessage(
         error instanceof Error
           ? error.message
@@ -183,6 +205,13 @@ export default function SignInScreen() {
           <Text variant="caption" color={colors.dangerText}>
             {errorMessage}
           </Text>
+          {unverified ? (
+            <Pressable onPress={handleSendCode} disabled={submitting} hitSlop={layout.hitSlop}>
+              <Text variant="caption" weight="bold" color={colors.brandDark} style={{ marginTop: 6 }}>
+                Send me a code
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 

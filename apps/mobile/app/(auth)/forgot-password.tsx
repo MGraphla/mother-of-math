@@ -4,34 +4,40 @@ import { router } from "expo-router";
 import { CheckCircle2, KeyRound, Mail, ShieldCheck } from "lucide-react-native";
 import { AuthShell } from "../../src/components/AuthShell";
 import { OtpBoxes, PasswordStrength } from "../../src/components/OtpBoxes";
-import { isProfileComplete, needsGoogleExtraProfile, useAuth } from "../../src/context/AuthContext";
+import { needsProfileCompletion, useAuth } from "../../src/context/AuthContext";
 import { useLanguage } from "../../src/context/LanguageContext";
 import { getDashboardRouteByRole } from "../../src/coreAdapters/auth";
 import { supabase } from "../../src/lib/supabase";
+import { COUNTRIES, PHONE_RULES, toOptions, validatePhone } from "../../src/lib/profileOptions";
 import {
   maskEmail,
-  resendPasswordResetByEmail,
+  resendPasswordReset,
   setPasswordAfterReset,
   startPasswordResetByEmail,
+  startPasswordResetByPhone,
   verifyPasswordResetCode,
   SignupVerificationError,
-  type PasswordResetDelivery,
+  type ResetTicket,
 } from "../../src/services/passwordReset";
 import { colors, layout, radius, space } from "../../src/theme/tokens";
-import { Button, Input, Text } from "../../src/ui";
+import { Button, Input, OptionGroup, Select, Text } from "../../src/ui";
 
-type Step = "email" | "missing" | "code" | "password" | "done";
+type Step = "start" | "missing" | "code" | "password" | "done";
+type Method = "email" | "sms";
 
 export default function ForgotPasswordScreen() {
   const { t } = useLanguage();
   const { signIn, refreshProfile } = useAuth();
 
-  const [step, setStep] = useState<Step>("email");
+  const [step, setStep] = useState<Step>("start");
+  const [method, setMethod] = useState<Method>("email");
   const [email, setEmail] = useState("");
+  const [country, setCountry] = useState("Cameroon");
+  const [phone, setPhone] = useState("");
+  const [ticket, setTicket] = useState<ResetTicket | null>(null);
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [delivery, setDelivery] = useState<PasswordResetDelivery>("challenge");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
@@ -46,28 +52,29 @@ export default function ForgotPasswordScreen() {
   const goSignUp = () => router.replace("/(auth)/sign-up");
 
   const handleSendCode = async () => {
-    const trimmed = email.trim().toLowerCase();
     setError("");
-    if (!trimmed) {
-      setError(t("auth.error.fillAllRequired"));
-      return;
-    }
-    if (!/^\S+@\S+\.\S+$/.test(trimmed)) {
-      setError(t("auth.error.invalidEmail"));
-      return;
+    const trimmed = email.trim().toLowerCase();
+    if (method === "email") {
+      if (!trimmed) return setError(t("auth.error.fillAllRequired"));
+      if (!/^\S+@\S+\.\S+$/.test(trimmed)) return setError(t("auth.error.invalidEmail"));
+    } else {
+      const phoneErr = validatePhone(phone, country);
+      if (phoneErr) return setError(phoneErr);
     }
 
     setBusy(true);
     try {
-      const result = await startPasswordResetByEmail(trimmed);
-      setEmail(trimmed);
-      setDelivery(result.delivery);
+      const next =
+        method === "email"
+          ? await startPasswordResetByEmail(trimmed)
+          : await startPasswordResetByPhone(phone, country);
+      if (method === "email") setEmail(trimmed);
+      setTicket(next);
       setCode("");
       setStep("code");
       setResendCooldown(60);
     } catch (err) {
       if (err instanceof SignupVerificationError && err.notRegistered) {
-        setEmail(trimmed);
         setStep("missing");
         return;
       }
@@ -79,12 +86,12 @@ export default function ForgotPasswordScreen() {
 
   const handleVerifyCode = async (nextCode = code) => {
     const trimmed = nextCode.replace(/\D/g, "");
-    if (trimmed.length < 6 || verifying.current || busy) return;
+    if (!ticket || trimmed.length < 6 || verifying.current || busy) return;
     verifying.current = true;
     setError("");
     setBusy(true);
     try {
-      await verifyPasswordResetCode(email, trimmed, delivery);
+      await verifyPasswordResetCode(ticket, trimmed);
       setCode(trimmed);
       setStep("password");
     } catch (err) {
@@ -97,19 +104,14 @@ export default function ForgotPasswordScreen() {
   };
 
   const handleResend = async () => {
-    if (resendCooldown > 0) return;
+    if (!ticket || resendCooldown > 0) return;
     setBusy(true);
     setError("");
     try {
-      const nextDelivery = await resendPasswordResetByEmail(email);
-      setDelivery(nextDelivery);
+      await resendPasswordReset(ticket);
       setCode("");
       setResendCooldown(60);
     } catch (err) {
-      if (err instanceof SignupVerificationError && err.notRegistered) {
-        setStep("missing");
-        return;
-      }
       setError(err instanceof Error ? err.message : t("auth.resetSendFailed"));
     } finally {
       setBusy(false);
@@ -118,14 +120,9 @@ export default function ForgotPasswordScreen() {
 
   const handleSetPassword = async () => {
     setError("");
-    if (password.length < 8) {
-      setError(t("auth.error.passwordLength"));
-      return;
-    }
-    if (password !== confirm) {
-      setError(t("auth.error.passwordMismatch"));
-      return;
-    }
+    if (!ticket) return;
+    if (password.length < 8) return setError(t("auth.error.passwordLength"));
+    if (password !== confirm) return setError(t("auth.error.passwordMismatch"));
     const trimmed = code.replace(/\D/g, "");
     if (trimmed.length < 6) {
       setStep("code");
@@ -135,39 +132,38 @@ export default function ForgotPasswordScreen() {
 
     setBusy(true);
     try {
-      await setPasswordAfterReset(email, trimmed, password, delivery);
+      const accountEmail = await setPasswordAfterReset(ticket, trimmed, password);
       let profile = null;
       try {
-        profile = await signIn(email, password);
+        // Email resets already hold a session; SMS resets sign in with the new password.
+        profile = ticket.channel === "sms" && accountEmail ? await signIn(accountEmail, password) : await refreshProfile();
       } catch {
         profile = await refreshProfile();
       }
       setStep("done");
       setTimeout(() => {
         void (async () => {
-          if (!profile) {
-            router.replace("/(auth)/complete-profile");
-            return;
-          }
           const {
             data: { session: current },
           } = await supabase.auth.getSession();
-          if (needsGoogleExtraProfile(current?.user ?? null, profile) || !isProfileComplete(profile)) {
+          if (!current) {
+            router.replace("/(auth)/sign-in");
+            return;
+          }
+          if (needsProfileCompletion(current.user, profile)) {
             router.replace("/(auth)/complete-profile");
             return;
           }
           router.replace(getDashboardRouteByRole(profile) as never);
         })();
-      }, 1100);
+      }, 900);
     } catch (err) {
       const msg = err instanceof Error ? err.message : t("auth.resetUpdateFailed");
       if (/code|attempt|expired/i.test(msg)) {
         setStep("code");
         setCode("");
-        setError(msg);
-      } else {
-        setError(msg);
       }
+      setError(msg);
     } finally {
       setBusy(false);
     }
@@ -177,15 +173,15 @@ export default function ForgotPasswordScreen() {
     return (
       <AuthShell
         title={t("auth.noAccountFound")}
-        subtitle={t("auth.noAccountFoundBody")}
+        subtitle={method === "email" ? t("auth.noAccountFoundBody") : "No account uses this phone number."}
         onBack={() => {
           setError("");
-          setStep("email");
+          setStep("start");
         }}
         footer={
           <>
             <Button label={t("auth.createAccount")} onPress={goSignUp} size="lg" />
-            <Pressable onPress={() => setStep("email")} hitSlop={layout.hitSlop} style={styles.linkTap}>
+            <Pressable onPress={() => setStep("start")} hitSlop={layout.hitSlop} style={styles.linkTap}>
               <Text variant="caption" color={colors.textMuted} center>
                 {t("auth.tryAnotherEmail")}
               </Text>
@@ -198,22 +194,22 @@ export default function ForgotPasswordScreen() {
         </View>
         <View style={styles.emailChip}>
           <Text variant="bodySm" weight="semibold" color={colors.brandDeep} center>
-            {email}
+            {method === "email" ? email : phone}
           </Text>
         </View>
       </AuthShell>
     );
   }
 
-  if (step === "code") {
+  if (step === "code" && ticket) {
     return (
       <AuthShell
         title={t("auth.enterResetCode")}
-        subtitle={t("auth.checkInbox")}
+        subtitle={ticket.channel === "email" ? t("auth.checkInbox") : "Check your text messages for a 6-digit code."}
         progress={{ step: 2, total: 3, label: t("auth.resetPassword") }}
         onBack={() => {
           setError("");
-          setStep("email");
+          setStep("start");
         }}
         footer={
           <>
@@ -245,7 +241,7 @@ export default function ForgotPasswordScreen() {
         <Text variant="bodySm" color={colors.textMuted} center>
           {t("auth.enterResetCodeHint")}{" "}
           <Text variant="bodySm" weight="bold" color={colors.text}>
-            {maskEmail(email)}
+            {ticket.channel === "email" ? maskEmail(ticket.email) : ticket.maskedPhone}
           </Text>
         </Text>
         <OtpBoxes
@@ -345,7 +341,7 @@ export default function ForgotPasswordScreen() {
   return (
     <AuthShell
       title={t("auth.resetPassword")}
-      subtitle={t("auth.forgotSubtitle")}
+      subtitle="We’ll send you a 6-digit code."
       progress={{ step: 1, total: 3, label: t("auth.resetPassword") }}
       onBack={() => {
         if (router.canGoBack()) router.back();
@@ -360,30 +356,56 @@ export default function ForgotPasswordScreen() {
         />
       }
     >
-      <View style={styles.iconWrap}>
-        <Mail size={28} color={colors.white} />
-      </View>
-      <Input
-        label={t("auth.email")}
-        value={email}
-        onChangeText={(v) => {
-          setEmail(v);
+      <OptionGroup
+        label="Send the code by"
+        value={method}
+        onChange={(m) => {
+          setMethod(m);
           setError("");
         }}
-        placeholder="you@example.com"
-        autoCapitalize="none"
-        autoCorrect={false}
-        autoComplete="email"
-        textContentType="emailAddress"
-        keyboardType="email-address"
-        required
-        icon={<Mail size={18} color={colors.brandDark} />}
-        returnKeyType="go"
-        onSubmitEditing={handleSendCode}
+        options={[
+          { value: "email", label: "Email" },
+          { value: "sms", label: "Text message" },
+        ]}
       />
-      <Text variant="micro" color={colors.textMuted}>
-        {t("auth.forgotSecurityNote")}
-      </Text>
+      {method === "email" ? (
+        <Input
+          label={t("auth.email")}
+          value={email}
+          onChangeText={(v) => {
+            setEmail(v);
+            setError("");
+          }}
+          placeholder="you@example.com"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="email"
+          textContentType="emailAddress"
+          keyboardType="email-address"
+          required
+          icon={<Mail size={18} color={colors.brandDark} />}
+          returnKeyType="go"
+          onSubmitEditing={handleSendCode}
+        />
+      ) : (
+        <>
+          <Select label="Country" value={country} options={toOptions(COUNTRIES)} onChange={setCountry} required />
+          <Input
+            label="Phone number"
+            value={phone}
+            onChangeText={(v) => {
+              setPhone(v);
+              setError("");
+            }}
+            placeholder={PHONE_RULES[country]?.example ?? "+237 6XX XXX XXX"}
+            keyboardType="phone-pad"
+            autoComplete="tel"
+            required
+            returnKeyType="go"
+            onSubmitEditing={handleSendCode}
+          />
+        </>
+      )}
       {error ? (
         <View style={styles.errorBanner}>
           <Text variant="caption" color={colors.dangerText}>

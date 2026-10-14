@@ -11,7 +11,10 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: true,
+    // Auth URLs are handled explicitly by /auth/callback (OAuth) and /auth/confirm
+    // (email links). Automatic detection raced with those pages and consumed
+    // single-use codes before they could be exchanged.
+    detectSessionInUrl: false,
     flowType: 'pkce',
     /**
      * Default GoTrue client uses the Web Locks API (`lock:sb-…-auth-token`) so only
@@ -116,14 +119,31 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
     .from('profiles')
     .select('*')
     .eq('id', userId)
-    .single();
+    .maybeSingle();
 
   if (error) {
     console.error('Error fetching user profile:', error);
     return null;
   }
 
-  return data as UserProfile;
+  return (data as UserProfile | null) ?? null;
+};
+
+/**
+ * Returns the signed-in user's profile, creating it from the verified account's
+ * sign-up details when the row is missing (`ensure_my_profile` RPC).
+ */
+export const ensureProfile = async (userId: string): Promise<UserProfile | null> => {
+  const existing = await getUserProfile(userId);
+  if (existing) return existing;
+
+  const { data, error } = await supabase.rpc('ensure_my_profile');
+  if (error) {
+    console.error('ensure_my_profile failed:', error);
+    return null;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return (row as UserProfile | undefined) ?? null;
 };
 
 export const upsertUserProfile = async (profile: Partial<UserProfile> & { id: string }) => {
@@ -141,42 +161,6 @@ export const signOutUser = async () => {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
   return true;
-};
-
-/**
- * Returns true when a Supabase access token belongs to password recovery flow.
- * Supabase may emit SIGNED_IN for recovery in PKCE mode, so callers need this
- * JWT hint to route users to /reset-password reliably.
- */
-export const isPasswordRecoveryAccessToken = (accessToken: string): boolean => {
-  if (!accessToken) return false;
-
-  try {
-    const parts = accessToken.split('.');
-    if (parts.length < 2) return false;
-
-    const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const padded = payloadBase64 + '='.repeat((4 - (payloadBase64.length % 4)) % 4);
-    const payloadJson = atob(padded);
-    const payload = JSON.parse(payloadJson) as {
-      type?: string;
-      action?: string;
-      /** Supabase / GoTrue: recovery often appears here, not in `type`. */
-      amr?: Array<{ method?: string; timestamp?: number }>;
-    };
-
-    if (payload.type === 'recovery' || payload.action === 'password_recovery') {
-      return true;
-    }
-    if (Array.isArray(payload.amr)) {
-      return payload.amr.some(
-        (e) => e && String(e.method ?? '').toLowerCase() === 'recovery',
-      );
-    }
-    return false;
-  } catch {
-    return false;
-  }
 };
 
 // ── Chat Conversations ───────────────────────────────────

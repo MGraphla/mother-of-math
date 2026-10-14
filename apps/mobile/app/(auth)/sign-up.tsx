@@ -20,7 +20,7 @@ import { AuthDivider, AuthShell } from "../../src/components/AuthShell";
 import { GoogleIcon } from "../../src/components/icons/GoogleIcon";
 import {
   storeVerifySession,
-  needsGoogleExtraProfile,
+  needsProfileCompletion,
   useAuth,
   type SignUpProfileInput,
 } from "../../src/context/AuthContext";
@@ -132,7 +132,7 @@ export default function SignUpScreen() {
         return false;
       }
     }
-    if (step === 3) {
+    if (step === 3 && role === "teacher") {
       if (!schoolName.trim()) {
         setErrorMessage("School name is required.");
         return false;
@@ -217,7 +217,6 @@ export default function SignUpScreen() {
         params: {
           email: cleanEmail,
           channel: "sms",
-          password,
           masked: maskE164(destE164),
         },
       });
@@ -240,7 +239,7 @@ export default function SignUpScreen() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      if (needsGoogleExtraProfile(session?.user ?? null, nextProfile)) {
+      if (needsProfileCompletion(session?.user ?? null, nextProfile)) {
         router.replace("/(auth)/complete-profile");
         return;
       }
@@ -510,7 +509,7 @@ export default function SignUpScreen() {
             }}
             placeholder="e.g. Government Bilingual High School"
             autoCapitalize="words"
-            required
+            required={role === "teacher"}
             icon={<School size={18} color={colors.brandDark} />}
           />
           <Input

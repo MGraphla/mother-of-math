@@ -1,616 +1,372 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { supabase, getUserProfile, upsertUserProfile, isPasswordRecoveryAccessToken } from '@/lib/supabase';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { Session, User } from '@supabase/supabase-js';
+import { supabase, ensureProfile, upsertUserProfile } from '@/lib/supabase';
 import type { UserProfile } from '@/lib/supabase';
-import type { User, Session } from '@supabase/supabase-js';
-import { signupVerificationRequest, type SignupPhoneChannel } from '@/services/signupVerification';
-
-export type { SignupPhoneChannel };
+import { AuthFlowError, toAuthError } from '@/lib/authErrors';
+import { invokeSignupVerification } from '@/services/signupVerification';
 
 export type { UserProfile };
 
-/** Fields we consider required for a "complete" profile */
-const REQUIRED_PROFILE_FIELDS: (keyof UserProfile)[] = [
-  'full_name',
-  'role',
-  'country',
-  'school_name',
-  'phone_number',
-];
+export type VerificationChannel = 'email' | 'sms';
 
+/** Everything the sign-up form collects; `role` is limited to self-service roles. */
+export type SignUpInput = Partial<Omit<UserProfile, 'id' | 'email' | 'role'>> & {
+  email: string;
+  password: string;
+  full_name: string;
+  role: 'teacher' | 'parent';
+  country: string;
+  phone_number: string;
+};
+
+/** What the verify screen needs to resume after a refresh (never the password). */
+export interface PendingVerification {
+  email: string;
+  channel: VerificationChannel;
+  maskedPhone?: string;
+}
+
+const PENDING_KEY = 'mm_pending_verification';
+
+export const readPendingVerification = (): PendingVerification | null => {
+  try {
+    const raw = sessionStorage.getItem(PENDING_KEY);
+    return raw ? (JSON.parse(raw) as PendingVerification) : null;
+  } catch {
+    return null;
+  }
+};
+
+const writePendingVerification = (p: PendingVerification | null) => {
+  try {
+    if (p) sessionStorage.setItem(PENDING_KEY, JSON.stringify(p));
+    else sessionStorage.removeItem(PENDING_KEY);
+  } catch {
+    /* storage unavailable (private mode) — the verify screen falls back to asking */
+  }
+};
+
+// ── Profile rules (shared by routes and auth pages) ─────────────────────────
+
+export const userHasGoogleIdentity = (user: User | null): boolean =>
+  !!user?.identities?.some((i) => i.provider === 'google');
+
+/** Minimum details a teacher/parent needs before using the dashboard. */
 export const isProfileComplete = (profile: UserProfile | null): boolean => {
   if (!profile) return false;
-  return REQUIRED_PROFILE_FIELDS.every((f) => {
-    const v = profile[f];
-    return v !== null && v !== undefined && v !== '';
-  });
+  const filled = (v: unknown) => v !== null && v !== undefined && String(v).trim() !== '';
+  const base = filled(profile.full_name) && filled(profile.country) && filled(profile.phone_number);
+  return profile.role === 'teacher' ? base && filled(profile.school_name) : base;
 };
 
-/** True if this auth user signed in with Google (OAuth identity linked). */
-export const userHasGoogleIdentity = (user: User | null): boolean => {
-  if (!user?.identities?.length) return false;
-  return user.identities.some((i) => i.provider === 'google');
-};
-
-/**
- * Google users must visit Complete Profile once while this flag is false.
- * Email/password users never need that page (flag stays true from signup).
- */
-export const needsGoogleExtraProfile = (user: User | null, profile: UserProfile | null): boolean => {
-  if (!user || !userHasGoogleIdentity(user)) return false;
-  if (profile?.role === 'student') return false;
-  // No row yet (slow trigger / stalled fetch): still send Google users to the wizard.
+/** True when the user must visit /complete-profile before anything else. */
+export const needsProfileCompletion = (user: User | null, profile: UserProfile | null): boolean => {
+  if (!user) return false;
   if (!profile) return true;
-  return profile.google_extra_profile_completed === false;
+  if (profile.role !== 'teacher' && profile.role !== 'parent') return false;
+  return profile.google_extra_profile_completed === false || !isProfileComplete(profile);
 };
 
-/**
- * New Google users get default true in DB but incomplete required fields — flip to false once
- * so they are routed to Complete Profile. No-op for email users or already-finished Google users.
- */
-export const syncGoogleOnboardingFlag = async (
-  user: User,
-  profile: UserProfile | null,
-): Promise<UserProfile | null> => {
-  if (!profile || profile.role === 'student') return profile;
-  if (!userHasGoogleIdentity(user)) return profile;
-  if (profile.google_extra_profile_completed === false) return profile;
-  if (!isProfileComplete(profile)) {
-    try {
-      await upsertUserProfile({ id: user.id, google_extra_profile_completed: false });
-      return { ...profile, google_extra_profile_completed: false };
-    } catch (e) {
-      console.warn('syncGoogleOnboardingFlag:', e);
-      return profile;
-    }
+export const getDashboardPath = (profile: Pick<UserProfile, 'role'> | null): string => {
+  switch (profile?.role) {
+    case 'admin':
+      return '/admin/dashboard';
+    case 'student':
+      return '/student';
+    case 'parent':
+      return '/parent-dashboard';
+    default:
+      return '/dashboard';
   }
-  return profile;
 };
 
-// Define the shape of the context
+/** Where to send a signed-in user right after authenticating. */
+export const getPostAuthPath = (user: User | null, profile: UserProfile | null): string =>
+  needsProfileCompletion(user, profile) ? '/complete-profile' : getDashboardPath(profile);
+
+const signUpMetadata = (input: SignUpInput) => {
+  const { email: _e, password: _p, ...profile } = input;
+  return Object.fromEntries(
+    Object.entries(profile).filter(([, v]) => v !== undefined && v !== null && v !== ''),
+  );
+};
+
+// ── Context ─────────────────────────────────────────────────────────────────
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   profile: UserProfile | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  signUp: (email: string, password: string, profileData: Partial<UserProfile>) => Promise<void>;
-  signUpWithPhoneVerification: (
-    email: string,
-    password: string,
-    profileData: Partial<UserProfile>,
-    channel: SignupPhoneChannel,
-    destinationRaw: string,
-    country: string,
-  ) => Promise<void>;
-  verifyOtp: (email: string, token: string) => Promise<void>;
-  verifySignupPhoneOtp: (email: string, token: string, password: string) => Promise<void>;
-  resendOtp: (email: string) => Promise<void>;
-  resendSignupPhoneOtp: (
-    email: string,
-    channel: SignupPhoneChannel,
-    destinationRaw: string,
-    country: string,
-  ) => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<UserProfile | null>;
   signInWithGoogle: () => Promise<void>;
+  /** Resolves `null` when no verification is needed (account is already signed in). */
+  signUp: (input: SignUpInput, channel: VerificationChannel) => Promise<PendingVerification | null>;
+  verifySignupCode: (code: string, password?: string) => Promise<UserProfile | null>;
+  resendSignupCode: () => Promise<void>;
+  /** Re-sends the email code for an existing, unverified account (e.g. after sign-in said so). */
+  startEmailVerification: (email: string) => Promise<void>;
+  /** Password given at sign-up, kept in memory only so SMS users can be signed in after the code. */
+  hasPendingPassword: boolean;
   signOut: () => Promise<void>;
-  sendPasswordReset: (email: string) => Promise<void>;
-  refreshProfile: () => Promise<void>;
+  refreshProfile: () => Promise<UserProfile | null>;
+  saveProfile: (patch: Partial<UserProfile>) => Promise<UserProfile | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider = ({ children }: AuthProviderProps) => {
-  const [user, setUser] = useState<User | null>(null);
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasPendingPassword, setHasPendingPassword] = useState(false);
+  const pendingPassword = useRef<string | null>(null);
+  const loadedFor = useRef<string | null>(null);
 
-  // Fetch profile helper
-  const fetchProfile = async (userId: string) => {
-    try {
-      let p = await getUserProfile(userId);
-      const { data: { user: u } } = await supabase.auth.getUser();
-      if (u?.id === userId && p) {
-        p = await syncGoogleOnboardingFlag(u, p);
-      }
-      setProfile(p);
-    } catch (e) {
-      console.error('Error fetching profile:', e);
-    }
-  };
-
-  const refreshProfile = async () => {
-    if (user) await fetchProfile(user.id);
-  };
+  const user = session?.user ?? null;
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s);
-      setUser(s?.user ?? null);
-      if (s?.user) {
-        fetchProfile(s.user.id).finally(() => setIsLoading(false));
-      } else {
+    let active = true;
+
+    const apply = async (next: Session | null) => {
+      setSession(next);
+      if (!next?.user) {
+        loadedFor.current = null;
+        setProfile(null);
         setIsLoading(false);
+        return;
       }
+      // Block route guards only when the signed-in person changes.
+      if (loadedFor.current !== next.user.id) setIsLoading(true);
+      const p = await ensureProfile(next.user.id);
+      if (!active) return;
+      loadedFor.current = next.user.id;
+      setProfile(p);
+      setIsLoading(false);
+    };
+
+    void supabase.auth.getSession().then(({ data }) => apply(data.session));
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, next) => {
+      if (event === 'INITIAL_SESSION') return; // handled by getSession above
+      if (event === 'TOKEN_REFRESHED') {
+        setSession(next);
+        return;
+      }
+      // Never await Supabase calls inside this callback (it deadlocks auth methods).
+      setTimeout(() => void apply(next), 0);
     });
 
-    // Listen for auth changes — NEVER block the callback with awaits,
-    // because the Supabase client waits for onAuthStateChange to finish
-    // before resolving auth methods like verifyOtp.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, s) => {
-        setSession(s);
-        setUser(s?.user ?? null);
-        
-        const recoveryJwt =
-          s?.access_token && isPasswordRecoveryAccessToken(s.access_token);
-        // Also check URL hash for recovery type (implicit flow / some Supabase versions)
-        const hashParams = new URLSearchParams(window.location.hash.substring(1));
-        const hashType = hashParams.get('type');
-        const isRecovery =
-          _event === 'PASSWORD_RECOVERY' ||
-          hashType === 'recovery' ||
-          (_event === 'SIGNED_IN' && localStorage.getItem('is_password_recovery') === 'true') ||
-          (_event === 'SIGNED_IN' && recoveryJwt) ||
-          (_event === 'INITIAL_SESSION' && recoveryJwt) ||
-          (_event === 'INITIAL_SESSION' && localStorage.getItem('is_password_recovery') === 'true');
-
-        if (isRecovery) {
-          // Do not clear `is_password_recovery` here — ResetPassword clears it only
-          // after it confirms the recovery session (otherwise the form shows
-          // "expired" when JWT omits legacy `type: recovery` but the flag was the only hint).
-          if (!window.location.pathname.startsWith('/reset-password')) {
-            window.location.href = '/reset-password';
-          }
-          return;
-        }
-
-        if (s?.user) {
-          // Fire-and-forget — don't block the auth state change
-          fetchProfile(s.user.id)
-            .catch((e) => console.error('Profile fetch in onAuthStateChange failed:', e))
-            .finally(() => setIsLoading(false));
-        } else {
-          setProfile(null);
-          setIsLoading(false);
-        }
-      }
-    );
-
-    return () => subscription.unsubscribe();
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
-  /** After Supabase confirms the user (email OTP or phone flow + sign-in), ensure `profiles` row exists. */
-  const scheduleProfileFromPending = (verifiedUser: User, emailFallback: string) => {
-    setTimeout(async () => {
-      try {
-        let existingProfile = await getUserProfile(verifiedUser.id);
-        if (!existingProfile) {
-          console.log('No profile found — creating from saved data');
-          const pendingRaw = sessionStorage.getItem('pending_profile');
-          const meta = verifiedUser.user_metadata ?? {};
-          const parsed = pendingRaw ? JSON.parse(pendingRaw) : {};
-
-          const profilePayload: Partial<UserProfile> & { id: string } = {
-            id: verifiedUser.id,
-            email: verifiedUser.email ?? emailFallback,
-            full_name: parsed.full_name ?? meta.full_name ?? '',
-            role: parsed.role ?? meta.role ?? 'teacher',
-            gender: parsed.gender ?? meta.gender ?? null,
-            country: parsed.country ?? meta.country ?? null,
-            city: parsed.city ?? meta.city ?? null,
-            school_name: parsed.school_name ?? meta.school_name ?? null,
-            school_address: parsed.school_address ?? meta.school_address ?? null,
-            school_type: parsed.school_type ?? meta.school_type ?? null,
-            number_of_students: parsed.number_of_students ?? meta.number_of_students ?? null,
-            subjects_taught: parsed.subjects_taught ?? meta.subjects_taught ?? null,
-            grade_levels: parsed.grade_levels ?? meta.grade_levels ?? null,
-            years_of_experience: parsed.years_of_experience ?? meta.years_of_experience ?? null,
-            education_level: parsed.education_level ?? meta.education_level ?? null,
-            phone_number: parsed.phone_number ?? meta.phone_number ?? null,
-            whatsapp_number: parsed.whatsapp_number ?? meta.whatsapp_number ?? null,
-            bio: parsed.bio ?? meta.bio ?? null,
-            date_of_birth: parsed.date_of_birth ?? meta.date_of_birth ?? null,
-            avatar_url: null,
-            preferred_language: parsed.preferred_language ?? meta.preferred_language ?? null,
-            managed_student_ids: null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            google_extra_profile_completed: true,
-          };
-
-          // Try full upsert first; if it fails (e.g. missing column), retry with core fields only.
-          try {
-            await upsertUserProfile(profilePayload);
-          } catch (firstErr) {
-            console.warn('Full profile upsert failed, retrying with core fields:', firstErr);
-            await upsertUserProfile({
-              id: profilePayload.id,
-              email: profilePayload.email,
-              full_name: profilePayload.full_name,
-              role: profilePayload.role,
-              country: profilePayload.country,
-              school_name: profilePayload.school_name,
-              phone_number: profilePayload.phone_number,
-              created_at: profilePayload.created_at,
-              updated_at: profilePayload.updated_at,
-              google_extra_profile_completed: true,
-            } as Partial<UserProfile> & { id: string });
-          }
-
-          existingProfile = await getUserProfile(verifiedUser.id);
-          console.log('Profile created successfully after verification');
-        }
-        sessionStorage.removeItem('pending_profile');
-        setProfile(existingProfile);
-      } catch (e) {
-        console.error('Background profile creation failed:', e);
-      }
-    }, 2000);
-  };
-
-  /** Same as scheduleProfileFromPending but awaitable — used by phone verify so profile exists before navigation. */
-  const createProfileFromPending = async (verifiedUser: User, emailFallback: string) => {
-    try {
-      let existingProfile = await getUserProfile(verifiedUser.id);
-      if (!existingProfile) {
-        const pendingRaw = sessionStorage.getItem('pending_profile');
-        const meta = verifiedUser.user_metadata ?? {};
-        const parsed = pendingRaw ? JSON.parse(pendingRaw) : {};
-
-        const profilePayload: Partial<UserProfile> & { id: string } = {
-          id: verifiedUser.id,
-          email: verifiedUser.email ?? emailFallback,
-          full_name: parsed.full_name ?? meta.full_name ?? '',
-          role: parsed.role ?? meta.role ?? 'teacher',
-          gender: parsed.gender ?? meta.gender ?? null,
-          country: parsed.country ?? meta.country ?? null,
-          city: parsed.city ?? meta.city ?? null,
-          school_name: parsed.school_name ?? meta.school_name ?? null,
-          school_address: parsed.school_address ?? meta.school_address ?? null,
-          school_type: parsed.school_type ?? meta.school_type ?? null,
-          number_of_students: parsed.number_of_students ?? meta.number_of_students ?? null,
-          subjects_taught: parsed.subjects_taught ?? meta.subjects_taught ?? null,
-          grade_levels: parsed.grade_levels ?? meta.grade_levels ?? null,
-          years_of_experience: parsed.years_of_experience ?? meta.years_of_experience ?? null,
-          education_level: parsed.education_level ?? meta.education_level ?? null,
-          phone_number: parsed.phone_number ?? meta.phone_number ?? null,
-          whatsapp_number: parsed.whatsapp_number ?? meta.whatsapp_number ?? null,
-          bio: parsed.bio ?? meta.bio ?? null,
-          date_of_birth: parsed.date_of_birth ?? meta.date_of_birth ?? null,
-          avatar_url: null,
-          preferred_language: parsed.preferred_language ?? meta.preferred_language ?? null,
-          managed_student_ids: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          google_extra_profile_completed: true,
-        };
-
-        try {
-          await upsertUserProfile(profilePayload);
-        } catch {
-          await upsertUserProfile({
-            id: profilePayload.id,
-            email: profilePayload.email,
-            full_name: profilePayload.full_name,
-            role: profilePayload.role,
-            country: profilePayload.country,
-            school_name: profilePayload.school_name,
-            phone_number: profilePayload.phone_number,
-            created_at: profilePayload.created_at,
-            updated_at: profilePayload.updated_at,
-            google_extra_profile_completed: true,
-          } as Partial<UserProfile> & { id: string });
-        }
-
-        existingProfile = await getUserProfile(verifiedUser.id);
-      }
-      sessionStorage.removeItem('pending_profile');
-      setProfile(existingProfile);
-    } catch (e) {
-      console.error('Profile creation failed:', e);
+  const refreshProfile = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    const u = data.session?.user;
+    if (!u) {
+      setProfile(null);
+      return null;
     }
-  };
+    const p = await ensureProfile(u.id);
+    loadedFor.current = u.id;
+    setProfile(p);
+    return p;
+  }, []);
 
-  const signUp = async (email: string, password: string, profileData: Partial<UserProfile>) => {
-    await signupVerificationRequest({
-      action: 'check_signup_availability',
-      email,
-      country: profileData.country ?? 'Cameroon',
-      phone_number: profileData.phone_number ?? '',
-      whatsapp_number: profileData.whatsapp_number ?? '',
-    });
-
-    // Pass ALL profile data through user_metadata so the Postgres trigger
-    // can create the profiles row automatically (bypasses RLS).
-    const { data, error } = await supabase.auth.signUp({
-      email,
+  const signIn = useCallback(async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
       password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/verify-email`,
-        data: {
-          full_name: profileData.full_name ?? '',
-          role: profileData.role ?? 'teacher',
-          gender: profileData.gender ?? null,
-          country: profileData.country ?? null,
-          city: profileData.city ?? null,
-          school_name: profileData.school_name ?? null,
-          school_address: profileData.school_address ?? null,
-          school_type: profileData.school_type ?? null,
-          number_of_students: profileData.number_of_students ?? null,
-          number_of_classes: profileData.number_of_classes ?? null,
-          subjects_taught: profileData.subjects_taught ?? null,
-          grade_levels: profileData.grade_levels ?? null,
-          years_of_experience: profileData.years_of_experience ?? null,
-          education_level: profileData.education_level ?? null,
-          phone_number: profileData.phone_number ?? null,
-          whatsapp_number: profileData.whatsapp_number ?? null,
-          bio: profileData.bio ?? null,
-          date_of_birth: profileData.date_of_birth ?? null,
-          preferred_language: profileData.preferred_language ?? null,
-        },
-      },
     });
+    if (error) throw toAuthError(error);
+    const p = await ensureProfile(data.user.id);
+    loadedFor.current = data.user.id;
+    setSession(data.session);
+    setProfile(p);
+    return p;
+  }, []);
 
-    if (error) {
-      const msg = (error.message ?? '').toLowerCase();
-      if (
-        msg.includes('already') ||
-        msg.includes('registered') ||
-        msg.includes('exists') ||
-        msg.includes('duplicate')
-      ) {
-        throw new Error('This email is already registered. Please sign in instead.');
-      }
-      throw new Error(error.message);
-    }
-
-    // Detect duplicate / already-registered email.
-    // Supabase returns a fake user with empty identities to prevent email enumeration.
-    if (data.user && data.user.identities && data.user.identities.length === 0) {
-      throw new Error('This email is already registered. Please sign in instead.');
-    }
-
-    // Store profile data in sessionStorage so we can create the profile
-    // after email verification (in case the Postgres trigger doesn't exist).
-    sessionStorage.setItem(
-      'pending_profile',
-      JSON.stringify({ email, ...profileData })
-    );
-
-    // If the session is already available (email confirmation disabled), also
-    // upsert the profile immediately so the dashboard is populated.
-    if (data.session && data.user) {
-      try {
-        await upsertUserProfile({
-          id: data.user.id,
-          email,
-          ...profileData,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          google_extra_profile_completed: true,
-        } as UserProfile);
-        await fetchProfile(data.user.id);
-      } catch (e) {
-        console.log('Profile upsert fallback skipped (trigger handled it):', e);
-      }
-    }
-  };
-
-  /**
-   * Sign up with SMS verification. Creates an unconfirmed auth user server-side
-   * and sends a one-time code — avoids Supabase sending a duplicate confirmation email.
-   */
-  const signUpWithPhoneVerification = async (
-    email: string,
-    password: string,
-    profileData: Partial<UserProfile>,
-    channel: SignupPhoneChannel,
-    destinationRaw: string,
-    country: string,
-  ) => {
-    await signupVerificationRequest({
-      action: 'start',
-      email,
-      password,
-      channel,
-      country,
-      destination: destinationRaw,
-      profile: {
-        full_name: profileData.full_name ?? '',
-        role: profileData.role ?? 'teacher',
-        gender: profileData.gender ?? null,
-        country: profileData.country ?? null,
-        city: profileData.city ?? null,
-        school_name: profileData.school_name ?? null,
-        school_address: profileData.school_address ?? null,
-        school_type: profileData.school_type ?? null,
-        number_of_students: profileData.number_of_students ?? null,
-        number_of_classes: profileData.number_of_classes ?? null,
-        subjects_taught: profileData.subjects_taught ?? null,
-        grade_levels: profileData.grade_levels ?? null,
-        years_of_experience: profileData.years_of_experience ?? null,
-        education_level: profileData.education_level ?? null,
-        phone_number: profileData.phone_number ?? null,
-        whatsapp_number: profileData.whatsapp_number ?? null,
-        bio: profileData.bio ?? null,
-        date_of_birth: profileData.date_of_birth ?? null,
-        preferred_language: profileData.preferred_language ?? null,
-      },
-    });
-
-    sessionStorage.setItem(
-      'pending_profile',
-      JSON.stringify({ email, ...profileData }),
-    );
-  };
-
-  /** Verify an email OTP code (any length) */
-  const verifyOtp = async (email: string, token: string) => {
-    // Race the actual Supabase call against a timeout.
-    // If the call hangs (known Supabase JS client issue), we check
-    // whether a session was actually established.
-    const TIMEOUT_MS = 12_000;
-    let result: any = null;
-    let timedOut = false;
-
-    try {
-      result = await Promise.race([
-        supabase.auth.verifyOtp({ email, token, type: 'signup' }),
-        new Promise((_, reject) =>
-          setTimeout(() => {
-            timedOut = true;
-            reject(new Error('__timeout__'));
-          }, TIMEOUT_MS)
-        ),
-      ]);
-    } catch (err: any) {
-      if (err.message !== '__timeout__') throw err;
-
-      // The call timed out — but the OTP might have actually verified.
-      // Check if Supabase set a session behind the scenes.
-      console.warn('verifyOtp call timed out, checking session...');
-      const { data: { session: s } } = await supabase.auth.getSession();
-      if (s?.user) {
-        console.log('Session found after timeout — OTP was actually valid');
-        result = { data: { user: s.user, session: s }, error: null };
-      } else {
-        throw new Error('Verification timed out. Please try again.');
-      }
-    }
-
-    if (result.error) throw new Error(result.error.message);
-
-    // OTP is verified! Session is set. Profile creation in background.
-    const verifiedUser = result.data?.user;
-    if (verifiedUser) {
-      scheduleProfileFromPending(verifiedUser, email);
-    }
-  };
-
-  /** Verify phone channel OTP then sign in (password required; same as at sign-up). */
-  const verifySignupPhoneOtp = async (email: string, token: string, password: string) => {
-    const code = token.replace(/\D/g, '');
-    await signupVerificationRequest({ action: 'verify', email, code });
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(error.message);
-    const {
-      data: { session: s },
-    } = await supabase.auth.getSession();
-    const verifiedUser = s?.user;
-    if (verifiedUser) {
-      // Create profile synchronously so ProtectedRoute finds it before navigation.
-      await createProfileFromPending(verifiedUser, email);
-    }
-  };
-
-  /** Resend the OTP email */
-  const resendOtp = async (email: string) => {
-    // Try 'signup' type first
-    let { error } = await supabase.auth.resend({
-      type: 'signup',
-      email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/verify-email`
-      }
-    });
-
-    if (error) {
-      console.warn('resendOtp signup type failed, trying email_change type:', error.message);
-      // Fallback: sometimes 'signup' fails if the user is technically created but not verified
-      // try 'email_change' or just simple retry if it was a flake
-      const retry = await supabase.auth.resend({
-        type: 'signup',
-        email,
-      });
-      error = retry.error;
-    }
-
-    if (error) throw new Error(error.message);
-  };
-
-  const resendSignupPhoneOtp = async (
-    email: string,
-    channel: SignupPhoneChannel,
-    destinationRaw: string,
-    country: string,
-  ) => {
-    await signupVerificationRequest({
-      action: 'resend',
-      email,
-      channel,
-      country,
-      destination: destinationRaw,
-    });
-  };
-
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(error.message);
-  };
-
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = useCallback(async () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: { prompt: 'select_account' },
       },
     });
-    if (error) throw new Error(error.message);
-  };
+    if (error) throw toAuthError(error);
+  }, []);
 
-  const logOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw new Error(error.message);
-    setUser(null);
+  const signUp = useCallback(async (input: SignUpInput, channel: VerificationChannel) => {
+    const email = input.email.trim().toLowerCase();
+    const metadata = signUpMetadata(input);
+
+    try {
+      if (channel === 'sms') {
+        const res = await invokeSignupVerification({
+          action: 'start',
+          email,
+          password: input.password,
+          channel: 'sms',
+          country: input.country,
+          destination: input.phone_number,
+          profile: metadata,
+        });
+        const pending: PendingVerification = {
+          email,
+          channel: 'sms',
+          maskedPhone: String(res.masked_phone ?? ''),
+        };
+        pendingPassword.current = input.password;
+        setHasPendingPassword(true);
+        writePendingVerification(pending);
+        return pending;
+      }
+
+      await invokeSignupVerification({
+        action: 'check_signup_availability',
+        email,
+        country: input.country,
+        phone_number: input.phone_number,
+      });
+
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password: input.password,
+        options: { emailRedirectTo: `${window.location.origin}/auth/confirm`, data: metadata },
+      });
+      if (error) throw error;
+      if (data.user && data.user.identities?.length === 0) {
+        throw new AuthFlowError('This email is already registered. Sign in instead.', 'already_registered');
+      }
+      if (data.session) {
+        // Email confirmation is switched off in Supabase — already signed in.
+        writePendingVerification(null);
+        return null;
+      }
+
+      const pending: PendingVerification = { email, channel: 'email' };
+      writePendingVerification(pending);
+      return pending;
+    } catch (e) {
+      throw toAuthError(e, 'Could not create your account. Please try again.');
+    }
+  }, []);
+
+  const verifySignupCode = useCallback(async (code: string, password?: string) => {
+    const pending = readPendingVerification();
+    if (!pending) throw new AuthFlowError('Your sign-up session has ended. Please start again.');
+    const token = code.replace(/\D/g, '');
+
+    try {
+      let signedIn: User | null = null;
+      if (pending.channel === 'email') {
+        const { data, error } = await supabase.auth.verifyOtp({ email: pending.email, token, type: 'signup' });
+        if (error) throw error;
+        signedIn = data.user;
+      } else {
+        const pw = password || pendingPassword.current;
+        if (!pw) throw new AuthFlowError('Enter your password to finish.');
+        await invokeSignupVerification({ action: 'verify', email: pending.email, code: token });
+        const { data, error } = await supabase.auth.signInWithPassword({ email: pending.email, password: pw });
+        if (error) throw error;
+        signedIn = data.user;
+      }
+
+      writePendingVerification(null);
+      pendingPassword.current = null;
+      setHasPendingPassword(false);
+
+      if (!signedIn) return null;
+      const p = await ensureProfile(signedIn.id);
+      loadedFor.current = signedIn.id;
+      setProfile(p);
+      return p;
+    } catch (e) {
+      throw toAuthError(e, 'That code did not work. Please try again.');
+    }
+  }, []);
+
+  const resendSignupCode = useCallback(async () => {
+    const pending = readPendingVerification();
+    if (!pending) throw new AuthFlowError('Your sign-up session has ended. Please start again.');
+    try {
+      if (pending.channel === 'email') {
+        const { error } = await supabase.auth.resend({
+          type: 'signup',
+          email: pending.email,
+          options: { emailRedirectTo: `${window.location.origin}/auth/confirm` },
+        });
+        if (error) throw error;
+      } else {
+        await invokeSignupVerification({ action: 'resend', email: pending.email });
+      }
+    } catch (e) {
+      throw toAuthError(e, 'Could not send a new code.');
+    }
+  }, []);
+
+  const startEmailVerification = useCallback(async (email: string) => {
+    const clean = email.trim().toLowerCase();
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: clean,
+      options: { emailRedirectTo: `${window.location.origin}/auth/confirm` },
+    });
+    if (error) throw toAuthError(error);
+    writePendingVerification({ email: clean, channel: 'email' });
+  }, []);
+
+  const signOut = useCallback(async () => {
+    // Clear local state even if the network call fails.
+    await supabase.auth.signOut().catch(() => supabase.auth.signOut({ scope: 'local' }));
+    loadedFor.current = null;
     setSession(null);
     setProfile(null);
-  };
+  }, []);
 
-  const sendPasswordReset = async (email: string) => {
-    // Mark that this browser is expecting a password reset so AuthCallback
-    // and onAuthStateChange can route the user to /reset-password even
-    // when Supabase fires SIGNED_IN instead of PASSWORD_RECOVERY (PKCE).
-    localStorage.setItem('is_password_recovery', 'true');
+  const saveProfile = useCallback(
+    async (patch: Partial<UserProfile>) => {
+      const { data } = await supabase.auth.getUser();
+      const u = data.user;
+      if (!u) throw new AuthFlowError('Please sign in again.');
+      try {
+        await upsertUserProfile({ ...patch, id: u.id, email: u.email ?? '' });
+      } catch (e) {
+        throw toAuthError(e, 'Could not save your details.');
+      }
+      return refreshProfile();
+    },
+    [refreshProfile],
+  );
 
-    // Redirect to /auth/callback which has robust recovery detection logic
-    // and will route the user to /reset-password. This avoids race conditions
-    // between detectSessionInUrl and the ResetPassword page's own code exchange.
-    // IMPORTANT: Both /auth/callback AND /reset-password must be listed under
-    // Supabase → Authentication → URL Configuration → Redirect URLs.
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/callback`,
-    });
-    if (error) {
-      localStorage.removeItem('is_password_recovery');
-      throw new Error(error.message);
-    }
-  };
-
-  const value: AuthContextType = {
-    user,
-    session,
-    profile,
-    isLoading,
-    isAuthenticated: !isLoading && !!user,
-    signUp,
-    signUpWithPhoneVerification,
-    verifyOtp,
-    verifySignupPhoneOtp,
-    resendOtp,
-    resendSignupPhoneOtp,
-    signIn,
-    signInWithGoogle,
-    signOut: logOut,
-    sendPasswordReset,
-    refreshProfile,
-  };
+  const value = useMemo<AuthContextType>(
+    () => ({
+      user,
+      session,
+      profile,
+      isLoading,
+      isAuthenticated: !isLoading && !!user,
+      signIn,
+      signInWithGoogle,
+      signUp,
+      verifySignupCode,
+      resendSignupCode,
+      startEmailVerification,
+      hasPendingPassword,
+      signOut,
+      refreshProfile,
+      saveProfile,
+    }),
+    [
+      user, session, profile, isLoading, hasPendingPassword, signIn, signInWithGoogle, signUp,
+      verifySignupCode, resendSignupCode, startEmailVerification, signOut, refreshProfile, saveProfile,
+    ],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
@@ -621,21 +377,4 @@ export const useAuth = () => {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-};
-
-/**
- * Returns the correct dashboard path based on the user's role.
- */
-export const getDashboardPath = (profile: UserProfile | null): string => {
-  if (!profile) return '/dashboard';
-  switch (profile.role) {
-    case 'admin':
-      return '/admin/dashboard';
-    case 'student':
-      return '/student';
-    case 'parent':
-      return '/parent-dashboard';
-    default:
-      return '/dashboard';
-  }
 };

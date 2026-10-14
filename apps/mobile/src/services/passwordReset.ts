@@ -1,90 +1,70 @@
 import { supabase } from "../lib/supabase";
-import {
-  invokeSignupVerification,
-  SignupVerificationError,
-} from "./signupVerification";
-
-export type PasswordResetDelivery = "challenge" | "recovery";
+import { invokeSignupVerification, SignupVerificationError } from "./signupVerification";
 
 export { SignupVerificationError };
 
-function parseDelivery(raw: unknown): PasswordResetDelivery {
-  return raw === "recovery" || raw === "gotrue" || raw === "email_otp" ? "recovery" : "challenge";
+/**
+ * Password reset by 6-digit code (same flow as the website):
+ *  - email: Supabase sends the "Reset password" email with {{ .Token }};
+ *           verifying it signs the user in with a recovery session.
+ *  - sms:   the signup-verification Edge Function sends and checks the code
+ *           (addressed by an opaque reset id — the account email is never exposed).
+ */
+export type ResetTicket =
+  | { channel: "email"; email: string }
+  | { channel: "sms"; resetId: string; maskedPhone: string };
+
+export async function startPasswordResetByEmail(email: string): Promise<ResetTicket> {
+  const clean = email.trim().toLowerCase();
+  await invokeSignupVerification({ action: "start_password_reset_by_email", email: clean });
+  return { channel: "email", email: clean };
 }
 
-async function verifyGoTrueResetOtp(email: string, token: string): Promise<void> {
-  const types = ["recovery", "email", "magiclink"] as const;
-  let lastMessage = "Invalid verification code.";
-  for (const type of types) {
-    const attempt = await supabase.auth.verifyOtp({ email, token, type });
-    if (!attempt.error) return;
-    lastMessage = attempt.error.message || lastMessage;
-  }
-  throw new Error(lastMessage);
-}
-
-export async function startPasswordResetByEmail(email: string): Promise<{
-  emailToken: string;
-  delivery: PasswordResetDelivery;
-}> {
+export async function startPasswordResetByPhone(phone: string, country: string): Promise<ResetTicket> {
   const data = await invokeSignupVerification({
-    action: "start_password_reset_by_email",
-    email: email.trim().toLowerCase(),
+    action: "start_password_reset_by_phone",
+    phone: phone.trim(),
+    country,
   });
   return {
-    emailToken: String(data.email_token ?? email.trim().toLowerCase()),
-    delivery: parseDelivery(data.delivery),
+    channel: "sms",
+    resetId: String(data.reset_id ?? ""),
+    maskedPhone: String(data.masked_phone ?? ""),
   };
 }
 
-export async function resendPasswordResetByEmail(email: string): Promise<PasswordResetDelivery> {
-  const data = await invokeSignupVerification({
-    action: "resend_password_reset_by_email",
-    email: email.trim().toLowerCase(),
-    email_token: email.trim().toLowerCase(),
-  });
-  return parseDelivery(data.delivery);
-}
-
-export async function verifyPasswordResetCode(
-  email: string,
-  code: string,
-  delivery: PasswordResetDelivery,
-): Promise<void> {
-  const trimmed = code.replace(/\D/g, "");
-  if (delivery === "recovery") {
-    await verifyGoTrueResetOtp(email.trim().toLowerCase(), trimmed);
+export async function resendPasswordReset(ticket: ResetTicket): Promise<void> {
+  if (ticket.channel === "email") {
+    await invokeSignupVerification({ action: "resend_password_reset_by_email", email: ticket.email });
     return;
   }
-
-  await invokeSignupVerification({
-    action: "verify_password_reset_otp",
-    email_token: email.trim().toLowerCase(),
-    code: trimmed,
-  });
+  await invokeSignupVerification({ action: "resend_password_reset_by_phone", reset_id: ticket.resetId });
 }
 
-export async function setPasswordAfterReset(
-  email: string,
-  code: string,
-  newPassword: string,
-  delivery: PasswordResetDelivery,
-): Promise<void> {
-  const trimmed = code.replace(/\D/g, "");
-  const cleanEmail = email.trim().toLowerCase();
+export async function verifyPasswordResetCode(ticket: ResetTicket, code: string): Promise<void> {
+  const token = code.replace(/\D/g, "");
+  if (ticket.channel === "sms") {
+    await invokeSignupVerification({ action: "verify_password_reset_otp", reset_id: ticket.resetId, code: token });
+    return;
+  }
+  const { error } = await supabase.auth.verifyOtp({ email: ticket.email, token, type: "recovery" });
+  if (error) throw new Error(/expired|invalid/i.test(error.message) ? "That code is wrong or has expired." : error.message);
+}
 
-  if (delivery === "recovery") {
+/** Saves the new password and leaves the user signed in. Returns the account email. */
+export async function setPasswordAfterReset(ticket: ResetTicket, code: string, newPassword: string): Promise<string> {
+  if (ticket.channel === "email") {
     const { error } = await supabase.auth.updateUser({ password: newPassword });
     if (error) throw new Error(error.message || "Failed to update password.");
-    return;
+    return ticket.email;
   }
-
-  await invokeSignupVerification({
+  const data = await invokeSignupVerification({
     action: "verify_and_set_password",
-    email_token: cleanEmail,
-    code: trimmed,
+    reset_id: ticket.resetId,
+    code: code.replace(/\D/g, ""),
     new_password: newPassword,
   });
+  return String(data.email ?? "");
 }
 
 export function maskEmail(email: string): string {

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { router } from "expo-router";
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,7 +16,7 @@ import { WaveGridBackground } from "./WaveGridBackground";
 import { colors, layout, radius, space } from "../theme/tokens";
 import { IconButton, Text } from "../ui";
 
-/** Solid-color auth chrome with a white form card (no brand wordmark). */
+/** Solid-color auth chrome: brand logo on top, white form card below. */
 export const AuthShell = ({
   title,
   subtitle,
@@ -52,6 +53,14 @@ export const AuthShell = ({
           <IconButton accessibilityLabel="Go back" onPress={goBack} tone="brand">
             <ArrowLeft size={20} color={colors.brandDeep} />
           </IconButton>
+          <Image
+            source={require("../../assets/mamamath-logo.png")}
+            style={styles.logo}
+            resizeMode="contain"
+            accessibilityRole="image"
+            accessibilityLabel="Mama Math"
+          />
+          <View style={styles.topBarSpacer} />
         </View>
 
         <KeyboardAvoidingView
@@ -154,9 +163,13 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: space.lg,
     paddingVertical: space.sm,
   },
+  logo: { width: 138, height: 52 },
+  // Same width as the back button so the logo stays centred.
+  topBarSpacer: { width: layout.minTouch },
   scroll: {
     flexGrow: 1,
     justifyContent: "center",

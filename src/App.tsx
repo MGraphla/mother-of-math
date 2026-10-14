@@ -116,6 +116,7 @@ const AppContent = () => {
         <Route path="/enroll/:code" element={<ClassEnroll />} />
         <Route path="/auth-success" element={<AuthSuccess />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/auth/confirm" element={<AuthCallback />} />
         <Route path="/auth/mobile-callback" element={<MobileAuthBridge />} />
 
         {/* Partner Monitor (read-only dashboard for implementing partners) */}
